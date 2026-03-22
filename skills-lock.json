@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "database-schema-design": {
+      "source": "supercent-io/skills-template",
+      "sourceType": "github",
+      "computedHash": "c3193721f3420d8e669ad42f33de538acc1ddaeacfceb58309f80eafb0b00752"
+    },
+    "supabase-postgres-best-practices": {
+      "source": "supabase/agent-skills",
+      "sourceType": "github",
+      "computedHash": "9c87c315aed143ee3b34bec8117100f5035e0df09e6b23e1ecc772cff434c9ad"
+    }
+  }
+}
