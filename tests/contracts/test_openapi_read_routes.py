@@ -19,3 +19,6 @@ def test_openapi_includes_read_routes():
     assert "/stock/api/pages/archive" in paths
     assert "/stock/api/pages/{pageId}" in paths
     assert "/stock/api/news/clusters/{clusterId}" in paths
+    assert "/stock/api/batch/market-daily" in paths
+    assert "/stock/api/batch/jobs" in paths
+    assert "/stock/api/batch/jobs/{jobId}" in paths

@@ -141,6 +141,16 @@ class BatchJobRecord:
 
 
 @dataclass(slots=True)
+class BatchJobCreateParams:
+    business_date: date
+    status: str
+    trigger_type: str
+    triggered_by_user_id: str | None
+    force_run: bool
+    rebuild_page_only: bool
+
+
+@dataclass(slots=True)
 class BatchJobListResult:
     items: Sequence[BatchJobRecord]
     page: int

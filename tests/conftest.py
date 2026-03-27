@@ -8,6 +8,9 @@ from tests.support import (
     BUSINESS_DATE,
     build_archive_item_payload,
     build_archive_list_payload,
+    build_batch_job_detail_payload,
+    build_batch_job_list_payload,
+    build_batch_run_payload,
     build_cluster_detail_payload,
     build_daily_page_payload,
     build_page_article_link_rows,
@@ -45,6 +48,21 @@ def sample_archive_list_payload() -> dict[str, Any]:
 @pytest.fixture
 def sample_cluster_detail_payload() -> dict[str, Any]:
     return build_cluster_detail_payload()
+
+
+@pytest.fixture
+def sample_batch_run_payload() -> dict[str, Any]:
+    return build_batch_run_payload()
+
+
+@pytest.fixture
+def sample_batch_job_list_payload() -> dict[str, Any]:
+    return build_batch_job_list_payload()
+
+
+@pytest.fixture
+def sample_batch_job_detail_payload() -> dict[str, Any]:
+    return build_batch_job_detail_payload()
 
 
 @pytest.fixture

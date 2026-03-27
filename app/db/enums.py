@@ -12,6 +12,20 @@ class PageStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class BatchJobStatus(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCESS = "SUCCESS"
+    PARTIAL = "PARTIAL"
+    FAILED = "FAILED"
+
+
+class BatchTriggerType(StrEnum):
+    SCHEDULED = "SCHEDULED"
+    MANUAL = "MANUAL"
+    ADMIN_REBUILD = "ADMIN_REBUILD"
+
+
 class AiSummaryStatus(StrEnum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
@@ -25,4 +39,18 @@ class AiSummaryType(StrEnum):
     CLUSTER_DETAIL_ANALYSIS = "CLUSTER_DETAIL_ANALYSIS"
 
 
-__all__ = ["AiSummaryStatus", "AiSummaryType", "MarketType", "PageStatus"]
+class EventLevel(StrEnum):
+    INFO = "INFO"
+    WARN = "WARN"
+    ERROR = "ERROR"
+
+
+__all__ = [
+    "AiSummaryStatus",
+    "AiSummaryType",
+    "BatchJobStatus",
+    "BatchTriggerType",
+    "EventLevel",
+    "MarketType",
+    "PageStatus",
+]

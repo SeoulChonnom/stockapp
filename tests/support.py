@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -34,6 +34,8 @@ def load_module(name: str):
 
 
 def jsonable(value: Any) -> Any:
+    if is_dataclass(value):
+        return asdict(value)
     if hasattr(value, "model_dump"):
         try:
             return value.model_dump(mode="json")
@@ -273,6 +275,73 @@ def build_cluster_detail_payload() -> dict[str, Any]:
             *build_related_articles(),
         ],
         "lastUpdatedAt": "2026-03-18T06:12:10+00:00",
+    }
+
+
+def build_batch_run_payload() -> dict[str, Any]:
+    return {
+        "jobId": 1001,
+        "jobName": "market_daily_batch",
+        "businessDate": "2026-03-17",
+        "status": "RUNNING",
+        "startedAt": "2026-03-18T06:10:00+00:00",
+    }
+
+
+def build_batch_job_list_payload() -> dict[str, Any]:
+    return {
+        "items": [
+            {
+                "jobId": 1001,
+                "jobName": "market_daily_batch",
+                "businessDate": "2026-03-17",
+                "status": "SUCCESS",
+                "startedAt": "2026-03-18T06:10:00+00:00",
+                "endedAt": "2026-03-18T06:12:15+00:00",
+                "durationSeconds": 135,
+                "marketScope": "GLOBAL",
+                "rawNewsCount": 174,
+                "processedNewsCount": 114,
+                "clusterCount": 21,
+                "pageId": 501,
+                "pageVersionNo": 3,
+                "partialMessage": None,
+            }
+        ],
+        "pagination": {
+            "page": 1,
+            "size": 20,
+            "totalCount": 1,
+        },
+        "summary": {
+            "successCount": 17,
+            "partialCount": 1,
+            "failedCount": 0,
+            "avgDurationSeconds": 862,
+        },
+    }
+
+
+def build_batch_job_detail_payload() -> dict[str, Any]:
+    return {
+        "jobId": 1001,
+        "jobName": "market_daily_batch",
+        "businessDate": "2026-03-17",
+        "status": "SUCCESS",
+        "forceRun": False,
+        "rebuildPageOnly": False,
+        "startedAt": "2026-03-18T06:10:00+00:00",
+        "endedAt": "2026-03-18T06:12:15+00:00",
+        "durationSeconds": 135,
+        "rawNewsCount": 174,
+        "processedNewsCount": 114,
+        "clusterCount": 21,
+        "pageId": 501,
+        "pageVersionNo": 3,
+        "partialMessage": None,
+        "errorCode": None,
+        "errorMessage": None,
+        "logSummary": "정상 처리. 시장 데이터, 기사 수집, 클러스터링이 SLA 안에서 종료됐다.",
     }
 
 
@@ -517,6 +586,23 @@ class DummyScalarResult:
 class DummyResult:
     rows: list[Any]
 
+    def mappings(self) -> "DummyResult":
+        return self
+
+    def one(self) -> Any:
+        if not self.rows:
+            raise AssertionError("expected one row")
+        if len(self.rows) > 1:
+            raise AssertionError("expected one row")
+        return self.rows[0]
+
+    def one_or_none(self) -> Any:
+        if not self.rows:
+            return None
+        if len(self.rows) > 1:
+            raise AssertionError("expected at most one row")
+        return self.rows[0]
+
     def scalar_one_or_none(self) -> Any:
         return self.rows[0] if self.rows else None
 
@@ -538,9 +624,11 @@ class RecordingAsyncSession:
     def __init__(self, results: list[DummyResult] | None = None):
         self.results = list(results or [])
         self.statements: list[Any] = []
+        self.parameters: list[Any] = []
 
-    async def execute(self, statement: Any) -> DummyResult:
+    async def execute(self, statement: Any, params: Any = None) -> DummyResult:
         self.statements.append(statement)
+        self.parameters.append(params)
         if self.results:
             return self.results.pop(0)
         return DummyResult([])

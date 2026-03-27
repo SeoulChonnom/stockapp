@@ -19,6 +19,11 @@ class NotFoundError(AppError):
         super().__init__(code=code, message=message, status_code=404)
 
 
+class ConflictError(AppError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(code=code, message=message, status_code=409)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
