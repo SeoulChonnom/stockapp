@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from tests.support import load_module
+from tests.support import DummyResult, RecordingAsyncSession, load_module
 
 orchestrator_module = load_module("app.batch.orchestrators.market_daily")
 projections_module = load_module("app.db.repositories.projections")
@@ -32,6 +32,7 @@ class FakeSessionMaker:
 class FakeRepository:
     events: list[tuple[str, str]]
     completed_statuses: list[str]
+    session: RecordingAsyncSession
 
     async def get_job_by_id(self, job_id: int):
         return BatchJobRecord(
@@ -66,7 +67,11 @@ class FakeRepository:
 
 @pytest.mark.anyio
 async def test_market_daily_orchestrator_runs_all_scaffold_steps(monkeypatch):
-    fake_repository = FakeRepository(events=[], completed_statuses=[])
+    fake_repository = FakeRepository(
+        events=[],
+        completed_statuses=[],
+        session=RecordingAsyncSession(results=[DummyResult([])]),
+    )
 
     monkeypatch.setattr(
         orchestrator_module,

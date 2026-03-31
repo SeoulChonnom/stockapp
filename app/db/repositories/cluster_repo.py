@@ -63,6 +63,54 @@ class ClusterRepository:
         result = await self.session.execute(statement)
         return [self._row_to_dict(row) for row in result.all()]
 
+    async def list_clusters_by_business_date(
+        self,
+        business_date,
+        *,
+        market_type: str | None = None,
+    ) -> list[dict]:
+        where_clauses = ["c.business_date = :business_date"]
+        params: dict[str, object] = {"business_date": business_date}
+        if market_type is not None:
+            where_clauses.append(f"c.market_type = CAST(:market_type AS {_qualified_table('market_type_enum')})")
+            params["market_type"] = market_type
+        statement = text(
+            """
+            SELECT
+                c.id,
+                c.cluster_uid,
+                c.business_date,
+                c.market_type,
+                c.cluster_rank,
+                c.title,
+                c.summary_short,
+                c.summary_long,
+                c.analysis_paragraphs_json,
+                c.tags_json,
+                c.representative_article_id,
+                c.article_count,
+                c.created_at,
+                c.updated_at,
+                p.canonical_title AS representative_title,
+                p.publisher_name AS representative_publisher_name,
+                p.published_at AS representative_published_at,
+                p.origin_link AS representative_origin_link,
+                p.naver_link AS representative_naver_link
+            FROM {cluster_table} c
+            LEFT JOIN {processed_article_table} p
+              ON p.id = c.representative_article_id
+            WHERE {where_sql}
+            ORDER BY c.market_type ASC, c.cluster_rank ASC
+            """
+            .format(
+                cluster_table=_qualified_table("news_cluster"),
+                processed_article_table=_qualified_table("news_article_processed"),
+                where_sql=" AND ".join(where_clauses),
+            )
+        )
+        result = await self.session.execute(statement, params)
+        return [self._row_to_dict(row) for row in result.all()]
+
     async def get_processed_articles(self, article_ids: list[int]) -> list[dict]:
         if not article_ids:
             return []
@@ -93,6 +141,55 @@ class ClusterRepository:
         rows = [self._row_to_dict(row) for row in result.all()]
         by_id = {row["id"]: row for row in rows}
         return [by_id[article_id] for article_id in article_ids if article_id in by_id]
+
+    async def list_cluster_article_links_by_business_date(
+        self,
+        business_date,
+        *,
+        market_type: str | None = None,
+    ) -> list[dict]:
+        where_clauses = ["c.business_date = :business_date"]
+        params: dict[str, object] = {"business_date": business_date}
+        if market_type is not None:
+            where_clauses.append(f"c.market_type = CAST(:market_type AS {_qualified_table('market_type_enum')})")
+            params["market_type"] = market_type
+        statement = text(
+            """
+            SELECT
+                c.id AS cluster_id,
+                c.cluster_uid,
+                c.market_type,
+                c.cluster_rank,
+                c.title AS cluster_title,
+                ca.processed_article_id,
+                ca.article_rank,
+                p.canonical_title AS title,
+                p.publisher_name,
+                p.published_at,
+                p.origin_link,
+                p.naver_link
+            FROM {cluster_table} c
+            JOIN {cluster_article_table} ca
+              ON ca.cluster_id = c.id
+            JOIN {processed_article_table} p
+              ON p.id = ca.processed_article_id
+            WHERE {where_sql}
+            ORDER BY
+                c.market_type ASC,
+                c.cluster_rank ASC,
+                ca.article_rank ASC,
+                p.published_at DESC,
+                p.id ASC
+            """
+            .format(
+                cluster_table=_qualified_table("news_cluster"),
+                cluster_article_table=_qualified_table("news_cluster_article"),
+                processed_article_table=_qualified_table("news_article_processed"),
+                where_sql=" AND ".join(where_clauses),
+            )
+        )
+        result = await self.session.execute(statement, params)
+        return [self._row_to_dict(row) for row in result.all()]
 
     @staticmethod
     def _row_to_dict(row: object) -> dict:

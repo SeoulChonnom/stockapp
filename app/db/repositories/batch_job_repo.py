@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -184,7 +185,7 @@ class BatchJobRepository(PostgresRepository):
                 "step_code": step_code,
                 "level": level,
                 "message": message,
-                "context_json": context_json or {},
+                "context_json": json.dumps(context_json or {}),
             },
         )
         await self.session.commit()

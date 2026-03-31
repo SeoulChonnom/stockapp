@@ -82,6 +82,29 @@ CREATE TABLE batch_job_event (
 CREATE INDEX idx_batch_job_event_job_created
     ON batch_job_event (batch_job_id, created_at);
 
+CREATE TABLE news_search_keyword (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    provider_name TEXT NOT NULL,
+    market_type market_type_enum NOT NULL,
+    keyword TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    priority INTEGER NOT NULL DEFAULT 100,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_news_search_keyword_keyword_not_blank
+        CHECK (length(btrim(keyword)) > 0),
+    CONSTRAINT chk_news_search_keyword_provider_name_not_blank
+        CHECK (length(btrim(provider_name)) > 0),
+    CONSTRAINT chk_news_search_keyword_priority_positive
+        CHECK (priority > 0)
+);
+
+CREATE UNIQUE INDEX uq_news_search_keyword_provider_market_keyword_norm
+    ON news_search_keyword (provider_name, market_type, lower(btrim(keyword)));
+
+CREATE INDEX idx_news_search_keyword_active_priority
+    ON news_search_keyword (provider_name, market_type, is_active, priority, id);
+
 CREATE TABLE news_article_raw (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     provider_name TEXT NOT NULL,

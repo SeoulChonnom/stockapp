@@ -17,6 +17,8 @@ class FinalizeJobStep(BatchStep):
         repository: BatchJobRepository,
         context: BatchExecutionContext,
     ) -> BatchExecutionContext:
+        if not context.partial_message and context.partial_reasons:
+            context.partial_message = "; ".join(context.partial_reasons[:3])
         status = determine_batch_status(context)
         log_summary = " ".join(context.log_messages) if context.log_messages else None
         await repository.mark_job_completed(

@@ -137,6 +137,16 @@ def build_daily_page_payload() -> dict[str, Any]:
                         "publishedAt": "2026-03-17T23:15:00+00:00",
                         "originLink": "https://example.com/article1",
                         "naverLink": "https://search.naver.com/article1",
+                    },
+                    {
+                        "processedArticleId": 2002,
+                        "clusterId": CLUSTER_UID,
+                        "clusterTitle": "엔비디아 및 반도체 강세에 기술주 상승",
+                        "title": "엔비디아 강세에 반도체 섹터 동반 상승",
+                        "publisherName": "연합뉴스",
+                        "publishedAt": "2026-03-17T22:40:00+00:00",
+                        "originLink": "https://example.com/article2",
+                        "naverLink": "https://search.naver.com/article2",
                     }
                 ],
                 "metadata": {
@@ -203,6 +213,16 @@ def build_daily_page_payload() -> dict[str, Any]:
                         "publishedAt": "2026-03-17T22:05:00+00:00",
                         "originLink": "https://example.com/article4",
                         "naverLink": "https://search.naver.com/article4",
+                    },
+                    {
+                        "processedArticleId": 3002,
+                        "clusterId": SECOND_CLUSTER_UID,
+                        "clusterTitle": "반도체와 자동차 동반 강세",
+                        "title": "자동차·반도체 동반 상승세",
+                        "publisherName": "한국경제",
+                        "publishedAt": "2026-03-17T21:20:00+00:00",
+                        "originLink": "https://example.com/article5",
+                        "naverLink": "https://search.naver.com/article5",
                     }
                 ],
                 "metadata": {
@@ -472,6 +492,20 @@ def build_page_article_link_rows() -> list[dict[str, Any]]:
             "published_at": "2026-03-17T23:15:00+00:00",
             "origin_link": "https://example.com/article1",
             "naver_link": "https://search.naver.com/article1",
+        },
+        {
+            "id": 4002,
+            "page_market_id": 1001,
+            "display_order": 2,
+            "processed_article_id": 4002,
+            "cluster_id": 7001,
+            "cluster_uid": CLUSTER_UID,
+            "cluster_title": "엔비디아 및 반도체 강세에 기술주 상승",
+            "title": "엔비디아 강세에 반도체 섹터 동반 상승",
+            "publisher_name": "연합뉴스",
+            "published_at": "2026-03-17T22:40:00+00:00",
+            "origin_link": "https://example.com/article2",
+            "naver_link": "https://search.naver.com/article2",
         }
     ]
 
@@ -560,6 +594,43 @@ def build_processed_article_rows() -> list[dict[str, Any]]:
             "source_summary": "금리 우려가 일부 완화됐다.",
             "article_body_excerpt": "시장 참여자들은 다음 경제지표를 주시했다.",
             "content_json": {},
+        },
+    ]
+
+
+def build_raw_article_rows() -> list[dict[str, Any]]:
+    return [
+        {
+            "raw_article_id": 1,
+            "provider_name": "NAVER_NEWS",
+            "provider_article_key": "raw-1",
+            "market_type": "US",
+            "business_date": BUSINESS_DATE,
+            "search_keyword": "엔비디아",
+            "title": "<b>엔비디아 급등에 반도체 강세</b>",
+            "publisher_name": "매일경제",
+            "published_at": "2026-03-17T23:15:00+00:00",
+            "origin_link": "https://example.com/article1",
+            "naver_link": "https://search.naver.com/article1",
+            "payload_json": {"description": "반도체 업종 강세가 나스닥 상승을 견인했다."},
+            "collected_at": GENERATED_AT,
+            "created_at": GENERATED_AT,
+        },
+        {
+            "raw_article_id": 2,
+            "provider_name": "NAVER_NEWS",
+            "provider_article_key": "raw-2",
+            "market_type": "US",
+            "business_date": BUSINESS_DATE,
+            "search_keyword": "엔비디아",
+            "title": "엔비디아 급등에 반도체 강세",
+            "publisher_name": "매일경제",
+            "published_at": "2026-03-17T23:16:00+00:00",
+            "origin_link": "https://example.com/article1/",
+            "naver_link": "https://search.naver.com/article2",
+            "payload_json": {"description": "반도체 업종 강세가 나스닥 상승을 견인했다."},
+            "collected_at": GENERATED_AT,
+            "created_at": GENERATED_AT,
         },
     ]
 

@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from html import unescape
+import re
+from urllib.parse import urlparse
+
+import certifi
+import httpx
+from bs4 import BeautifulSoup
+
+from app.core.settings import Settings, get_settings
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+@dataclass(slots=True)
+class ArticleContentResult:
+    body_text: str | None
+    body_excerpt: str | None
+    source_summary: str | None
+    source_domain: str | None
+    fetched_url: str | None
+    fallback_used: bool
+
+
+class ArticleContentProvider:
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings or get_settings()
+
+    def _build_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            timeout=self._settings.article_crawl_timeout_seconds,
+            verify=certifi.where(),
+            headers={"User-Agent": self._settings.article_crawl_user_agent},
+            follow_redirects=True,
+        )
+
+    async def fetch_article_content(
+        self,
+        *,
+        origin_link: str | None,
+        naver_link: str | None,
+        fallback_summary: str | None,
+    ) -> ArticleContentResult:
+        for url in [origin_link, naver_link]:
+            if not url:
+                continue
+            try:
+                async with self._build_client() as client:
+                    response = await client.get(url)
+                response.raise_for_status()
+                body_text = self._extract_body_text(response.text)
+                if body_text:
+                    return ArticleContentResult(
+                        body_text=body_text,
+                        body_excerpt=self._excerpt(body_text),
+                        source_summary=fallback_summary,
+                        source_domain=urlparse(url).netloc or None,
+                        fetched_url=url,
+                        fallback_used=False,
+                    )
+            except Exception:
+                continue
+
+        return ArticleContentResult(
+            body_text=fallback_summary,
+            body_excerpt=self._excerpt(fallback_summary),
+            source_summary=fallback_summary,
+            source_domain=urlparse(origin_link or naver_link or "").netloc or None,
+            fetched_url=origin_link or naver_link,
+            fallback_used=True,
+        )
+
+    @staticmethod
+    def _extract_body_text(html: str) -> str | None:
+        soup = BeautifulSoup(html, "html.parser")
+        selectors = [
+            "article",
+            "main",
+            "#dic_area",
+            ".article_body",
+            ".article_view",
+            ".news_end",
+        ]
+        text_chunks: list[str] = []
+        for selector in selectors:
+            node = soup.select_one(selector)
+            if node is not None:
+                text_chunks = [node.get_text(" ", strip=True)]
+                break
+        if not text_chunks:
+            meta_description = soup.select_one("meta[name='description']")
+            if meta_description is not None and meta_description.get("content"):
+                text_chunks = [str(meta_description.get("content"))]
+
+        normalized = _WHITESPACE_RE.sub(" ", unescape(" ".join(text_chunks))).strip()
+        return normalized or None
+
+    @staticmethod
+    def _excerpt(text: str | None, *, max_length: int = 280) -> str | None:
+        if not text:
+            return None
+        normalized = _WHITESPACE_RE.sub(" ", text).strip()
+        if len(normalized) <= max_length:
+            return normalized
+        return normalized[: max_length - 1].rstrip() + "…"
+
+
+__all__ = ["ArticleContentProvider", "ArticleContentResult"]

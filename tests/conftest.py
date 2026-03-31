@@ -20,6 +20,7 @@ from tests.support import (
     build_page_snapshot_row,
     build_cluster_article_rows,
     build_cluster_row,
+    build_raw_article_rows,
     build_processed_article_rows,
     load_module,
 )
@@ -103,6 +104,11 @@ def sample_cluster_article_rows() -> list[dict[str, Any]]:
 @pytest.fixture
 def sample_processed_article_rows() -> list[dict[str, Any]]:
     return build_processed_article_rows()
+
+
+@pytest.fixture
+def sample_raw_article_rows() -> list[dict[str, Any]]:
+    return build_raw_article_rows()
 
 
 @pytest.fixture

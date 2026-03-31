@@ -65,6 +65,8 @@ def test_get_latest_page_returns_snapshot_contract(client, sample_daily_page_pay
     assert data["pageId"] == sample_daily_page_payload["pageId"]
     assert data["markets"][0]["marketType"] == "US"
     assert data["markets"][0]["topClusters"][0]["representativeArticle"]["originLink"] == "https://example.com/article1"
+    assert len(data["markets"][0]["articleLinks"]) == 2
+    assert data["markets"][0]["articleLinks"][1]["originLink"] == "https://example.com/article2"
     assert data["markets"][1]["indices"][0]["indexCode"] == "KS11"
     assert "articleLinks" not in data
     assert payload["meta"]["requestId"]

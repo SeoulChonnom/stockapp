@@ -15,6 +15,8 @@ def test_daily_page_assembler_keeps_market_nested_article_links(sample_daily_pag
     assert response["markets"][1]["marketType"] == "KR"
     assert response["markets"][0]["topClusters"][0]["representativeArticle"]["publisherName"] == "매일경제"
     assert response["markets"][0]["articleLinks"][0]["clusterId"] == "51f0d9a0-9fc5-4f15-a4f9-62856f128683"
+    assert len(response["markets"][0]["articleLinks"]) == 2
+    assert response["markets"][0]["articleLinks"][1]["publisherName"] == "연합뉴스"
     assert "articleLinks" not in response
 
 
