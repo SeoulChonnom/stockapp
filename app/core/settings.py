@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     )
     database_schema: str = "stock"
     auth_stub_token: str = "dev-token"
-    cors_allowed_origins: list[str] = Field(
-        default=[],
+    cors_allowed_origins: str = Field(
+        default="",
         validation_alias=AliasChoices(
             "STOCKAPP_CORS_ALLOWED_ORIGINS",
             "cors_allowed_origins",
@@ -101,13 +101,17 @@ class Settings(BaseSettings):
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def parse_cors_allowed_origins(cls, value: object) -> object:
-        if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        if isinstance(value, list):
+            return ",".join(str(origin).strip() for origin in value if str(origin).strip())
         return value
 
     @property
     def is_development(self) -> bool:
         return self.app_env == "development"
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
 
 
 @lru_cache
