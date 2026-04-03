@@ -1,5 +1,6 @@
-from functools import lru_cache
 import json
+from functools import lru_cache
+from pathlib import Path
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -88,7 +89,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="STOCKAPP_",
-        env_file=".env",
+        env_file=Path(__file__).resolve().parents[2] / ".env",
         extra="ignore",
     )
 
