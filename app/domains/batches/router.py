@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query  # pyright: ignore[reportMissingImports]
 
-from app.api.deps import CurrentUser, UserDep
+from app.api.deps import AdminDep
 from app.core.response import ApiSuccess
 from app.domains.batches.service import (
     BatchJobScheduler,
@@ -29,16 +29,16 @@ BatchSchedulerDep = Annotated[BatchJobScheduler, Depends(get_batch_job_scheduler
 async def start_market_daily_batch(
     payload: BatchRunRequest,
     background_tasks: BackgroundTasks,
-    user: UserDep,
+    current_user: AdminDep,
     service: BatchesServiceDep,
     scheduler: BatchSchedulerDep,
 ) -> ApiSuccess[BatchRunResponse]:
     result = BatchRunResponse.model_validate(
         await service.start_market_daily_batch(
-        business_date=payload.businessDate,
-        user_id=_extract_user_id(user),
-        force=payload.force,
-        rebuild_page_only=payload.rebuildPageOnly,
+            business_date=payload.businessDate,
+            user_id=current_user.user_id,
+            force=payload.force,
+            rebuild_page_only=payload.rebuildPageOnly,
         )
     )
     scheduler.schedule(background_tasks, result.jobId)
@@ -47,7 +47,7 @@ async def start_market_daily_batch(
 
 @router.get("/jobs", response_model=ApiSuccess[BatchJobListResponse])
 async def list_batch_jobs(
-    _: UserDep,
+    _: AdminDep,
     service: BatchesServiceDep,
     fromDate: Annotated[date | None, Query(alias="fromDate")] = None,
     toDate: Annotated[date | None, Query(alias="toDate")] = None,
@@ -67,18 +67,12 @@ async def list_batch_jobs(
 
 @router.get("/jobs/{jobId}", response_model=ApiSuccess[BatchJobDetailResponse])
 async def get_batch_job_detail(
-    _: UserDep,
+    _: AdminDep,
     service: BatchesServiceDep,
     jobId: Annotated[int, Path(alias="jobId", ge=1)],
 ) -> ApiSuccess[BatchJobDetailResponse]:
     result = await service.get_job_detail(jobId)
     return ApiSuccess(data=result)
-
-
-def _extract_user_id(user: CurrentUser | dict[str, str]) -> str | None:
-    if isinstance(user, dict):
-        return user.get("user_id")
-    return user.user_id
 
 
 __all__ = ["router"]

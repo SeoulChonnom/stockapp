@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports]
 
 from tests.support import load_module
 
 pytest.importorskip("fastapi")
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
 clusters_service_module = load_module("app.domains.clusters.service")
 auth_module = load_module("app.api.deps.auth")
@@ -24,7 +24,10 @@ class FakeClustersService:
 @pytest.fixture
 def client(app, sample_cluster_detail_payload):
     fake_clusters_service = FakeClustersService(sample_cluster_detail_payload)
-    app.dependency_overrides[auth_module.get_current_user] = lambda: {"user_id": "test-user"}
+    app.dependency_overrides[auth_module.get_current_user] = lambda: auth_module.CurrentUser(
+        user_id="test-user",
+        roles=("USER",),
+    )
     app.dependency_overrides[clusters_service_module.get_clusters_service] = lambda: fake_clusters_service
 
     with TestClient(app) as test_client:

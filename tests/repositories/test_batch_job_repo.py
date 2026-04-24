@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports]
 
 pytest.importorskip("sqlalchemy")
 
@@ -27,7 +27,7 @@ async def test_create_job_inserts_running_batch_row():
                         "business_date": date(2026, 3, 17),
                         "status": "RUNNING",
                         "trigger_type": "MANUAL",
-                        "triggered_by_user_id": None,
+                        "triggered_by_user_id": "USER-0001",
                         "force_run": False,
                         "rebuild_page_only": False,
                         "started_at": datetime(2026, 3, 18, 6, 10, tzinfo=timezone.utc),
@@ -57,13 +57,14 @@ async def test_create_job_inserts_running_batch_row():
             business_date=date(2026, 3, 17),
             status="RUNNING",
             trigger_type="MANUAL",
-            triggered_by_user_id=None,
+            triggered_by_user_id="USER-0001",
             force_run=False,
             rebuild_page_only=False,
         )
     )
 
     assert jsonable(result)["job_id"] == 1001
+    assert jsonable(result)["triggered_by_user_id"] == "USER-0001"
     sql = normalize_sql(session.statements[0])
     assert "insert into stock.batch_job" in sql.lower()
     assert "batch_job_status_enum" in sql
@@ -127,7 +128,7 @@ async def test_get_job_by_id_uses_batch_job_table(sample_batch_job_detail_payloa
                         "business_date": date(2026, 3, 17),
                         "status": sample_batch_job_detail_payload["status"],
                         "trigger_type": "MANUAL",
-                        "triggered_by_user_id": None,
+                        "triggered_by_user_id": "USER-0001",
                         "force_run": False,
                         "rebuild_page_only": False,
                         "started_at": datetime(2026, 3, 18, 6, 10, tzinfo=timezone.utc),
@@ -155,5 +156,6 @@ async def test_get_job_by_id_uses_batch_job_table(sample_batch_job_detail_payloa
     result = await repo.get_job_by_id(sample_batch_job_detail_payload["jobId"])
 
     assert jsonable(result)["job_id"] == sample_batch_job_detail_payload["jobId"]
+    assert jsonable(result)["triggered_by_user_id"] == "USER-0001"
     sql = normalize_sql(session.statements[0])
     assert "stock.batch_job" in sql

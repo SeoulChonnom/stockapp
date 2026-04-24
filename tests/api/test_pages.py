@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports]
 
-from tests.support import load_module
+from tests.support import build_test_bearer_headers, load_module
 
 pytest.importorskip("fastapi")
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
 pages_service_module = load_module("app.domains.pages.service")
 archive_service_module = load_module("app.domains.archive.service")
-auth_module = load_module("app.api.deps.auth")
 
 
 class FakePagesService:
@@ -45,7 +44,6 @@ class FakeArchiveService:
 def client(app, sample_daily_page_payload, sample_archive_list_payload):
     fake_pages_service = FakePagesService(sample_daily_page_payload)
     fake_archive_service = FakeArchiveService(sample_archive_list_payload)
-    app.dependency_overrides[auth_module.get_current_user] = lambda: {"user_id": "test-user"}
     app.dependency_overrides[pages_service_module.get_pages_service] = lambda: fake_pages_service
     app.dependency_overrides[archive_service_module.get_archive_service] = lambda: fake_archive_service
 
@@ -55,8 +53,9 @@ def client(app, sample_daily_page_payload, sample_archive_list_payload):
     app.dependency_overrides.clear()
 
 
-def test_get_latest_page_returns_snapshot_contract(client, sample_daily_page_payload):
-    response = client.get("/stock/api/pages/daily/latest")
+@pytest.mark.parametrize("role", ["USER", "ADMIN"], ids=["user", "admin"])
+def test_get_latest_page_allows_user_and_admin_roles(client, sample_daily_page_payload, role):
+    response = client.get("/stock/api/pages/daily/latest", headers=build_test_bearer_headers(role))
 
     assert response.status_code == 200
     payload = response.json()
@@ -73,8 +72,27 @@ def test_get_latest_page_returns_snapshot_contract(client, sample_daily_page_pay
     assert payload["meta"]["timestamp"]
 
 
+def test_get_latest_page_rejects_missing_token_as_unauthorized(client):
+    response = client.get("/stock/api/pages/daily/latest")
+
+    assert response.status_code == 401
+
+
+def test_get_latest_page_rejects_invalid_token_as_unauthorized(client):
+    response = client.get(
+        "/stock/api/pages/daily/latest",
+        headers={"Authorization": "Bearer definitely-not-a-valid-test-token"},
+    )
+
+    assert response.status_code == 401
+
+
 def test_get_daily_page_uses_business_date_query(client, sample_daily_page_payload):
-    response = client.get("/stock/api/pages/daily", params={"businessDate": sample_daily_page_payload["businessDate"]})
+    response = client.get(
+        "/stock/api/pages/daily",
+        params={"businessDate": sample_daily_page_payload["businessDate"]},
+        headers=build_test_bearer_headers("USER"),
+    )
 
     assert response.status_code == 200
     data = response.json()["data"]
@@ -83,7 +101,7 @@ def test_get_daily_page_uses_business_date_query(client, sample_daily_page_paylo
 
 
 def test_get_daily_page_requires_business_date(client):
-    response = client.get("/stock/api/pages/daily")
+    response = client.get("/stock/api/pages/daily", headers=build_test_bearer_headers("USER"))
 
     assert response.status_code == 422
 
@@ -98,6 +116,7 @@ def test_get_archive_lists_latest_snapshot_per_date(client, sample_archive_list_
             "page": 1,
             "size": 30,
         },
+        headers=build_test_bearer_headers("ADMIN"),
     )
 
     assert response.status_code == 200
@@ -107,6 +126,6 @@ def test_get_archive_lists_latest_snapshot_per_date(client, sample_archive_list_
 
 
 def test_get_page_by_id_returns_404_when_missing(client):
-    response = client.get("/stock/api/pages/999")
+    response = client.get("/stock/api/pages/999", headers=build_test_bearer_headers("USER"))
 
     assert response.status_code == 404

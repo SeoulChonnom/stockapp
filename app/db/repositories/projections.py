@@ -130,7 +130,7 @@ class BatchJobRecord:
     page_version_no: int | None
     partial_message: str | None = None
     trigger_type: str | None = None
-    triggered_by_user_id: UUID | None = None
+    triggered_by_user_id: str | None = None
     force_run: bool | None = None
     rebuild_page_only: bool | None = None
     error_code: str | None = None

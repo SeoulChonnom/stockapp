@@ -4,7 +4,7 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import bindparam, text  # pyright: ignore[reportMissingImports]
 
 from app.core.settings import get_settings
 

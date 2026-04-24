@@ -24,7 +24,7 @@ CREATE TABLE batch_job (
     business_date DATE NOT NULL,
     status batch_job_status_enum NOT NULL,
     trigger_type batch_trigger_type_enum NOT NULL DEFAULT 'SCHEDULED',
-    triggered_by_user_id UUID NULL,
+    triggered_by_user_id TEXT NULL,
     force_run BOOLEAN NOT NULL DEFAULT FALSE,
     rebuild_page_only BOOLEAN NOT NULL DEFAULT FALSE,
     market_scope VARCHAR(20) NOT NULL DEFAULT 'GLOBAL',

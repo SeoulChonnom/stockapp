@@ -19,6 +19,38 @@ class Settings(BaseSettings):
     )
     database_schema: str = "stock"
     auth_stub_token: str = "dev-token"
+    jwt_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "SLCN_JWT_SECRETKEY",
+            "STOCKAPP_JWT_SECRET",
+            "jwt_secret",
+        ),
+    )
+    jwt_algorithm: str = Field(
+        default="HS512",
+        validation_alias=AliasChoices(
+            "SLCN_JWT_ALGORITHM",
+            "STOCKAPP_JWT_ALGORITHM",
+            "jwt_algorithm",
+        ),
+    )
+    jwt_issuer: str = Field(
+        default="slcnapp",
+        validation_alias=AliasChoices(
+            "SLCN_JWT_ISSUER",
+            "STOCKAPP_JWT_ISSUER",
+            "jwt_issuer",
+        ),
+    )
+    jwt_access_audiences: list[str] = Field(
+        default_factory=lambda: ["slcn-platform"],
+        validation_alias=AliasChoices(
+            "SLCN_JWT_ACCESS_AUDIENCES",
+            "STOCKAPP_JWT_ACCESS_AUDIENCES",
+            "jwt_access_audiences",
+        ),
+    )
     cors_allowed_origins: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -114,6 +146,32 @@ class Settings(BaseSettings):
                     return value
                 if isinstance(parsed, list):
                     return ",".join(str(origin).strip() for origin in parsed if str(origin).strip())
+        return value
+
+    @field_validator("jwt_algorithm", "jwt_issuer", mode="before")
+    @classmethod
+    def normalize_auth_text(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("jwt_access_audiences", mode="before")
+    @classmethod
+    def parse_jwt_access_audiences(cls, value: object) -> object:
+        if isinstance(value, list):
+            return [str(audience).strip() for audience in value if str(audience).strip()]
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            if stripped.startswith("["):
+                try:
+                    parsed = json.loads(stripped)
+                except json.JSONDecodeError:
+                    return [audience.strip() for audience in stripped.split(",") if audience.strip()]
+                if isinstance(parsed, list):
+                    return [str(audience).strip() for audience in parsed if str(audience).strip()]
+            return [audience.strip() for audience in stripped.split(",") if audience.strip()]
         return value
 
     @property

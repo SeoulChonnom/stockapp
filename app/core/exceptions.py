@@ -24,6 +24,16 @@ class ConflictError(AppError):
         super().__init__(code=code, message=message, status_code=409)
 
 
+class UnauthorizedError(AppError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(code=code, message=message, status_code=401)
+
+
+class ForbiddenError(AppError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(code=code, message=message, status_code=403)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
@@ -39,3 +49,13 @@ def register_exception_handlers(app: FastAPI) -> None:
             )
         )
         return JSONResponse(status_code=422, content=payload.model_dump(mode="json"))
+
+
+__all__ = [
+    "AppError",
+    "ConflictError",
+    "ForbiddenError",
+    "NotFoundError",
+    "UnauthorizedError",
+    "register_exception_handlers",
+]

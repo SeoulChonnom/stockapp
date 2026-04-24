@@ -2,19 +2,218 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import base64
+import hashlib
+import hmac
+import json
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-import pytest
-
+import pytest  # pyright: ignore[reportMissingImports]
 KST = timezone(timedelta(hours=9))
 BUSINESS_DATE = date(2026, 3, 17)
 GENERATED_AT = datetime(2026, 3, 18, 6, 12, 10, tzinfo=timezone.utc)
 UPDATED_AT = datetime(2026, 3, 18, 6, 20, 0, tzinfo=timezone.utc)
 CLUSTER_UID = "51f0d9a0-9fc5-4f15-a4f9-62856f128683"
 SECOND_CLUSTER_UID = "7b9845f6-5c3d-4f2c-a81d-8dcb0b5dd6d2"
+JWT_TEST_SECRET_BYTES = (
+    b"stockapp-sibling-jwt-contract-secret-material-for-hs512-validation-2026-04-23"
+)
+JWT_TEST_SECRET = base64.urlsafe_b64encode(JWT_TEST_SECRET_BYTES).decode("ascii").rstrip("=")
+JWT_ALTERNATE_TEST_SECRET_BYTES = (
+    b"stockapp-sibling-jwt-contract-alternate-secret-material-for-hs512-tests-2026-04-23"
+)
+JWT_ALTERNATE_TEST_SECRET = (
+    base64.urlsafe_b64encode(JWT_ALTERNATE_TEST_SECRET_BYTES).decode("ascii").rstrip("=")
+)
+JWT_ISSUER = "slcnapp"
+JWT_AUDIENCE = "slcn-platform"
+JWT_ACCESS_TOKEN_TYPE = "access"
+JWT_REFRESH_TOKEN_TYPE = "refresh"
+JWT_ISSUED_AT = datetime(2026, 3, 18, 6, 0, 0, tzinfo=timezone.utc)
+JWT_VALIDATED_AT = datetime(2026, 3, 18, 6, 5, 0, tzinfo=timezone.utc)
 
+
+class JwtValidationError(ValueError):
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def build_test_jwt_subject(role: str = "USER", serial: int = 1) -> str:
+    return f"{role}-{serial:04d}"
+
+
+def mint_test_jwt(
+    *,
+    subject: str = "USER-0001",
+    username: str = "stockapp-user",
+    roles: tuple[str, ...] | list[str] | None = ("USER",),
+    token_type: str = JWT_ACCESS_TOKEN_TYPE,
+    issuer: str = JWT_ISSUER,
+    audience: str | list[str] | None = None,
+    secret: str | bytes = JWT_TEST_SECRET,
+    issued_at: datetime | None = None,
+    expires_at: datetime | None = None,
+    jwt_id: str = "00000000-0000-0000-0000-000000000001",
+) -> str:
+    resolved_secret = _resolve_jwt_secret(secret)
+    resolved_issued_at = issued_at or datetime.now(timezone.utc)
+    resolved_expires_at = expires_at or (
+        resolved_issued_at + timedelta(minutes=30)
+        if token_type == JWT_ACCESS_TOKEN_TYPE
+        else resolved_issued_at + timedelta(days=14)
+    )
+    resolved_audience: str | list[str] = audience if audience is not None else [JWT_AUDIENCE]
+    payload: dict[str, Any] = {
+        "sub": subject,
+        "iss": issuer,
+        "aud": resolved_audience,
+        "token_type": token_type,
+        "iat": int(resolved_issued_at.timestamp()),
+        "exp": int(resolved_expires_at.timestamp()),
+        "jti": jwt_id,
+    }
+    if username is not None:
+        payload["username"] = username
+        payload["userName"] = username
+    if roles is not None:
+        payload["roles"] = list(roles)
+
+    header = {"alg": "HS512", "typ": "JWT"}
+    encoded_header = _encode_jwt_segment(header)
+    encoded_payload = _encode_jwt_segment(payload)
+    signing_input = f"{encoded_header}.{encoded_payload}".encode("ascii")
+    signature = hmac.new(resolved_secret, signing_input, hashlib.sha512).digest()
+    encoded_signature = _base64url_encode(signature)
+    return f"{encoded_header}.{encoded_payload}.{encoded_signature}"
+
+
+def validate_test_access_token(
+    token: str,
+    *,
+    secret: str | bytes = JWT_TEST_SECRET,
+    expected_issuer: str = JWT_ISSUER,
+    expected_audience: str = JWT_AUDIENCE,
+    validated_at: datetime = JWT_VALIDATED_AT,
+) -> dict[str, Any]:
+    resolved_secret = _resolve_jwt_secret(secret)
+    header_segment, payload_segment, signature_segment = _split_jwt(token)
+    signing_input = f"{header_segment}.{payload_segment}".encode("ascii")
+    expected_signature = hmac.new(resolved_secret, signing_input, hashlib.sha512).digest()
+    actual_signature = _base64url_decode(signature_segment)
+    if not hmac.compare_digest(actual_signature, expected_signature):
+        raise JwtValidationError("invalid_signature")
+
+    header = _decode_jwt_segment(header_segment)
+    payload = _decode_jwt_segment(payload_segment)
+    if header.get("alg") != "HS512":
+        raise JwtValidationError("malformed")
+
+    exp = payload.get("exp")
+    if not isinstance(exp, int) or exp <= int(validated_at.timestamp()):
+        raise JwtValidationError("expired")
+
+    if payload.get("iss") != expected_issuer:
+        raise JwtValidationError("invalid_issuer")
+
+    if not _has_expected_audience(payload.get("aud"), expected_audience):
+        raise JwtValidationError("invalid_audience")
+
+    if payload.get("token_type") != JWT_ACCESS_TOKEN_TYPE:
+        raise JwtValidationError("invalid_token_type")
+
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject.strip():
+        raise JwtValidationError("missing_required_claim")
+
+    roles = payload.get("roles")
+    if isinstance(roles, str):
+        if not roles.strip():
+            raise JwtValidationError("missing_required_claim")
+    elif isinstance(roles, list):
+        if not roles:
+            raise JwtValidationError("missing_required_claim")
+    else:
+        raise JwtValidationError("missing_required_claim")
+
+    return payload
+
+
+def extract_roles_from_claims(claims: dict[str, Any]) -> tuple[str, ...]:
+    roles = claims.get("roles")
+    if isinstance(roles, str):
+        return (roles,)
+    if isinstance(roles, list):
+        return tuple(str(role) for role in roles)
+    return ()
+
+
+TEST_ROUTE_AUTH_ROLES = frozenset({"USER", "ADMIN"})
+
+
+def mint_test_bearer_token(role: str, subject: str | None = None) -> str:
+    normalized_role = role.strip().upper()
+    if normalized_role not in TEST_ROUTE_AUTH_ROLES:
+        raise ValueError(f"Unsupported test role: {role}")
+
+    resolved_subject = subject or f"{normalized_role}-0001"
+    return mint_test_jwt(
+        subject=resolved_subject,
+        username=resolved_subject.lower(),
+        roles=(normalized_role,),
+    )
+
+
+def build_test_bearer_headers(role: str, subject: str | None = None) -> dict[str, str]:
+    return {"Authorization": f"Bearer {mint_test_bearer_token(role, subject)}"}
+
+
+def _split_jwt(token: str) -> tuple[str, str, str]:
+    parts = token.split(".")
+    if len(parts) != 3 or not all(parts):
+        raise JwtValidationError("malformed")
+    return parts[0], parts[1], parts[2]
+
+
+def _encode_jwt_segment(value: dict[str, Any]) -> str:
+    serialized = json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return _base64url_encode(serialized)
+
+
+def _decode_jwt_segment(segment: str) -> dict[str, Any]:
+    try:
+        decoded = _base64url_decode(segment)
+        return json.loads(decoded)
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise JwtValidationError("malformed") from exc
+
+
+def _base64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _base64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    try:
+        return base64.urlsafe_b64decode(f"{value}{padding}")
+    except ValueError as exc:
+        raise JwtValidationError("malformed") from exc
+
+
+def _has_expected_audience(actual: Any, expected: str) -> bool:
+    if isinstance(actual, str):
+        return actual == expected
+    if isinstance(actual, list):
+        return expected in actual
+    return False
+
+
+def _resolve_jwt_secret(secret: str | bytes) -> bytes:
+    if isinstance(secret, bytes):
+        return secret
+    return _base64url_decode(secret)
 
 def load_module(name: str):
     try:
@@ -27,21 +226,21 @@ def load_module(name: str):
         return importlib.import_module(name)
     except ModuleNotFoundError as exc:
         requested_root = name.split(".")[0]
-        missing_root = exc.name.split(".")[0]
+        missing_root = (exc.name or "").split(".")[0]
         if missing_root == requested_root:
             pytest.skip(f"{name} is not available yet", allow_module_level=True)
         raise
 
 
 def jsonable(value: Any) -> Any:
-    if is_dataclass(value):
+    if is_dataclass(value) and not isinstance(value, type):
         return asdict(value)
-    if hasattr(value, "model_dump"):
+    if not isinstance(value, type) and hasattr(value, "model_dump"):
         try:
             return value.model_dump(mode="json")
         except TypeError:
             return value.model_dump()
-    if hasattr(value, "dict"):
+    if not isinstance(value, type) and hasattr(value, "dict"):
         return value.dict()
     return value
 
