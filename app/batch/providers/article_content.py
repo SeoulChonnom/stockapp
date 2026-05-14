@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from html import unescape
+from typing import Protocol
 from urllib.parse import urlparse
 
 import certifi
@@ -12,6 +13,16 @@ from bs4 import BeautifulSoup
 from app.core.settings import Settings, get_settings
 
 _WHITESPACE_RE = re.compile(r'\s+')
+
+
+class _ArticleHttpResponse(Protocol):
+    text: str
+
+    def raise_for_status(self) -> None: ...
+
+
+class _ArticleHttpClient(Protocol):
+    async def get(self, url: str) -> _ArticleHttpResponse: ...
 
 
 @dataclass(slots=True)
@@ -28,8 +39,13 @@ class ArticleContentResult:
 class ArticleContentProvider:
     provider_name = 'ArticleContentProvider'
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        client: _ArticleHttpClient | None = None,
+    ) -> None:
         self._settings = settings or get_settings()
+        self._client = client
 
     def _build_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -46,13 +62,48 @@ class ArticleContentProvider:
         naver_link: str | None,
         fallback_summary: str | None,
     ) -> ArticleContentResult:
+        if self._client is not None:
+            return await self._fetch_with_client(
+                self._client,
+                origin_link=origin_link,
+                naver_link=naver_link,
+                fallback_summary=fallback_summary,
+            )
+
+        try:
+            async with self._build_client() as client:
+                return await self._fetch_with_client(
+                    client,
+                    origin_link=origin_link,
+                    naver_link=naver_link,
+                    fallback_summary=fallback_summary,
+                )
+        except Exception as exc:
+            return self._fallback_result(
+                origin_link=origin_link,
+                naver_link=naver_link,
+                fallback_summary=fallback_summary,
+                failure_details=[
+                    self._failure_detail(url, exc)
+                    for url in [origin_link, naver_link]
+                    if url
+                ],
+            )
+
+    async def _fetch_with_client(
+        self,
+        client: _ArticleHttpClient,
+        *,
+        origin_link: str | None,
+        naver_link: str | None,
+        fallback_summary: str | None,
+    ) -> ArticleContentResult:
         failure_details: list[dict[str, str]] = []
         for url in [origin_link, naver_link]:
             if not url:
                 continue
             try:
-                async with self._build_client() as client:
-                    response = await client.get(url)
+                response = await client.get(url)
                 response.raise_for_status()
                 body_text = self._extract_body_text(response.text)
                 if body_text:
@@ -67,15 +118,33 @@ class ArticleContentProvider:
                     )
             except Exception as exc:
                 failure_details.append(
-                    {
-                        'provider': self.provider_name,
-                        'url': url,
-                        'error_class': type(exc).__name__,
-                        'error_message': str(exc),
-                    }
+                    self._failure_detail(url, exc)
                 )
                 continue
 
+        return self._fallback_result(
+            origin_link=origin_link,
+            naver_link=naver_link,
+            fallback_summary=fallback_summary,
+            failure_details=failure_details,
+        )
+
+    def _failure_detail(self, url: str, exc: Exception) -> dict[str, str]:
+        return {
+            'provider': self.provider_name,
+            'url': url,
+            'error_class': type(exc).__name__,
+            'error_message': str(exc),
+        }
+
+    def _fallback_result(
+        self,
+        *,
+        origin_link: str | None,
+        naver_link: str | None,
+        fallback_summary: str | None,
+        failure_details: list[dict[str, str]],
+    ) -> ArticleContentResult:
         return ArticleContentResult(
             body_text=fallback_summary,
             body_excerpt=self._excerpt(fallback_summary),
