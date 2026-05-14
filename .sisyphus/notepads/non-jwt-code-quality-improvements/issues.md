@@ -14,3 +14,8 @@
 ## Task 5 Verification Notes
 - Task 5 pytest runs pass with the same pre-existing google.genai/langchain/httpx Python 3.14.4 warnings observed in earlier batch tasks.
 - The orchestrator rollback helper intentionally preserves the existing Task 4 fake-session expectation by rolling back only when SQLAlchemy reports an active transaction or the recording session still has pending domain writes.
+
+## Task 6 Verification Notes
+- `uv run pytest tests/batch` passes after replacing stale scaffold assumptions in `tests/batch/test_market_daily_orchestrator.py` with explicit step doubles that set the success-critical `page_id` contract.
+- Batch verification still emits the pre-existing Python 3.14.4 dependency warnings from `google.genai`, `langchain_core`, and the `httpx verify=<str>` deprecation path.
+- The workspace shell does not expose a bare `python` binary; evidence and driver scripts should use `uv run python`.

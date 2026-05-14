@@ -143,15 +143,16 @@ async def test_build_clusters_records_llm_fallback_error_context(monkeypatch):
 
     updated_context = await BuildClustersStep().run(fake_repository, context)
 
-    assert updated_context.cluster_count == 1
+    assert updated_context.cluster_count == 2
     warning_events = [
         event
         for event in fake_repository.events
         if event['message'] == 'Cluster enrichment used fallback response.'
     ]
-    assert len(warning_events) == 1
-    assert warning_events[0]['context_json']['error'] == {
-        'provider': 'BatchLlmProvider',
-        'errorClass': 'TimeoutError',
-        'errorMessage': 'provider timeout',
-    }
+    assert len(warning_events) == 2
+    for event in warning_events:
+        assert event['context_json']['error'] == {
+            'provider': 'BatchLlmProvider',
+            'errorClass': 'TimeoutError',
+            'errorMessage': 'provider timeout',
+        }

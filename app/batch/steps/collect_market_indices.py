@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.market_index_provider import (
     YFINANCE_PROVIDER_NAME,
     MarketIndexProvider,
 )
-from app.batch.steps.base import BatchStep
+from app.batch.steps.base import BatchStep, require_repository_session
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.market_index_repo import MarketIndexRepository
@@ -16,6 +18,15 @@ class CollectMarketIndicesStep(BatchStep):
     step_code = 'COLLECT_MARKET_INDICES'
     started_message = 'Collect market indices step started.'
     completed_message = 'Collect market indices step completed.'
+
+    def __init__(
+        self,
+        *,
+        provider_factory: Callable[[], object] | None = None,
+        index_repo_factory: Callable[[object], object] | None = None,
+    ) -> None:
+        self._provider_factory = provider_factory or MarketIndexProvider
+        self._index_repo_factory = index_repo_factory or MarketIndexRepository
 
     async def run(
         self,
@@ -28,13 +39,10 @@ class CollectMarketIndicesStep(BatchStep):
             )
             return context
 
-        session = getattr(repository, 'session', None)
-        if session is None or not hasattr(session, 'bind'):
-            context.log_messages.append('Market indices collection step is scaffolded.')
-            return context
+        session = require_repository_session(repository, step_code=self.step_code)
 
-        provider = MarketIndexProvider()
-        index_repo = MarketIndexRepository(session)
+        provider = self._provider_factory()
+        index_repo = self._index_repo_factory(session)
         results = await provider.fetch_for_business_date(context.business_date)
         if not results:
             context.partial_reasons.append('시장 지수 데이터를 수집하지 못했습니다.')

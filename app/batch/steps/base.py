@@ -1,8 +1,26 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app.batch.models import BatchExecutionContext
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
+
+
+def require_repository_session(
+    repository: BatchJobRepository, *, step_code: str
+) -> Any:
+    try:
+        session = repository.session
+    except AttributeError as exc:
+        raise RuntimeError(
+            f'{step_code} requires a repository with an attached session.'
+        ) from exc
+    if session is None:
+        raise RuntimeError(
+            f'{step_code} requires a repository with an attached session.'
+        )
+    return session
 
 
 class BatchStep:

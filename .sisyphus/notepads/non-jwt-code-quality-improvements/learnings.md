@@ -20,3 +20,8 @@
 - Normal batch writes now rely on explicit service/orchestrator boundary commits instead of hidden repository or step commits.
 - Startup durability is preserved by committing the created RUNNING job and CREATE_JOB event before the API schedules the background orchestrator.
 - Failure durability is preserved by rolling back active domain work first, then committing the ORCHESTRATE error event and FAILED job status in separate orchestrator-owned commits.
+
+## Task 6 Session Contract Cleanup
+- Batch steps now fail fast on a missing repository session via a shared explicit contract instead of silently switching to scaffold/no-op behavior based on `session.bind`.
+- Step constructors resolve repository/provider factories at runtime, which keeps production wiring unchanged while letting tests inject explicit fakes or keep using monkeypatch without hidden bind checks.
+- Cluster grouping now depends only on the LLM provider configuration; fake-session tests that want scaffold-style grouping must express that by injecting an unconfigured provider.

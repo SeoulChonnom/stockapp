@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime, timezone
 
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import normalize_title, tokenize_text
 from app.batch.providers.llm_provider import BatchLlmProvider
-from app.batch.steps.base import BatchStep
+from app.batch.steps.base import BatchStep, require_repository_session
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.news_article_processed_repo import (
@@ -29,6 +30,19 @@ class BuildClustersStep(BatchStep):
     started_message = 'Build clusters step started.'
     completed_message = 'Build clusters step completed.'
 
+    def __init__(
+        self,
+        *,
+        processed_repo_factory: Callable[[object], object] | None = None,
+        cluster_repo_factory: Callable[[object], object] | None = None,
+        llm_provider_factory: Callable[[], object] | None = None,
+    ) -> None:
+        self._processed_repo_factory = (
+            processed_repo_factory or NewsArticleProcessedRepository
+        )
+        self._cluster_repo_factory = cluster_repo_factory or NewsClusterWriteRepository
+        self._llm_provider_factory = llm_provider_factory or BatchLlmProvider
+
     async def run(
         self,
         repository: BatchJobRepository,
@@ -40,14 +54,11 @@ class BuildClustersStep(BatchStep):
             )
             return context
 
-        session = getattr(repository, 'session', None)
-        if session is None:
-            context.log_messages.append('Cluster building step is scaffolded.')
-            return context
+        session = require_repository_session(repository, step_code=self.step_code)
 
-        processed_repo = NewsArticleProcessedRepository(session)
-        cluster_repo = NewsClusterWriteRepository(session)
-        llm_provider = BatchLlmProvider()
+        processed_repo = self._processed_repo_factory(session)
+        cluster_repo = self._cluster_repo_factory(session)
+        llm_provider = self._llm_provider_factory()
 
         processed_articles = await processed_repo.list_by_business_date(
             context.business_date
@@ -72,7 +83,7 @@ class BuildClustersStep(BatchStep):
         for market_type, articles in grouped_articles.items():
             market_clusters = (
                 [articles]
-                if (not hasattr(session, 'bind') or not llm_provider.is_configured())
+                if not llm_provider.is_configured()
                 else _group_articles(articles)
             )
             if hasattr(cluster_repo, 'list_cluster_ids_for_business_date') and hasattr(
