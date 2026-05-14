@@ -926,19 +926,34 @@ class RecordingAsyncSession:
         self.results = list(results or [])
         self.statements: list[Any] = []
         self.parameters: list[Any] = []
+        self.commits = 0
+        self.rollbacks = 0
+        self.operations: list[str] = []
+        self.pending_domain_writes: list[Any] = []
+        self.committed_domain_writes: list[Any] = []
+        self.rolled_back_domain_writes: list[Any] = []
 
     async def execute(self, statement: Any, params: Any = None) -> DummyResult:
         self.statements.append(statement)
         self.parameters.append(params)
+        self.operations.append('execute')
+        if isinstance(statement, str) and statement.startswith('DOMAIN_WRITE:'):
+            self.pending_domain_writes.append(statement)
         if self.results:
             return self.results.pop(0)
         return DummyResult([])
 
     async def commit(self) -> None:
-        return None
+        self.commits += 1
+        self.operations.append('commit')
+        self.committed_domain_writes.extend(self.pending_domain_writes)
+        self.pending_domain_writes.clear()
 
     async def rollback(self) -> None:
-        return None
+        self.rollbacks += 1
+        self.operations.append('rollback')
+        self.rolled_back_domain_writes.extend(self.pending_domain_writes)
+        self.pending_domain_writes.clear()
 
     async def close(self) -> None:
         return None

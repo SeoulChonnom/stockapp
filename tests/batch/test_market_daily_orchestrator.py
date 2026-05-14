@@ -62,6 +62,7 @@ class FakeRepository:
         self.completed_statuses.append(status)
 
     async def mark_job_failed(self, *, error_code: str, error_message: str, **kwargs):
+        self.completed_statuses.append('FAILED')
         self.events.append(('FAILED', f'{error_code}:{error_message}', kwargs))
 
 
@@ -118,9 +119,99 @@ async def test_market_daily_orchestrator_marks_job_failed_when_step_raises(monke
     with pytest.raises(TimeoutError, match='provider timeout'):
         await orchestrator.run(1001)
 
-    assert fake_repository.completed_statuses == []
+    assert fake_repository.completed_statuses == ['FAILED']
     assert fake_repository.events[-2][0] == 'ORCHESTRATE'
     assert fake_repository.events[-2][1] == 'Market daily batch orchestrator failed.'
     assert fake_repository.events[-1][0] == 'FAILED'
     assert fake_repository.events[-1][1].startswith('INTERNAL_BATCH_ERROR:')
     assert fake_repository.events[-1][2]['job_id'] == 1001
+
+
+class RecordingSessionContext:
+    def __init__(self, session: RecordingAsyncSession):
+        self.session = session
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        _ = (exc, tb)
+        if exc_type is not None and self.session.pending_domain_writes:
+            await self.session.rollback()
+        return False
+
+
+class RecordingSessionMaker:
+    def __init__(self, session: RecordingAsyncSession):
+        self.session = session
+
+    def __call__(self):
+        return RecordingSessionContext(self.session)
+
+
+def build_running_job_row(job_id: int = 1001) -> dict:
+    return {
+        'job_id': job_id,
+        'job_name': 'market_daily_batch',
+        'business_date': date(2026, 3, 17),
+        'status': 'RUNNING',
+        'trigger_type': 'MANUAL',
+        'triggered_by_user_id': 'USER-0001',
+        'force_run': False,
+        'rebuild_page_only': False,
+        'started_at': datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+        'ended_at': None,
+        'duration_seconds': None,
+        'market_scope': 'GLOBAL',
+        'raw_news_count': 0,
+        'processed_news_count': 0,
+        'cluster_count': 0,
+        'page_id': None,
+        'page_version_no': None,
+        'partial_message': None,
+        'error_code': None,
+        'error_message': None,
+        'log_summary': None,
+        'created_at': datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+        'updated_at': datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+    }
+
+
+@pytest.mark.anyio
+async def test_market_daily_orchestrator_commits_failure_state_after_step_rollback():
+    session = RecordingAsyncSession(results=[DummyResult([build_running_job_row()])])
+
+    class FailingDomainWriteStep:
+        async def execute(self, repository, context):
+            await repository.session.execute('DOMAIN_WRITE:market_index_daily')
+            await repository.session.rollback()
+            raise TimeoutError('provider timeout')
+
+    orchestrator = MarketDailyBatchOrchestrator(
+        session_maker=RecordingSessionMaker(session)
+    )
+    orchestrator._steps = [FailingDomainWriteStep()]
+
+    with pytest.raises(TimeoutError, match='provider timeout'):
+        await orchestrator.run(1001)
+
+    assert session.rolled_back_domain_writes == ['DOMAIN_WRITE:market_index_daily']
+    assert session.committed_domain_writes == []
+    assert session.rollbacks == 1
+    assert session.commits == 3
+
+    event_payloads = [
+        params
+        for params in session.parameters
+        if isinstance(params, dict) and 'step_code' in params
+    ]
+    assert event_payloads[-1]['level'] == 'ERROR'
+    assert event_payloads[-1]['step_code'] == 'ORCHESTRATE'
+    assert event_payloads[-1]['message'] == 'Market daily batch orchestrator failed.'
+
+    failed_status_payloads = [
+        params
+        for params in session.parameters
+        if isinstance(params, dict) and params.get('status') == 'FAILED'
+    ]
+    assert failed_status_payloads[-1]['error_code'] == 'INTERNAL_BATCH_ERROR'
