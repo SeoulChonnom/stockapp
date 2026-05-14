@@ -73,12 +73,33 @@ class FakeRepository:
 
 
 @pytest.mark.anyio
-async def test_market_daily_orchestrator_runs_all_scaffold_steps(monkeypatch):
+async def test_market_daily_orchestrator_runs_all_steps_with_explicit_test_doubles(
+    monkeypatch,
+):
     fake_repository = FakeRepository(
         events=[],
         completed_statuses=[],
         session=RecordingAsyncSession(results=[DummyResult([])]),
     )
+
+    class StubStep:
+        def __init__(self, step_code: str):
+            self.step_code = step_code
+
+        async def execute(self, repository, context):
+            await repository.add_event(
+                job_id=context.job_id,
+                step_code=self.step_code,
+                level='INFO',
+                message=f'{self.step_code} test double executed.',
+            )
+            return context
+
+    class BuildPageSnapshotStubStep(StubStep):
+        async def execute(self, repository, context):
+            context.page_id = 501
+            context.page_version_no = 1
+            return await super().execute(repository, context)
 
     monkeypatch.setattr(
         orchestrator_module,
@@ -86,6 +107,16 @@ async def test_market_daily_orchestrator_runs_all_scaffold_steps(monkeypatch):
         lambda session: fake_repository,
     )
     orchestrator = MarketDailyBatchOrchestrator(session_maker=FakeSessionMaker())
+    orchestrator._steps = [
+        orchestrator_module.CreateJobStep(),
+        StubStep('COLLECT_NEWS'),
+        StubStep('DEDUPE_ARTICLES'),
+        StubStep('BUILD_CLUSTERS'),
+        StubStep('COLLECT_MARKET_INDICES'),
+        StubStep('GENERATE_AI_SUMMARIES'),
+        BuildPageSnapshotStubStep('BUILD_PAGE_SNAPSHOT'),
+        orchestrator_module.FinalizeJobStep(),
+    ]
 
     await orchestrator.run(1001)
 

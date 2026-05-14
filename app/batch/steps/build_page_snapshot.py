@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from app.batch.models import BatchExecutionContext
-from app.batch.steps.base import BatchStep
+from app.batch.steps.base import BatchStep, require_repository_session
 from app.db.enums import AiSummaryType, EventLevel, PageStatus
 from app.db.repositories.ai_summary_repo import AiSummaryRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
@@ -15,22 +17,32 @@ class BuildPageSnapshotStep(BatchStep):
     started_message = 'Build page snapshot step started.'
     completed_message = 'Build page snapshot step completed.'
 
+    def __init__(
+        self,
+        *,
+        cluster_repo_factory: Callable[[object], object] | None = None,
+        summary_repo_factory: Callable[[object], object] | None = None,
+        index_repo_factory: Callable[[object], object] | None = None,
+        snapshot_repo_factory: Callable[[object], object] | None = None,
+    ) -> None:
+        self._cluster_repo_factory = cluster_repo_factory or ClusterRepository
+        self._summary_repo_factory = summary_repo_factory or AiSummaryRepository
+        self._index_repo_factory = index_repo_factory or MarketIndexRepository
+        self._snapshot_repo_factory = (
+            snapshot_repo_factory or PageSnapshotWriteRepository
+        )
+
     async def run(
         self,
         repository: BatchJobRepository,
         context: BatchExecutionContext,
     ) -> BatchExecutionContext:
-        session = getattr(repository, 'session', None)
-        if session is None or not hasattr(session, 'bind'):
-            context.page_id = context.page_id or -1
-            context.page_version_no = context.page_version_no or 1
-            context.log_messages.append('Page snapshot build step is scaffolded.')
-            return context
+        session = require_repository_session(repository, step_code=self.step_code)
 
-        cluster_repo = ClusterRepository(session)
-        summary_repo = AiSummaryRepository(session)
-        index_repo = MarketIndexRepository(session)
-        snapshot_repo = PageSnapshotWriteRepository(session)
+        cluster_repo = self._cluster_repo_factory(session)
+        summary_repo = self._summary_repo_factory(session)
+        index_repo = self._index_repo_factory(session)
+        snapshot_repo = self._snapshot_repo_factory(session)
 
         clusters = await cluster_repo.list_clusters_by_business_date(
             context.business_date

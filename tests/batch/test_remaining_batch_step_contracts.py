@@ -7,7 +7,7 @@ from uuid import UUID
 
 import pytest
 
-from tests.support import load_module
+from tests.support import RecordingAsyncSession, load_module
 
 batch_models_module = load_module('app.batch.models')
 steps_module = load_module('app.batch.steps')
@@ -20,17 +20,9 @@ GenerateAiSummariesStep = steps_module.GenerateAiSummariesStep
 AiSummaryRecord = projections_module.AiSummaryRecord
 MarketIndexDailyRecord = projections_module.MarketIndexDailyRecord
 
-
-class BoundSession:
-    bind = object()
-
-    async def commit(self):
-        return None
-
-
 @dataclass
 class EventRepository:
-    session: BoundSession
+    session: RecordingAsyncSession
     events: list[tuple[str, str]]
 
     async def add_event(self, *, step_code: str, message: str, **kwargs):
@@ -79,13 +71,13 @@ async def test_collect_market_indices_step_populates_market_index_counts(monkeyp
         async def upsert_index(self, params):
             self.calls.append(params)
 
-    fake_repo = FakeRepo(BoundSession())
+    fake_repo = FakeRepo(RecordingAsyncSession())
     monkeypatch.setattr(collect_module, 'MarketIndexProvider', FakeProvider)
     monkeypatch.setattr(
         collect_module, 'MarketIndexRepository', lambda session: fake_repo
     )
 
-    repository = EventRepository(session=BoundSession(), events=[])
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
     context = build_context()
 
     updated_context = await CollectMarketIndicesStep().run(repository, context)
@@ -184,7 +176,7 @@ async def test_generate_ai_summaries_step_records_ai_summary_outputs(monkeypatch
         def is_configured(self):
             return False
 
-    fake_summary_repo = FakeSummaryRepo(BoundSession())
+    fake_summary_repo = FakeSummaryRepo(RecordingAsyncSession())
     monkeypatch.setattr(generate_module, 'ClusterRepository', FakeClusterRepo)
     monkeypatch.setattr(generate_module, 'MarketIndexRepository', FakeIndexRepo)
     monkeypatch.setattr(
@@ -192,7 +184,7 @@ async def test_generate_ai_summaries_step_records_ai_summary_outputs(monkeypatch
     )
     monkeypatch.setattr(generate_module, 'BatchLlmProvider', FakeLlmProvider)
 
-    repository = EventRepository(session=BoundSession(), events=[])
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
     context = build_context()
     context.cluster_count = 1
 
@@ -280,7 +272,7 @@ async def test_generate_ai_summaries_step_records_fallback_error_metadata(monkey
             _ = kwargs
             raise TimeoutError('provider timeout')
 
-    fake_summary_repo = FakeSummaryRepo(BoundSession())
+    fake_summary_repo = FakeSummaryRepo(RecordingAsyncSession())
     monkeypatch.setattr(generate_module, 'ClusterRepository', FakeClusterRepo)
     monkeypatch.setattr(generate_module, 'MarketIndexRepository', FakeIndexRepo)
     monkeypatch.setattr(
@@ -288,7 +280,7 @@ async def test_generate_ai_summaries_step_records_fallback_error_metadata(monkey
     )
     monkeypatch.setattr(generate_module, 'BatchLlmProvider', FakeLlmProvider)
 
-    repository = EventRepository(session=BoundSession(), events=[])
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
     context = build_context()
     context.cluster_count = 1
 
@@ -491,7 +483,7 @@ async def test_build_page_snapshot_step_sets_page_identity_and_writes_snapshot(
         async def insert_page_article_link(self, params):
             self.calls.append(('insert_page_article_link', params))
 
-    fake_snapshot_repo = FakeSnapshotRepo(BoundSession())
+    fake_snapshot_repo = FakeSnapshotRepo(RecordingAsyncSession())
     monkeypatch.setattr(build_module, 'ClusterRepository', FakeClusterRepo)
     monkeypatch.setattr(build_module, 'MarketIndexRepository', FakeIndexRepo)
     monkeypatch.setattr(build_module, 'AiSummaryRepository', FakeAiSummaryRepo)
@@ -499,7 +491,7 @@ async def test_build_page_snapshot_step_sets_page_identity_and_writes_snapshot(
         build_module, 'PageSnapshotWriteRepository', lambda session: fake_snapshot_repo
     )
 
-    repository = EventRepository(session=BoundSession(), events=[])
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
     context = build_context()
     context.raw_news_count = 10
     context.processed_news_count = 6

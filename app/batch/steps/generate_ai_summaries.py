@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
-from app.batch.steps.base import BatchStep
+from app.batch.steps.base import BatchStep, require_repository_session
 from app.db.enums import AiSummaryStatus, AiSummaryType, EventLevel
 from app.db.repositories.ai_summary_write_repo import AiSummaryWriteRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
@@ -24,20 +26,30 @@ class GenerateAiSummariesStep(BatchStep):
     started_message = 'Generate AI summaries step started.'
     completed_message = 'Generate AI summaries step completed.'
 
+    def __init__(
+        self,
+        *,
+        cluster_repo_factory: Callable[[object], object] | None = None,
+        index_repo_factory: Callable[[object], object] | None = None,
+        summary_repo_factory: Callable[[object], object] | None = None,
+        llm_provider_factory: Callable[[], object] | None = None,
+    ) -> None:
+        self._cluster_repo_factory = cluster_repo_factory or ClusterRepository
+        self._index_repo_factory = index_repo_factory or MarketIndexRepository
+        self._summary_repo_factory = summary_repo_factory or AiSummaryWriteRepository
+        self._llm_provider_factory = llm_provider_factory or BatchLlmProvider
+
     async def run(
         self,
         repository: BatchJobRepository,
         context: BatchExecutionContext,
     ) -> BatchExecutionContext:
-        session = getattr(repository, 'session', None)
-        if session is None or not hasattr(session, 'bind'):
-            context.log_messages.append('AI summary generation step is scaffolded.')
-            return context
+        session = require_repository_session(repository, step_code=self.step_code)
 
-        cluster_repo = ClusterRepository(session)
-        index_repo = MarketIndexRepository(session)
-        summary_repo = AiSummaryWriteRepository(session)
-        llm_provider = BatchLlmProvider()
+        cluster_repo = self._cluster_repo_factory(session)
+        index_repo = self._index_repo_factory(session)
+        summary_repo = self._summary_repo_factory(session)
+        llm_provider = self._llm_provider_factory()
 
         clusters = await cluster_repo.list_clusters_by_business_date(
             context.business_date

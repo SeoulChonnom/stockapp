@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import (
     build_dedupe_hash,
@@ -8,7 +10,7 @@ from app.batch.normalizers import (
     normalize_title,
 )
 from app.batch.providers.article_content import ArticleContentProvider
-from app.batch.steps.base import BatchStep
+from app.batch.steps.base import BatchStep, require_repository_session
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.news_article_processed_repo import (
@@ -26,6 +28,21 @@ class DedupeArticlesStep(BatchStep):
     started_message = 'Dedupe articles step started.'
     completed_message = 'Dedupe articles step completed.'
 
+    def __init__(
+        self,
+        *,
+        raw_repo_factory: Callable[[object], object] | None = None,
+        processed_repo_factory: Callable[[object], object] | None = None,
+        content_provider_factory: Callable[[], object] | None = None,
+    ) -> None:
+        self._raw_repo_factory = raw_repo_factory or NewsArticleRawRepository
+        self._processed_repo_factory = (
+            processed_repo_factory or NewsArticleProcessedRepository
+        )
+        self._content_provider_factory = (
+            content_provider_factory or ArticleContentProvider
+        )
+
     async def run(
         self,
         repository: BatchJobRepository,
@@ -37,14 +54,11 @@ class DedupeArticlesStep(BatchStep):
             )
             return context
 
-        session = getattr(repository, 'session', None)
-        if session is None:
-            context.log_messages.append('Article deduplication step is scaffolded.')
-            return context
+        session = require_repository_session(repository, step_code=self.step_code)
 
-        raw_repo = NewsArticleRawRepository(session)
-        processed_repo = NewsArticleProcessedRepository(session)
-        content_provider = ArticleContentProvider()
+        raw_repo = self._raw_repo_factory(session)
+        processed_repo = self._processed_repo_factory(session)
+        content_provider = self._content_provider_factory()
 
         raw_articles = await raw_repo.list_articles_by_business_date(
             context.business_date
