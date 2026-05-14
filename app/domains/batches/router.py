@@ -11,13 +11,17 @@ from fastapi import (  # pyright: ignore[reportMissingImports]
     Query,
 )
 
-from app.api.deps import AdminDep
+from app.api.deps import AdminDep, DbSession
 from app.core.response import ApiSuccess
+from app.db.repositories.batch_job_repo import BatchJobRepository
+from app.domains.batches.assembler import (
+    assemble_batch_job_detail_response,
+    assemble_batch_job_list_response,
+    assemble_batch_run_response,
+)
 from app.domains.batches.service import (
     BatchesService,
     BatchJobScheduler,
-    get_batch_job_scheduler,
-    get_batches_service,
 )
 from app.schemas.batch import (
     BatchJobDetailResponse,
@@ -27,6 +31,16 @@ from app.schemas.batch import (
 )
 
 router = APIRouter()
+
+
+def get_batches_service(session: DbSession) -> BatchesService:
+    return BatchesService(BatchJobRepository(session))
+
+
+def get_batch_job_scheduler() -> BatchJobScheduler:
+    return BatchJobScheduler()
+
+
 BatchesServiceDep = Annotated[BatchesService, Depends(get_batches_service)]
 BatchSchedulerDep = Annotated[BatchJobScheduler, Depends(get_batch_job_scheduler)]
 
@@ -39,16 +53,14 @@ async def start_market_daily_batch(
     service: BatchesServiceDep,
     scheduler: BatchSchedulerDep,
 ) -> ApiSuccess[BatchRunResponse]:
-    result = BatchRunResponse.model_validate(
-        await service.start_market_daily_batch(
-            business_date=payload.businessDate,
-            user_id=current_user.user_id,
-            force=payload.force,
-            rebuild_page_only=payload.rebuildPageOnly,
-        )
+    result = await service.start_market_daily_batch(
+        business_date=payload.businessDate,
+        user_id=current_user.user_id,
+        force=payload.force,
+        rebuild_page_only=payload.rebuildPageOnly,
     )
-    scheduler.schedule(background_tasks, result.jobId)
-    return ApiSuccess(data=result)
+    background_tasks.add_task(scheduler.run_market_daily, result['jobId'])
+    return ApiSuccess(data=assemble_batch_run_response(result))
 
 
 @router.get('/jobs', response_model=ApiSuccess[BatchJobListResponse])
@@ -68,7 +80,7 @@ async def list_batch_jobs(
         page=page,
         size=size,
     )
-    return ApiSuccess(data=result)
+    return ApiSuccess(data=assemble_batch_job_list_response(result))
 
 
 @router.get('/jobs/{jobId}', response_model=ApiSuccess[BatchJobDetailResponse])
@@ -78,7 +90,7 @@ async def get_batch_job_detail(
     jobId: Annotated[int, Path(alias='jobId', ge=1)],
 ) -> ApiSuccess[BatchJobDetailResponse]:
     result = await service.get_job_detail(jobId)
-    return ApiSuccess(data=result)
+    return ApiSuccess(data=assemble_batch_job_detail_response(result))
 
 
-__all__ = ['router']
+__all__ = ['get_batch_job_scheduler', 'get_batches_service', 'router']

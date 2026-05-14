@@ -8,6 +8,7 @@ pytest.importorskip('fastapi')
 from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
 batches_service_module = load_module('app.domains.batches.service')
+batch_router_module = load_module('app.domains.batches.router')
 
 
 class FakeBatchesService:
@@ -37,8 +38,7 @@ class FakeBatchScheduler:
     def __init__(self) -> None:
         self.job_ids: list[int] = []
 
-    def schedule(self, background_tasks, job_id: int) -> None:
-        _ = background_tasks
+    async def run_market_daily(self, job_id: int) -> None:
         self.job_ids.append(job_id)
 
 
@@ -55,10 +55,10 @@ def client(
         sample_batch_job_detail_payload,
     )
     fake_scheduler = FakeBatchScheduler()
-    app.dependency_overrides[batches_service_module.get_batches_service] = lambda: (
+    app.dependency_overrides[batch_router_module.get_batches_service] = lambda: (
         fake_service
     )
-    app.dependency_overrides[batches_service_module.get_batch_job_scheduler] = lambda: (
+    app.dependency_overrides[batch_router_module.get_batch_job_scheduler] = lambda: (
         fake_scheduler
     )
 

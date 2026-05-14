@@ -9,7 +9,7 @@ pytest.importorskip('fastapi')
 from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
 pages_router_module = load_module('app.domains.pages.router')
-archive_service_module = load_module('app.domains.archive.service')
+archive_router_module = load_module('app.domains.archive.router')
 
 
 class FakePagesService:
@@ -50,7 +50,7 @@ def client(app, sample_daily_page_payload, sample_archive_list_payload):
     app.dependency_overrides[pages_router_module.get_pages_service] = lambda: (
         fake_pages_service
     )
-    app.dependency_overrides[archive_service_module.get_archive_service] = lambda: (
+    app.dependency_overrides[archive_router_module.get_archive_service] = lambda: (
         fake_archive_service
     )
 

@@ -5,12 +5,20 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import UserDep
+from app.api.deps import DbSession, UserDep
 from app.core.response import ApiSuccess
-from app.domains.archive.service import ArchiveService, get_archive_service
+from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
+from app.domains.archive.assembler import assemble_archive_list_response
+from app.domains.archive.service import ArchiveService
 from app.schemas.page import ArchiveListResponse
 
 router = APIRouter()
+
+
+def get_archive_service(session: DbSession) -> ArchiveService:
+    return ArchiveService(PageSnapshotRepository(session))
+
+
 ArchiveServiceDep = Annotated[ArchiveService, Depends(get_archive_service)]
 
 
@@ -31,7 +39,7 @@ async def list_archive(
         page=page,
         size=size,
     )
-    return ApiSuccess(data=payload)
+    return ApiSuccess(data=assemble_archive_list_response(payload))
 
 
-__all__ = ['router']
+__all__ = ['get_archive_service', 'router']
