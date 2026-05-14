@@ -37,13 +37,13 @@ def assemble_daily_page_response(payload: dict[str, Any]) -> DailyPageResponse:
     return DailyPageResponse.model_validate(payload)
 
 
-def build_daily_page_response(
+def build_daily_page_payload(
     page: dict[str, Any],
     markets: list[dict[str, Any]],
     indices: list[dict[str, Any]],
     clusters: list[dict[str, Any]],
     article_links: list[dict[str, Any]],
-) -> DailyPageResponse:
+) -> dict[str, Any]:
     indices_by_market: dict[int, list[IndexCardResponse]] = defaultdict(list)
     for row in indices:
         indices_by_market[row['page_market_id']].append(
@@ -135,7 +135,7 @@ def build_daily_page_response(
             clusterCount=page['cluster_count'],
             lastUpdatedAt=_as_iso(page['last_updated_at']),
         ),
-    )
+    ).model_dump(mode='json')
 
 
-__all__ = ['assemble_daily_page_response', 'build_daily_page_response']
+__all__ = ['assemble_daily_page_response', 'build_daily_page_payload']

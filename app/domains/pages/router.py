@@ -5,13 +5,20 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query
 
-from app.api.deps import UserDep
-from app.core.exceptions import NotFoundError
+from app.api.deps import DbSession, UserDep
 from app.core.response import ApiSuccess
-from app.domains.pages.service import PagesService, get_pages_service
+from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
+from app.domains.pages.assembler import assemble_daily_page_response
+from app.domains.pages.service import PagesService
 from app.schemas.page import DailyPageResponse
 
 router = APIRouter()
+
+
+def get_pages_service(session: DbSession) -> PagesService:
+    return PagesService(PageSnapshotRepository(session))
+
+
 PagesServiceDep = Annotated[PagesService, Depends(get_pages_service)]
 
 
@@ -21,11 +28,7 @@ async def get_latest_page(
     service: PagesServiceDep,
 ) -> ApiSuccess[DailyPageResponse]:
     payload = await service.get_latest_page()
-    if payload is None:
-        raise NotFoundError(
-            'LATEST_PAGE_NOT_FOUND', '가장 최근 생성된 페이지가 존재하지 않습니다.'
-        )
-    return ApiSuccess(data=payload)
+    return ApiSuccess(data=assemble_daily_page_response(payload))
 
 
 @router.get('/daily', response_model=ApiSuccess[DailyPageResponse])
@@ -36,11 +39,7 @@ async def get_page_by_business_date(
     versionNo: Annotated[int | None, Query(alias='versionNo', ge=1)] = None,
 ) -> ApiSuccess[DailyPageResponse]:
     payload = await service.get_page_by_date(businessDate, versionNo)
-    if payload is None:
-        raise NotFoundError(
-            'PAGE_NOT_FOUND', '요청한 날짜의 페이지가 존재하지 않습니다.'
-        )
-    return ApiSuccess(data=payload)
+    return ApiSuccess(data=assemble_daily_page_response(payload))
 
 
 @router.get('/{pageId}', response_model=ApiSuccess[DailyPageResponse])
@@ -50,9 +49,7 @@ async def get_page_by_id(
     pageId: Annotated[int, Path(alias='pageId', ge=1)],
 ) -> ApiSuccess[DailyPageResponse]:
     payload = await service.get_page_by_id(pageId)
-    if payload is None:
-        raise NotFoundError('PAGE_NOT_FOUND', '요청한 페이지를 찾을 수 없습니다.')
-    return ApiSuccess(data=payload)
+    return ApiSuccess(data=assemble_daily_page_response(payload))
 
 
-__all__ = ['router']
+__all__ = ['get_pages_service', 'router']

@@ -30,11 +30,11 @@ def assemble_cluster_detail_response(payload: dict[str, Any]) -> ClusterDetailRe
     return ClusterDetailResponse.model_validate(payload)
 
 
-def build_cluster_detail_response(
+def build_cluster_detail_payload(
     cluster: dict[str, Any],
     representative_article: dict[str, Any],
     articles: list[dict[str, Any]],
-) -> ClusterDetailResponse:
+) -> dict[str, Any]:
     return ClusterDetailResponse(
         clusterId=str(cluster['cluster_uid']),
         businessDate=_as_date(cluster['business_date']),
@@ -68,7 +68,7 @@ def build_cluster_detail_response(
         ],
         lastUpdatedAt=_as_iso(cluster['last_updated_at']),
         articleCount=cluster.get('article_count'),
-    )
+    ).model_dump(mode='json')
 
 
-__all__ = ['assemble_cluster_detail_response', 'build_cluster_detail_response']
+__all__ = ['assemble_cluster_detail_response', 'build_cluster_detail_payload']

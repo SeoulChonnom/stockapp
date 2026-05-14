@@ -52,6 +52,7 @@ async def test_cluster_service_returns_cluster_detail(
     result = await service.get_cluster_detail(
         sample_cluster_detail_payload['clusterId']
     )
+    assert isinstance(result, dict)
     payload = jsonable(result)
 
     assert payload['clusterId'] == sample_cluster_detail_payload['clusterId']

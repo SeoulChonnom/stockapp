@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import pytest  # pyright: ignore[reportMissingImports]
 
+from app.core.exceptions import NotFoundError
 from tests.support import build_test_bearer_headers, load_module
 
 pytest.importorskip('fastapi')
 from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
-pages_service_module = load_module('app.domains.pages.service')
+pages_router_module = load_module('app.domains.pages.router')
 archive_service_module = load_module('app.domains.archive.service')
 
 
@@ -21,15 +22,17 @@ class FakePagesService:
 
     async def get_page_by_date(self, business_date, version_no=None):
         if str(business_date) != self.page_payload['businessDate']:
-            return None
+            raise NotFoundError(
+                'PAGE_NOT_FOUND', '요청한 날짜의 페이지가 존재하지 않습니다.'
+            )
         return self.page_payload
 
     async def get_page_by_id(self, page_id):
         if page_id in self.missing_page_ids:
-            return None
+            raise NotFoundError('PAGE_NOT_FOUND', '요청한 페이지를 찾을 수 없습니다.')
         if page_id == self.page_payload['pageId']:
             return self.page_payload
-        return None
+        raise NotFoundError('PAGE_NOT_FOUND', '요청한 페이지를 찾을 수 없습니다.')
 
 
 class FakeArchiveService:
@@ -44,7 +47,7 @@ class FakeArchiveService:
 def client(app, sample_daily_page_payload, sample_archive_list_payload):
     fake_pages_service = FakePagesService(sample_daily_page_payload)
     fake_archive_service = FakeArchiveService(sample_archive_list_payload)
-    app.dependency_overrides[pages_service_module.get_pages_service] = lambda: (
+    app.dependency_overrides[pages_router_module.get_pages_service] = lambda: (
         fake_pages_service
     )
     app.dependency_overrides[archive_service_module.get_archive_service] = lambda: (

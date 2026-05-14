@@ -19,3 +19,7 @@
 - `uv run pytest tests/batch` passes after replacing stale scaffold assumptions in `tests/batch/test_market_daily_orchestrator.py` with explicit step doubles that set the success-critical `page_id` contract.
 - Batch verification still emits the pre-existing Python 3.14.4 dependency warnings from `google.genai`, `langchain_core`, and the `httpx verify=<str>` deprecation path.
 - The workspace shell does not expose a bare `python` binary; evidence and driver scripts should use `uv run python`.
+
+## Task 7 Verification Notes
+- A first pass at dict payload assembly used default `model_dump()` and surfaced a regression where service-level payloads exposed Python `date` objects instead of the existing JSON-string contract; switching to `model_dump(mode='json')` fixed it.
+- Standalone API smoke scripts do not inherit the pytest JWT env fixture, so manual driver checks must bootstrap the JWT env vars before importing `app.main`.

@@ -5,13 +5,20 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Path
 
-from app.api.deps import UserDep
-from app.core.exceptions import NotFoundError
+from app.api.deps import DbSession, UserDep
 from app.core.response import ApiSuccess
-from app.domains.clusters.service import ClustersService, get_clusters_service
+from app.db.repositories.cluster_repo import ClusterRepository
+from app.domains.clusters.assembler import assemble_cluster_detail_response
+from app.domains.clusters.service import ClustersService
 from app.schemas.cluster import ClusterDetailResponse
 
 router = APIRouter()
+
+
+def get_clusters_service(session: DbSession) -> ClustersService:
+    return ClustersService(ClusterRepository(session))
+
+
 ClustersServiceDep = Annotated[ClustersService, Depends(get_clusters_service)]
 
 
@@ -22,11 +29,7 @@ async def get_cluster_detail(
     clusterId: Annotated[UUID, Path(alias='clusterId')],
 ) -> ApiSuccess[ClusterDetailResponse]:
     payload = await service.get_cluster_detail(str(clusterId))
-    if payload is None:
-        raise NotFoundError(
-            'CLUSTER_NOT_FOUND', '요청한 뉴스 클러스터를 찾을 수 없습니다.'
-        )
-    return ApiSuccess(data=payload)
+    return ApiSuccess(data=assemble_cluster_detail_response(payload))
 
 
-__all__ = ['router']
+__all__ = ['get_clusters_service', 'router']

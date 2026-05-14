@@ -25,3 +25,7 @@
 - Batch steps now fail fast on a missing repository session via a shared explicit contract instead of silently switching to scaffold/no-op behavior based on `session.bind`.
 - Step constructors resolve repository/provider factories at runtime, which keeps production wiring unchanged while letting tests inject explicit fakes or keep using monkeypatch without hidden bind checks.
 - Cluster grouping now depends only on the LLM provider configuration; fake-session tests that want scaffold-style grouping must express that by injecting an unconfigured provider.
+
+## Task 7 Pages/Clusters Decoupling
+- Pages and clusters services can stay HTTP-free by returning JSON-shaped domain payload dicts while routers own both FastAPI dependency factories and final `response_model` assembly.
+- When replacing service-layer Pydantic returns with dict payloads, `model_dump(mode='json')` preserves the existing serialized date/datetime contract that the characterization tests expect.

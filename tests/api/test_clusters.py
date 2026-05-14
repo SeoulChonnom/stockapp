@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import pytest  # pyright: ignore[reportMissingImports]
 
+from app.core.exceptions import NotFoundError
 from tests.support import load_module
 
 pytest.importorskip('fastapi')
 from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
-clusters_service_module = load_module('app.domains.clusters.service')
+clusters_router_module = load_module('app.domains.clusters.router')
 auth_module = load_module('app.api.deps.auth')
 
 
@@ -18,7 +19,9 @@ class FakeClustersService:
     async def get_cluster_detail(self, cluster_id):
         if str(cluster_id) == self.payload['clusterId']:
             return self.payload
-        return None
+        raise NotFoundError(
+            'CLUSTER_NOT_FOUND', '요청한 뉴스 클러스터를 찾을 수 없습니다.'
+        )
 
 
 @pytest.fixture
@@ -30,7 +33,7 @@ def client(app, sample_cluster_detail_payload):
             roles=('USER',),
         )
     )
-    app.dependency_overrides[clusters_service_module.get_clusters_service] = lambda: (
+    app.dependency_overrides[clusters_router_module.get_clusters_service] = lambda: (
         fake_clusters_service
     )
 

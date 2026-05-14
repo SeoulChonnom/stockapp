@@ -100,6 +100,7 @@ async def test_pages_service_fetches_latest_page_bundle(
     service = PagesService(page_repository)
 
     result = await service.get_latest_page()
+    assert isinstance(result, dict)
     payload = jsonable(result)
 
     assert payload['pageId'] == sample_daily_page_payload['pageId']
@@ -124,6 +125,7 @@ async def test_pages_service_uses_versioned_lookup_when_date_is_explicit(
     service = PagesService(page_repository)
 
     result = await service.get_page_by_date(BUSINESS_DATE, version_no=3)
+    assert isinstance(result, dict)
     payload = jsonable(result)
 
     assert payload['businessDate'] == sample_daily_page_payload['businessDate']
