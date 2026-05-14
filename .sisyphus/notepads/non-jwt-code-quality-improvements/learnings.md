@@ -34,3 +34,7 @@
 - Batches and archive can follow the Task 7 pages pattern by returning JSON-shaped dict payloads from services while routers own FastAPI dependency wiring, `response_model` validation, and final envelope assembly.
 - To preserve existing batch datetime strings exactly, batch payload builders must serialize datetimes with `datetime.isoformat()` instead of relying on Pydantic's UTC `Z` normalization.
 - Moving background scheduling to the router boundary still preserves Task 5 startup durability when the service commits the RUNNING job and CREATE_JOB event before the router adds the orchestrator task.
+
+## Task 9 Router Metadata Ownership
+- Feature routers can own their own `prefix` and `tags` without changing the published OpenAPI paths as long as the aggregator keeps only the global `/stock/api` prefix.
+- The archive route stays mounted under the pages namespace at `/stock/api/pages/archive` even when the archive router carries its own `archive` tag.

@@ -30,7 +30,7 @@ from app.schemas.batch import (
     BatchRunResponse,
 )
 
-router = APIRouter()
+router = APIRouter(prefix='/batch', tags=['batch'])
 
 
 def get_batches_service(session: DbSession) -> BatchesService:

@@ -28,3 +28,7 @@
 - The first focused run exposed a contract regression where Pydantic serialized UTC datetimes as `Z`; switching the batch assembler to explicit `isoformat()` restored the existing `+00:00` response shape.
 - Standalone API smoke scripts still need the pytest-style JWT environment bootstrap before importing `app.main`; otherwise authenticated route checks fail with 401 even when the endpoint wiring is correct.
 - Required Task 8 pytest suites passed on Python 3.14.4, with the same pre-existing `google.genai` and `langchain_core` warnings seen in earlier tasks.
+
+## Task 9 Verification Notes
+- A malformed shell heredoc briefly broke the router-ownership evidence dump; rerunning the command with the pipeline attached to the heredoc opener fixed the capture.
+- The verification suites still emit the pre-existing `google.genai` deprecation warning on Python 3.14.4, but the Task 9 route and API tests pass.

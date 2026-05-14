@@ -1,0 +1,19 @@
+api_router_prefix= /stock/api
+api_router_tags= []
+pages_router_prefix= /pages
+pages_router_tags= ['pages']
+archive_router_prefix= /pages
+archive_router_tags= ['archive']
+clusters_router_prefix= /news
+clusters_router_tags= ['news']
+batches_router_prefix= /batch
+batches_router_tags= ['batch']
+paths=
+/stock/api/batch/jobs
+/stock/api/batch/jobs/{jobId}
+/stock/api/batch/market-daily
+/stock/api/news/clusters/{clusterId}
+/stock/api/pages/archive
+/stock/api/pages/daily
+/stock/api/pages/daily/latest
+/stock/api/pages/{pageId}

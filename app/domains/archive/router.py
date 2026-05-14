@@ -12,7 +12,7 @@ from app.domains.archive.assembler import assemble_archive_list_response
 from app.domains.archive.service import ArchiveService
 from app.schemas.page import ArchiveListResponse
 
-router = APIRouter()
+router = APIRouter(prefix='/pages', tags=['archive'])
 
 
 def get_archive_service(session: DbSession) -> ArchiveService:
