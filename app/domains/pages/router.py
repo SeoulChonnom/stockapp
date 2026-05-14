@@ -12,7 +12,7 @@ from app.domains.pages.assembler import assemble_daily_page_response
 from app.domains.pages.service import PagesService
 from app.schemas.page import DailyPageResponse
 
-router = APIRouter()
+router = APIRouter(prefix='/pages', tags=['pages'])
 
 
 def get_pages_service(session: DbSession) -> PagesService:

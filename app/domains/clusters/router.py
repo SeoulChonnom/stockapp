@@ -12,7 +12,7 @@ from app.domains.clusters.assembler import assemble_cluster_detail_response
 from app.domains.clusters.service import ClustersService
 from app.schemas.cluster import ClusterDetailResponse
 
-router = APIRouter()
+router = APIRouter(prefix='/news', tags=['news'])
 
 
 def get_clusters_service(session: DbSession) -> ClustersService:
