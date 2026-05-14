@@ -13,7 +13,9 @@ def get_business_date(now: datetime | None = None) -> date:
 
 
 def isoformat_datetime(value: datetime) -> str:
-    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        value.astimezone(UTC).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+    )
 
 
-__all__ = ["KST", "get_business_date", "isoformat_datetime", "utc_now"]
+__all__ = ['KST', 'get_business_date', 'isoformat_datetime', 'utc_now']

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime, timezone
 
 import pytest
 
 from tests.support import jsonable, load_module
 
-batches_service_module = load_module("app.domains.batches.service")
-projections_module = load_module("app.db.repositories.projections")
+batches_service_module = load_module('app.domains.batches.service')
+projections_module = load_module('app.db.repositories.projections')
 
 BatchesService = batches_service_module.BatchesService
 BatchJobRecord = projections_module.BatchJobRecord
@@ -57,13 +57,13 @@ async def test_start_market_daily_batch_creates_running_job():
     repository = FakeBatchJobRepository(
         created_job=BatchJobRecord(
             job_id=1001,
-            job_name="market_daily_batch",
+            job_name='market_daily_batch',
             business_date=date(2026, 3, 17),
-            status="RUNNING",
-            started_at=datetime(2026, 3, 18, 6, 10, tzinfo=timezone.utc),
+            status='RUNNING',
+            started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
             ended_at=None,
             duration_seconds=None,
-            market_scope="GLOBAL",
+            market_scope='GLOBAL',
             raw_news_count=0,
             processed_news_count=0,
             cluster_count=0,
@@ -77,15 +77,15 @@ async def test_start_market_daily_batch_creates_running_job():
 
     result = await service.start_market_daily_batch(
         business_date=date(2026, 3, 17),
-        user_id="test-user",
+        user_id='test-user',
         force=False,
         rebuild_page_only=False,
     )
 
     payload = jsonable(result)
-    assert payload["jobId"] == 1001
-    assert repository.created_params.status == "RUNNING"
-    assert repository.events[0]["step_code"] == "CREATE_JOB"
+    assert payload['jobId'] == 1001
+    assert repository.created_params.status == 'RUNNING'
+    assert repository.events[0]['step_code'] == 'CREATE_JOB'
 
 
 @pytest.mark.anyio
@@ -95,12 +95,12 @@ async def test_start_market_daily_batch_rejects_duplicate_running_job():
     with pytest.raises(batches_service_module.ConflictError) as exc_info:
         await service.start_market_daily_batch(
             business_date=date(2026, 3, 17),
-            user_id="test-user",
+            user_id='test-user',
             force=False,
             rebuild_page_only=False,
         )
 
-    assert exc_info.value.code == "BATCH_ALREADY_RUNNING"
+    assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
 
 
 @pytest.mark.anyio
@@ -110,9 +110,9 @@ async def test_start_market_daily_batch_rejects_existing_page_without_force():
     with pytest.raises(batches_service_module.ConflictError) as exc_info:
         await service.start_market_daily_batch(
             business_date=date(2026, 3, 17),
-            user_id="test-user",
+            user_id='test-user',
             force=False,
             rebuild_page_only=False,
         )
 
-    assert exc_info.value.code == "PAGE_ALREADY_EXISTS"
+    assert exc_info.value.code == 'PAGE_ALREADY_EXISTS'

@@ -15,14 +15,16 @@ from app.schemas.batch import (
     BatchJobDetailResponse,
     BatchJobListItemResponse,
     BatchJobListResponse,
-    BatchJobSummaryResponse,
     BatchJobsPaginationResponse,
+    BatchJobSummaryResponse,
     BatchRunResponse,
 )
 
 
 class BatchJobScheduler:
-    def __init__(self, orchestrator: MarketDailyBatchOrchestrator | None = None) -> None:
+    def __init__(
+        self, orchestrator: MarketDailyBatchOrchestrator | None = None
+    ) -> None:
         self._orchestrator = orchestrator or MarketDailyBatchOrchestrator()
 
     def schedule(self, background_tasks: BackgroundTasks, job_id: int) -> None:
@@ -85,7 +87,9 @@ class BatchesService:
     async def get_job_detail(self, job_id: int) -> BatchJobDetailResponse:
         job = await self._repo.get_job_by_id(job_id)
         if job is None:
-            raise NotFoundError("BATCH_JOB_NOT_FOUND", "요청한 배치 작업을 찾을 수 없습니다.")
+            raise NotFoundError(
+                'BATCH_JOB_NOT_FOUND', '요청한 배치 작업을 찾을 수 없습니다.'
+            )
         return BatchJobDetailResponse(
             jobId=job.job_id,
             jobName=job.job_name,
@@ -118,13 +122,15 @@ class BatchesService:
         resolved_business_date = business_date or get_business_date()
         if await self._repo.has_active_job_for_business_date(resolved_business_date):
             raise ConflictError(
-                "BATCH_ALREADY_RUNNING",
-                "동일 날짜의 배치가 이미 실행 중입니다.",
+                'BATCH_ALREADY_RUNNING',
+                '동일 날짜의 배치가 이미 실행 중입니다.',
             )
-        if not force and await self._repo.has_completed_page_for_business_date(resolved_business_date):
+        if not force and await self._repo.has_completed_page_for_business_date(
+            resolved_business_date
+        ):
             raise ConflictError(
-                "PAGE_ALREADY_EXISTS",
-                "이미 생성된 페이지가 있어 배치를 시작할 수 없습니다.",
+                'PAGE_ALREADY_EXISTS',
+                '이미 생성된 페이지가 있어 배치를 시작할 수 없습니다.',
             )
 
         job = await self._repo.create_job(
@@ -139,12 +145,12 @@ class BatchesService:
         )
         await self._repo.add_event(
             job_id=job.job_id,
-            step_code="CREATE_JOB",
-            level="INFO",
-            message="Manual market daily batch requested.",
+            step_code='CREATE_JOB',
+            level='INFO',
+            message='Manual market daily batch requested.',
             context_json={
-                "force": force,
-                "rebuildPageOnly": rebuild_page_only,
+                'force': force,
+                'rebuildPageOnly': rebuild_page_only,
             },
         )
         return BatchRunResponse(
@@ -165,8 +171,8 @@ def get_batch_job_scheduler() -> BatchJobScheduler:
 
 
 __all__ = [
-    "BatchJobScheduler",
-    "BatchesService",
-    "get_batch_job_scheduler",
-    "get_batches_service",
+    'BatchJobScheduler',
+    'BatchesService',
+    'get_batch_job_scheduler',
+    'get_batches_service',
 ]

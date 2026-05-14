@@ -7,12 +7,11 @@ from typing import Any
 from sqlalchemy import text
 
 from app.core.settings import get_settings
-
-from .base import PostgresRepository
+from app.db.repositories.base import PostgresRepository
 
 
 def _qualified_table(table_name: str) -> str:
-    return f"{get_settings().database_schema}.{table_name}"
+    return f'{get_settings().database_schema}.{table_name}'
 
 
 class PageSnapshotWriteRepository(PostgresRepository):
@@ -22,10 +21,9 @@ class PageSnapshotWriteRepository(PostgresRepository):
             SELECT COALESCE(MAX(version_no), 0) + 1
             FROM {page_table}
             WHERE business_date = :business_date
-            """
-            .format(page_table=_qualified_table("market_daily_page"))
+            """.format(page_table=_qualified_table('market_daily_page'))
         )
-        result = await self.session.execute(statement, {"business_date": business_date})
+        result = await self.session.execute(statement, {'business_date': business_date})
         return int(result.scalar_one())
 
     async def create_page(
@@ -72,26 +70,25 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 CAST(:metadata_json AS JSONB)
             )
             RETURNING id
-            """
-            .format(
-                page_table=_qualified_table("market_daily_page"),
-                status_enum=_qualified_table("page_status_enum"),
+            """.format(
+                page_table=_qualified_table('market_daily_page'),
+                status_enum=_qualified_table('page_status_enum'),
             )
         )
         result = await self.session.execute(
             statement,
             {
-                "business_date": business_date,
-                "version_no": version_no,
-                "page_title": page_title,
-                "status": status,
-                "global_headline": global_headline,
-                "partial_message": partial_message,
-                "raw_news_count": raw_news_count,
-                "processed_news_count": processed_news_count,
-                "cluster_count": cluster_count,
-                "batch_job_id": batch_job_id,
-                "metadata_json": json.dumps(metadata_json),
+                'business_date': business_date,
+                'version_no': version_no,
+                'page_title': page_title,
+                'status': status,
+                'global_headline': global_headline,
+                'partial_message': partial_message,
+                'raw_news_count': raw_news_count,
+                'processed_news_count': processed_news_count,
+                'cluster_count': cluster_count,
+                'batch_job_id': batch_job_id,
+                'metadata_json': json.dumps(metadata_json),
             },
         )
         page_id = int(result.scalar_one())
@@ -150,29 +147,28 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 CAST(:metadata_json AS JSONB)
             )
             RETURNING id
-            """
-            .format(
-                page_market_table=_qualified_table("market_daily_page_market"),
-                market_type_enum=_qualified_table("market_type_enum"),
+            """.format(
+                page_market_table=_qualified_table('market_daily_page_market'),
+                market_type_enum=_qualified_table('market_type_enum'),
             )
         )
         result = await self.session.execute(
             statement,
             {
-                "page_id": page_id,
-                "market_type": market_type,
-                "display_order": display_order,
-                "market_label": market_label,
-                "summary_title": summary_title,
-                "summary_body": summary_body,
-                "analysis_background_json": json.dumps(analysis_background_json),
-                "analysis_key_themes_json": json.dumps(analysis_key_themes_json),
-                "analysis_outlook": analysis_outlook,
-                "raw_news_count": raw_news_count,
-                "processed_news_count": processed_news_count,
-                "cluster_count": cluster_count,
-                "partial_message": partial_message,
-                "metadata_json": json.dumps(metadata_json),
+                'page_id': page_id,
+                'market_type': market_type,
+                'display_order': display_order,
+                'market_label': market_label,
+                'summary_title': summary_title,
+                'summary_body': summary_body,
+                'analysis_background_json': json.dumps(analysis_background_json),
+                'analysis_key_themes_json': json.dumps(analysis_key_themes_json),
+                'analysis_outlook': analysis_outlook,
+                'raw_news_count': raw_news_count,
+                'processed_news_count': processed_news_count,
+                'cluster_count': cluster_count,
+                'partial_message': partial_message,
+                'metadata_json': json.dumps(metadata_json),
             },
         )
         page_market_id = int(result.scalar_one())
@@ -207,8 +203,7 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 :low_price,
                 :currency_code
             )
-            """
-            .format(index_table=_qualified_table("market_daily_page_market_index"))
+            """.format(index_table=_qualified_table('market_daily_page_market_index'))
         )
         await self.session.execute(statement, params)
 
@@ -247,11 +242,12 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 :representative_origin_link,
                 :representative_naver_link
             )
-            """
-            .format(cluster_table=_qualified_table("market_daily_page_market_cluster"))
+            """.format(
+                cluster_table=_qualified_table('market_daily_page_market_cluster')
+            )
         )
         payload = dict(params)
-        payload["tags_json"] = json.dumps(payload["tags_json"])
+        payload['tags_json'] = json.dumps(payload['tags_json'])
         await self.session.execute(statement, payload)
 
     async def insert_page_article_link(self, params: dict[str, Any]) -> None:
@@ -283,10 +279,9 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 :origin_link,
                 :naver_link
             )
-            """
-            .format(article_table=_qualified_table("market_daily_page_article_link"))
+            """.format(article_table=_qualified_table('market_daily_page_article_link'))
         )
         await self.session.execute(statement, params)
 
 
-__all__ = ["PageSnapshotWriteRepository"]
+__all__ = ['PageSnapshotWriteRepository']

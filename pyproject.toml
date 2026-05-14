@@ -22,7 +22,38 @@ dependencies = [
 dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.2.0",
+    "ruff>=0.15.12",
+    "vulture>=2.16",
 ]
 
 [tool.fastapi]
 entrypoint = "app.main:app"
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+target-version = "py314"
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+skip-magic-trailing-comma = false
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "TID"]
+ignore = [
+  "F401",
+]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.vulture]
+ignore_decorators = ["@app.*", "@router.*"]
+ignore_names = ["visit_*", "do_*"]
+make_whitelist = false
+min_confidence = 80
+paths = ["app/", "tests/", "main.py"]
+sort_by_size = true
+verbose = false

@@ -7,5 +7,4 @@ class Base(DeclarativeBase):
     pass
 
 
-__all__ = ["Base"]
-
+__all__ = ['Base']

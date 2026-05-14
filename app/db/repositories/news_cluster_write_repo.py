@@ -6,9 +6,8 @@ from datetime import date
 from sqlalchemy import bindparam, text
 
 from app.core.settings import get_settings
-
-from .base import PostgresRepository
-from .projections import (
+from app.db.repositories.base import PostgresRepository
+from app.db.repositories.projections import (
     NewsClusterArticleCreateParams,
     NewsClusterCreateParams,
     NewsClusterWriteRecord,
@@ -16,7 +15,7 @@ from .projections import (
 
 
 def _qualified_table(table_name: str) -> str:
-    return f"{get_settings().database_schema}.{table_name}"
+    return f'{get_settings().database_schema}.{table_name}'
 
 
 class NewsClusterWriteRepository(PostgresRepository):
@@ -32,15 +31,14 @@ class NewsClusterWriteRepository(PostgresRepository):
             WHERE business_date = :business_date
               AND market_type = CAST(:market_type AS {market_type_enum})
             ORDER BY cluster_rank ASC
-            """
-            .format(
-                cluster_table=_qualified_table("news_cluster"),
-                market_type_enum=_qualified_table("market_type_enum"),
+            """.format(
+                cluster_table=_qualified_table('news_cluster'),
+                market_type_enum=_qualified_table('market_type_enum'),
             )
         )
         result = await self.session.execute(
             statement,
-            {"business_date": business_date, "market_type": market_type},
+            {'business_date': business_date, 'market_type': market_type},
         )
         return list(result.scalars().all())
 
@@ -51,12 +49,13 @@ class NewsClusterWriteRepository(PostgresRepository):
             """
             DELETE FROM {cluster_table}
             WHERE id IN :cluster_ids
-            """
-            .format(cluster_table=_qualified_table("news_cluster"))
-        ).bindparams(bindparam("cluster_ids", expanding=True))
-        await self.session.execute(statement, {"cluster_ids": tuple(cluster_ids)})
+            """.format(cluster_table=_qualified_table('news_cluster'))
+        ).bindparams(bindparam('cluster_ids', expanding=True))
+        await self.session.execute(statement, {'cluster_ids': tuple(cluster_ids)})
 
-    async def upsert_cluster(self, params: NewsClusterCreateParams) -> NewsClusterWriteRecord:
+    async def upsert_cluster(
+        self, params: NewsClusterCreateParams
+    ) -> NewsClusterWriteRecord:
         statement = text(
             """
             INSERT INTO {cluster_table} (
@@ -97,25 +96,24 @@ class NewsClusterWriteRepository(PostgresRepository):
                 id AS cluster_id,
                 cluster_uid,
                 cluster_rank
-            """
-            .format(
-                cluster_table=_qualified_table("news_cluster"),
-                market_type_enum=_qualified_table("market_type_enum"),
+            """.format(
+                cluster_table=_qualified_table('news_cluster'),
+                market_type_enum=_qualified_table('market_type_enum'),
             )
         )
         result = await self.session.execute(
             statement,
             {
-                "business_date": params.business_date,
-                "market_type": params.market_type,
-                "cluster_rank": params.cluster_rank,
-                "title": params.title,
-                "summary_short": params.summary_short,
-                "summary_long": params.summary_long,
-                "analysis_paragraphs_json": json.dumps(params.analysis_paragraphs_json),
-                "tags_json": json.dumps(params.tags_json),
-                "representative_article_id": params.representative_article_id,
-                "article_count": params.article_count,
+                'business_date': params.business_date,
+                'market_type': params.market_type,
+                'cluster_rank': params.cluster_rank,
+                'title': params.title,
+                'summary_short': params.summary_short,
+                'summary_long': params.summary_long,
+                'analysis_paragraphs_json': json.dumps(params.analysis_paragraphs_json),
+                'tags_json': json.dumps(params.tags_json),
+                'representative_article_id': params.representative_article_id,
+                'article_count': params.article_count,
             },
         )
         row = result.mappings().one()
@@ -130,10 +128,9 @@ class NewsClusterWriteRepository(PostgresRepository):
             """
             DELETE FROM {cluster_article_table}
             WHERE cluster_id = :cluster_id
-            """
-            .format(cluster_article_table=_qualified_table("news_cluster_article"))
+            """.format(cluster_article_table=_qualified_table('news_cluster_article'))
         )
-        await self.session.execute(delete_statement, {"cluster_id": cluster_id})
+        await self.session.execute(delete_statement, {'cluster_id': cluster_id})
 
         if memberships:
             insert_statement = text(
@@ -148,16 +145,17 @@ class NewsClusterWriteRepository(PostgresRepository):
                     :processed_article_id,
                     :article_rank
                 )
-                """
-                .format(cluster_article_table=_qualified_table("news_cluster_article"))
+                """.format(
+                    cluster_article_table=_qualified_table('news_cluster_article')
+                )
             )
             for membership in memberships:
                 await self.session.execute(
                     insert_statement,
                     {
-                        "cluster_id": cluster_id,
-                        "processed_article_id": membership.processed_article_id,
-                        "article_rank": membership.article_rank,
+                        'cluster_id': cluster_id,
+                        'processed_article_id': membership.processed_article_id,
+                        'article_rank': membership.article_rank,
                     },
                 )
 
@@ -181,4 +179,4 @@ class NewsClusterWriteRepository(PostgresRepository):
         return cluster
 
 
-__all__ = ["NewsClusterWriteRepository"]
+__all__ = ['NewsClusterWriteRepository']

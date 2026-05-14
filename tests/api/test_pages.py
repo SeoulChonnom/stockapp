@@ -4,11 +4,11 @@ import pytest  # pyright: ignore[reportMissingImports]
 
 from tests.support import build_test_bearer_headers, load_module
 
-pytest.importorskip("fastapi")
+pytest.importorskip('fastapi')
 from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
-pages_service_module = load_module("app.domains.pages.service")
-archive_service_module = load_module("app.domains.archive.service")
+pages_service_module = load_module('app.domains.pages.service')
+archive_service_module = load_module('app.domains.archive.service')
 
 
 class FakePagesService:
@@ -20,14 +20,14 @@ class FakePagesService:
         return self.page_payload
 
     async def get_page_by_date(self, business_date, version_no=None):
-        if str(business_date) != self.page_payload["businessDate"]:
+        if str(business_date) != self.page_payload['businessDate']:
             return None
         return self.page_payload
 
     async def get_page_by_id(self, page_id):
         if page_id in self.missing_page_ids:
             return None
-        if page_id == self.page_payload["pageId"]:
+        if page_id == self.page_payload['pageId']:
             return self.page_payload
         return None
 
@@ -44,8 +44,12 @@ class FakeArchiveService:
 def client(app, sample_daily_page_payload, sample_archive_list_payload):
     fake_pages_service = FakePagesService(sample_daily_page_payload)
     fake_archive_service = FakeArchiveService(sample_archive_list_payload)
-    app.dependency_overrides[pages_service_module.get_pages_service] = lambda: fake_pages_service
-    app.dependency_overrides[archive_service_module.get_archive_service] = lambda: fake_archive_service
+    app.dependency_overrides[pages_service_module.get_pages_service] = lambda: (
+        fake_pages_service
+    )
+    app.dependency_overrides[archive_service_module.get_archive_service] = lambda: (
+        fake_archive_service
+    )
 
     with TestClient(app) as test_client:
         yield test_client
@@ -53,35 +57,45 @@ def client(app, sample_daily_page_payload, sample_archive_list_payload):
     app.dependency_overrides.clear()
 
 
-@pytest.mark.parametrize("role", ["USER", "ADMIN"], ids=["user", "admin"])
-def test_get_latest_page_allows_user_and_admin_roles(client, sample_daily_page_payload, role):
-    response = client.get("/stock/api/pages/daily/latest", headers=build_test_bearer_headers(role))
+@pytest.mark.parametrize('role', ['USER', 'ADMIN'], ids=['user', 'admin'])
+def test_get_latest_page_allows_user_and_admin_roles(
+    client, sample_daily_page_payload, role
+):
+    response = client.get(
+        '/stock/api/pages/daily/latest', headers=build_test_bearer_headers(role)
+    )
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["success"] is True
-    data = payload["data"]
-    assert data["pageId"] == sample_daily_page_payload["pageId"]
-    assert data["markets"][0]["marketType"] == "US"
-    assert data["markets"][0]["topClusters"][0]["representativeArticle"]["originLink"] == "https://example.com/article1"
-    assert len(data["markets"][0]["articleLinks"]) == 2
-    assert data["markets"][0]["articleLinks"][1]["originLink"] == "https://example.com/article2"
-    assert data["markets"][1]["indices"][0]["indexCode"] == "KS11"
-    assert "articleLinks" not in data
-    assert payload["meta"]["requestId"]
-    assert payload["meta"]["timestamp"]
+    assert payload['success'] is True
+    data = payload['data']
+    assert data['pageId'] == sample_daily_page_payload['pageId']
+    assert data['markets'][0]['marketType'] == 'US'
+    assert (
+        data['markets'][0]['topClusters'][0]['representativeArticle']['originLink']
+        == 'https://example.com/article1'
+    )
+    assert len(data['markets'][0]['articleLinks']) == 2
+    assert (
+        data['markets'][0]['articleLinks'][1]['originLink']
+        == 'https://example.com/article2'
+    )
+    assert data['markets'][1]['indices'][0]['indexCode'] == 'KS11'
+    assert 'articleLinks' not in data
+    assert payload['meta']['requestId']
+    assert payload['meta']['timestamp']
 
 
 def test_get_latest_page_rejects_missing_token_as_unauthorized(client):
-    response = client.get("/stock/api/pages/daily/latest")
+    response = client.get('/stock/api/pages/daily/latest')
 
     assert response.status_code == 401
 
 
 def test_get_latest_page_rejects_invalid_token_as_unauthorized(client):
     response = client.get(
-        "/stock/api/pages/daily/latest",
-        headers={"Authorization": "Bearer definitely-not-a-valid-test-token"},
+        '/stock/api/pages/daily/latest',
+        headers={'Authorization': 'Bearer definitely-not-a-valid-test-token'},
     )
 
     assert response.status_code == 401
@@ -89,43 +103,52 @@ def test_get_latest_page_rejects_invalid_token_as_unauthorized(client):
 
 def test_get_daily_page_uses_business_date_query(client, sample_daily_page_payload):
     response = client.get(
-        "/stock/api/pages/daily",
-        params={"businessDate": sample_daily_page_payload["businessDate"]},
-        headers=build_test_bearer_headers("USER"),
+        '/stock/api/pages/daily',
+        params={'businessDate': sample_daily_page_payload['businessDate']},
+        headers=build_test_bearer_headers('USER'),
     )
 
     assert response.status_code == 200
-    data = response.json()["data"]
-    assert data["businessDate"] == sample_daily_page_payload["businessDate"]
-    assert data["versionNo"] == sample_daily_page_payload["versionNo"]
+    data = response.json()['data']
+    assert data['businessDate'] == sample_daily_page_payload['businessDate']
+    assert data['versionNo'] == sample_daily_page_payload['versionNo']
 
 
 def test_get_daily_page_requires_business_date(client):
-    response = client.get("/stock/api/pages/daily", headers=build_test_bearer_headers("USER"))
+    response = client.get(
+        '/stock/api/pages/daily', headers=build_test_bearer_headers('USER')
+    )
 
     assert response.status_code == 422
 
 
-def test_get_archive_lists_latest_snapshot_per_date(client, sample_archive_list_payload):
+def test_get_archive_lists_latest_snapshot_per_date(
+    client, sample_archive_list_payload
+):
     response = client.get(
-        "/stock/api/pages/archive",
+        '/stock/api/pages/archive',
         params={
-            "fromDate": "2026-03-16",
-            "toDate": "2026-03-17",
-            "status": "READY",
-            "page": 1,
-            "size": 30,
+            'fromDate': '2026-03-16',
+            'toDate': '2026-03-17',
+            'status': 'READY',
+            'page': 1,
+            'size': 30,
         },
-        headers=build_test_bearer_headers("ADMIN"),
+        headers=build_test_bearer_headers('ADMIN'),
     )
 
     assert response.status_code == 200
-    payload = response.json()["data"]
-    assert payload["items"][0]["businessDate"] == sample_archive_list_payload["items"][0]["businessDate"]
-    assert payload["pagination"]["totalCount"] == 2
+    payload = response.json()['data']
+    assert (
+        payload['items'][0]['businessDate']
+        == sample_archive_list_payload['items'][0]['businessDate']
+    )
+    assert payload['pagination']['totalCount'] == 2
 
 
 def test_get_page_by_id_returns_404_when_missing(client):
-    response = client.get("/stock/api/pages/999", headers=build_test_bearer_headers("USER"))
+    response = client.get(
+        '/stock/api/pages/999', headers=build_test_bearer_headers('USER')
+    )
 
     assert response.status_code == 404

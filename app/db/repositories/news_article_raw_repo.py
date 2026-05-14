@@ -6,13 +6,15 @@ from datetime import date
 from sqlalchemy import text
 
 from app.core.settings import get_settings
-
-from .base import PostgresRepository
-from .projections import NewsArticleRawCreateParams, NewsArticleRawRecord
+from app.db.repositories.base import PostgresRepository
+from app.db.repositories.projections import (
+    NewsArticleRawCreateParams,
+    NewsArticleRawRecord,
+)
 
 
 def _qualified_table(table_name: str) -> str:
-    return f"{get_settings().database_schema}.{table_name}"
+    return f'{get_settings().database_schema}.{table_name}'
 
 
 class NewsArticleRawRepository(PostgresRepository):
@@ -22,11 +24,14 @@ class NewsArticleRawRepository(PostgresRepository):
         *,
         market_type: str | None = None,
     ) -> list[NewsArticleRawRecord]:
-        where_clauses = ["business_date = :business_date"]
-        params: dict[str, object] = {"business_date": business_date}
+        where_clauses = ['business_date = :business_date']
+        params: dict[str, object] = {'business_date': business_date}
         if market_type is not None:
-            where_clauses.append(f"market_type = CAST(:market_type AS {_qualified_table('market_type_enum')})")
-            params["market_type"] = market_type
+            where_clauses.append(
+                f'market_type = CAST(:market_type AS '
+                f'{_qualified_table("market_type_enum")})'
+            )
+            params['market_type'] = market_type
 
         statement = text(
             """
@@ -48,10 +53,9 @@ class NewsArticleRawRepository(PostgresRepository):
             FROM {raw_table}
             WHERE {where_sql}
             ORDER BY market_type ASC, published_at DESC NULLS LAST, id ASC
-            """
-            .format(
-                raw_table=_qualified_table("news_article_raw"),
-                where_sql=" AND ".join(where_clauses),
+            """.format(
+                raw_table=_qualified_table('news_article_raw'),
+                where_sql=' AND '.join(where_clauses),
             )
         )
         result = await self.session.execute(statement, params)
@@ -91,10 +95,9 @@ class NewsArticleRawRepository(PostgresRepository):
             )
             ON CONFLICT (provider_name, provider_article_key) DO NOTHING
             RETURNING id
-            """
-            .format(
-                raw_table=_qualified_table("news_article_raw"),
-                market_type_enum=_qualified_table("market_type_enum"),
+            """.format(
+                raw_table=_qualified_table('news_article_raw'),
+                market_type_enum=_qualified_table('market_type_enum'),
             )
         )
 
@@ -103,17 +106,17 @@ class NewsArticleRawRepository(PostgresRepository):
             result = await self.session.execute(
                 statement,
                 {
-                    "provider_name": article.provider_name,
-                    "provider_article_key": article.provider_article_key,
-                    "market_type": article.market_type,
-                    "business_date": article.business_date,
-                    "search_keyword": article.search_keyword,
-                    "title": article.title,
-                    "publisher_name": article.publisher_name,
-                    "published_at": article.published_at,
-                    "origin_link": article.origin_link,
-                    "naver_link": article.naver_link,
-                    "payload_json": json.dumps(article.payload_json),
+                    'provider_name': article.provider_name,
+                    'provider_article_key': article.provider_article_key,
+                    'market_type': article.market_type,
+                    'business_date': article.business_date,
+                    'search_keyword': article.search_keyword,
+                    'title': article.title,
+                    'publisher_name': article.publisher_name,
+                    'published_at': article.published_at,
+                    'origin_link': article.origin_link,
+                    'naver_link': article.naver_link,
+                    'payload_json': json.dumps(article.payload_json),
                 },
             )
             if result.scalar_one_or_none() is not None:
@@ -123,4 +126,4 @@ class NewsArticleRawRepository(PostgresRepository):
         return inserted_count
 
 
-__all__ = ["NewsArticleRawRepository"]
+__all__ = ['NewsArticleRawRepository']

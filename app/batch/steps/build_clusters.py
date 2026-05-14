@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import normalize_title, tokenize_text
@@ -9,15 +9,17 @@ from app.batch.providers.llm_provider import BatchLlmProvider
 from app.batch.steps.base import BatchStep
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
-from app.db.repositories.news_article_processed_repo import NewsArticleProcessedRepository
+from app.db.repositories.news_article_processed_repo import (
+    NewsArticleProcessedRepository,
+)
 from app.db.repositories.news_cluster_write_repo import NewsClusterWriteRepository
 from app.db.repositories.projections import NewsClusterCreateParams
 
 
 class BuildClustersStep(BatchStep):
-    step_code = "BUILD_CLUSTERS"
-    started_message = "Build clusters step started."
-    completed_message = "Build clusters step completed."
+    step_code = 'BUILD_CLUSTERS'
+    started_message = 'Build clusters step started.'
+    completed_message = 'Build clusters step completed.'
 
     async def run(
         self,
@@ -25,27 +27,33 @@ class BuildClustersStep(BatchStep):
         context: BatchExecutionContext,
     ) -> BatchExecutionContext:
         if context.rebuild_page_only:
-            context.log_messages.append("Skipped cluster building because rebuild_page_only=true.")
+            context.log_messages.append(
+                'Skipped cluster building because rebuild_page_only=true.'
+            )
             return context
 
-        session = getattr(repository, "session", None)
+        session = getattr(repository, 'session', None)
         if session is None:
-            context.log_messages.append("Cluster building step is scaffolded.")
+            context.log_messages.append('Cluster building step is scaffolded.')
             return context
 
         processed_repo = NewsArticleProcessedRepository(session)
         cluster_repo = NewsClusterWriteRepository(session)
         llm_provider = BatchLlmProvider()
 
-        processed_articles = await processed_repo.list_by_business_date(context.business_date)
+        processed_articles = await processed_repo.list_by_business_date(
+            context.business_date
+        )
         if not processed_articles:
             await repository.add_event(
                 job_id=context.job_id,
                 step_code=self.step_code,
                 level=EventLevel.WARN.value,
-                message="No processed articles found for clustering.",
+                message='No processed articles found for clustering.',
             )
-            context.log_messages.append("No processed articles were available for clustering.")
+            context.log_messages.append(
+                'No processed articles were available for clustering.'
+            )
             return context
 
         grouped_articles: dict[str, list] = defaultdict(list)
@@ -56,39 +64,45 @@ class BuildClustersStep(BatchStep):
         for market_type, articles in grouped_articles.items():
             market_clusters = (
                 [articles]
-                if (not hasattr(session, "bind") or not llm_provider.is_configured())
+                if (not hasattr(session, 'bind') or not llm_provider.is_configured())
                 else _group_articles(articles)
             )
-            if hasattr(cluster_repo, "list_cluster_ids_for_business_date") and hasattr(
-                cluster_repo, "delete_clusters_by_ids"
+            if hasattr(cluster_repo, 'list_cluster_ids_for_business_date') and hasattr(
+                cluster_repo, 'delete_clusters_by_ids'
             ):
-                existing_cluster_ids = await cluster_repo.list_cluster_ids_for_business_date(
-                    context.business_date,
-                    market_type,
+                existing_cluster_ids = (
+                    await cluster_repo.list_cluster_ids_for_business_date(
+                        context.business_date,
+                        market_type,
+                    )
                 )
                 await cluster_repo.delete_clusters_by_ids(existing_cluster_ids)
             for cluster_rank, cluster_articles in enumerate(market_clusters, start=1):
                 ordered_articles = sorted(
                     cluster_articles,
                     key=lambda article: (
-                        article.published_at or datetime.min.replace(tzinfo=timezone.utc),
+                        article.published_at or datetime.min.replace(tzinfo=UTC),
                         article.processed_article_id,
                     ),
                     reverse=True,
                 )
-                representative = ordered_articles[0]
-                enrichment = await _enrich_cluster(llm_provider, market_type, ordered_articles)
+                ordered_articles[0]
+                enrichment = await _enrich_cluster(
+                    llm_provider, market_type, ordered_articles
+                )
                 cluster = await cluster_repo.create_cluster_bundle(
                     NewsClusterCreateParams(
                         business_date=context.business_date,
                         market_type=market_type,
                         cluster_rank=cluster_rank,
-                        title=enrichment["title"],
-                        summary_short=enrichment["summary_short"],
-                        summary_long=enrichment["summary_long"],
-                        analysis_paragraphs_json=enrichment["analysis_paragraphs"],
-                        tags_json=enrichment["tags"],
-                        representative_article_id=enrichment["representative_article_id"],
+                        title=enrichment['title'],
+                        summary_short=enrichment['summary_short'],
+                        summary_long=enrichment['summary_long'],
+                        analysis_paragraphs_json=enrichment['analysis_paragraphs'],
+                        tags_json=enrichment['tags'],
+                        representative_article_id=enrichment[
+                            'representative_article_id'
+                        ],
                         article_count=len(ordered_articles),
                     ),
                     [article.processed_article_id for article in ordered_articles],
@@ -98,19 +112,20 @@ class BuildClustersStep(BatchStep):
                     job_id=context.job_id,
                     step_code=self.step_code,
                     level=EventLevel.INFO.value,
-                    message="Created clustering bundle.",
+                    message='Created clustering bundle.',
                     context_json={
-                        "marketType": market_type,
-                        "clusterId": cluster.cluster_id,
-                        "clusterRank": cluster_rank,
-                        "articleCount": len(ordered_articles),
+                        'marketType': market_type,
+                        'clusterId': cluster.cluster_id,
+                        'clusterRank': cluster_rank,
+                        'articleCount': len(ordered_articles),
                     },
                 )
             await session.commit()
 
         context.cluster_count += created_cluster_count
         context.log_messages.append(
-            f"Created {created_cluster_count} clustering scaffold bundle(s) from {len(processed_articles)} processed articles."
+            f'Created {created_cluster_count} clustering scaffold bundle(s) '
+            f'from {len(processed_articles)} processed articles.'
         )
         return context
 
@@ -118,7 +133,7 @@ class BuildClustersStep(BatchStep):
 def _derive_tags(titles: list[str]) -> list[str]:
     tokens: list[str] = []
     for title in titles:
-        for token in title.replace("/", " ").replace("|", " ").split():
+        for token in title.replace('/', ' ').replace('|', ' ').split():
             cleaned = token.strip()
             if len(cleaned) < 2:
                 continue
@@ -148,52 +163,67 @@ def _group_articles(articles: list) -> list[list]:
     return groups
 
 
-async def _enrich_cluster(llm_provider: BatchLlmProvider, market_type: str, articles: list) -> dict:
+async def _enrich_cluster(
+    llm_provider: BatchLlmProvider, market_type: str, articles: list
+) -> dict:
     representative = articles[0]
     payload = [
         {
-            "processedArticleId": article.processed_article_id,
-            "title": article.canonical_title,
-            "publisherName": article.publisher_name,
-            "publishedAt": article.published_at.isoformat() if article.published_at else None,
-            "summary": article.source_summary,
-            "excerpt": article.article_body_excerpt,
+            'processedArticleId': article.processed_article_id,
+            'title': article.canonical_title,
+            'publisherName': article.publisher_name,
+            'publishedAt': article.published_at.isoformat()
+            if article.published_at
+            else None,
+            'summary': article.source_summary,
+            'excerpt': article.article_body_excerpt,
         }
         for article in articles
     ]
     fallback = {
-        "title": normalize_title(representative.canonical_title),
-        "summary_short": representative.source_summary or representative.article_body_excerpt,
-        "summary_long": " / ".join(
-            [article.source_summary for article in articles if article.source_summary][:3]
+        'title': normalize_title(representative.canonical_title),
+        'summary_short': representative.source_summary
+        or representative.article_body_excerpt,
+        'summary_long': ' / '.join(
+            [article.source_summary for article in articles if article.source_summary][
+                :3
+            ]
         )
         or representative.article_body_excerpt,
-        "tags": _derive_tags([article.canonical_title for article in articles]),
-        "analysis_paragraphs": [
+        'tags': _derive_tags([article.canonical_title for article in articles]),
+        'analysis_paragraphs': [
             value
-            for value in [article.source_summary or article.article_body_excerpt for article in articles[:3]]
+            for value in [
+                article.source_summary or article.article_body_excerpt
+                for article in articles[:3]
+            ]
             if value
         ],
-        "representative_article_id": representative.processed_article_id,
+        'representative_article_id': representative.processed_article_id,
     }
     if not llm_provider.is_configured():
         return fallback
     try:
-        result = await llm_provider.enrich_cluster(market_type=market_type, articles=payload)
+        result = await llm_provider.enrich_cluster(
+            market_type=market_type, articles=payload
+        )
     except Exception:
         return fallback
 
-    representative_index = int(result.get("representative_article_index", 0) or 0)
+    representative_index = int(result.get('representative_article_index', 0) or 0)
     if representative_index < 0 or representative_index >= len(articles):
         representative_index = 0
     return {
-        "title": result.get("title") or fallback["title"],
-        "summary_short": result.get("summary_short") or fallback["summary_short"],
-        "summary_long": result.get("summary_long") or fallback["summary_long"],
-        "tags": result.get("tags") or fallback["tags"],
-        "analysis_paragraphs": result.get("analysis_paragraphs") or fallback["analysis_paragraphs"],
-        "representative_article_id": articles[representative_index].processed_article_id,
+        'title': result.get('title') or fallback['title'],
+        'summary_short': result.get('summary_short') or fallback['summary_short'],
+        'summary_long': result.get('summary_long') or fallback['summary_long'],
+        'tags': result.get('tags') or fallback['tags'],
+        'analysis_paragraphs': result.get('analysis_paragraphs')
+        or fallback['analysis_paragraphs'],
+        'representative_article_id': articles[
+            representative_index
+        ].processed_article_id,
     }
 
 
-__all__ = ["BuildClustersStep"]
+__all__ = ['BuildClustersStep']

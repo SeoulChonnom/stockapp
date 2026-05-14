@@ -9,7 +9,7 @@ from app.core.settings import get_settings
 
 
 def _qualified_table(table_name: str) -> str:
-    return f"{get_settings().database_schema}.{table_name}"
+    return f'{get_settings().database_schema}.{table_name}'
 
 
 class ClusterRepository:
@@ -17,7 +17,9 @@ class ClusterRepository:
         self.session = session
 
     async def get_cluster_by_uid(self, cluster_uid: str | UUID) -> dict | None:
-        cluster_uid_value = cluster_uid if isinstance(cluster_uid, UUID) else UUID(str(cluster_uid))
+        cluster_uid_value = (
+            cluster_uid if isinstance(cluster_uid, UUID) else UUID(str(cluster_uid))
+        )
         statement = text(
             """
             SELECT
@@ -36,11 +38,8 @@ class ClusterRepository:
                 updated_at AS last_updated_at
             FROM {cluster_table}
             WHERE cluster_uid = :cluster_uid
-            """
-            .format(cluster_table=_qualified_table("news_cluster"))
-        ).bindparams(
-            bindparam("cluster_uid", cluster_uid_value)
-        )
+            """.format(cluster_table=_qualified_table('news_cluster'))
+        ).bindparams(bindparam('cluster_uid', cluster_uid_value))
         result = await self.session.execute(statement)
         row = self._first_row(result)
         return self._row_to_dict(row) if row else None
@@ -55,11 +54,8 @@ class ClusterRepository:
             FROM {cluster_article_table}
             WHERE cluster_id = :cluster_id
             ORDER BY article_rank ASC, processed_article_id ASC
-            """
-            .format(cluster_article_table=_qualified_table("news_cluster_article"))
-        ).bindparams(
-            bindparam("cluster_id", cluster_id)
-        )
+            """.format(cluster_article_table=_qualified_table('news_cluster_article'))
+        ).bindparams(bindparam('cluster_id', cluster_id))
         result = await self.session.execute(statement)
         return [self._row_to_dict(row) for row in result.all()]
 
@@ -69,11 +65,14 @@ class ClusterRepository:
         *,
         market_type: str | None = None,
     ) -> list[dict]:
-        where_clauses = ["c.business_date = :business_date"]
-        params: dict[str, object] = {"business_date": business_date}
+        where_clauses = ['c.business_date = :business_date']
+        params: dict[str, object] = {'business_date': business_date}
         if market_type is not None:
-            where_clauses.append(f"c.market_type = CAST(:market_type AS {_qualified_table('market_type_enum')})")
-            params["market_type"] = market_type
+            where_clauses.append(
+                f'c.market_type = CAST(:market_type AS '
+                f'{_qualified_table("market_type_enum")})'
+            )
+            params['market_type'] = market_type
         statement = text(
             """
             SELECT
@@ -101,11 +100,10 @@ class ClusterRepository:
               ON p.id = c.representative_article_id
             WHERE {where_sql}
             ORDER BY c.market_type ASC, c.cluster_rank ASC
-            """
-            .format(
-                cluster_table=_qualified_table("news_cluster"),
-                processed_article_table=_qualified_table("news_article_processed"),
-                where_sql=" AND ".join(where_clauses),
+            """.format(
+                cluster_table=_qualified_table('news_cluster'),
+                processed_article_table=_qualified_table('news_article_processed'),
+                where_sql=' AND '.join(where_clauses),
             )
         )
         result = await self.session.execute(statement, params)
@@ -132,14 +130,13 @@ class ClusterRepository:
             FROM {processed_article_table}
             WHERE id IN :article_ids
             ORDER BY id ASC
-            """
-            .format(processed_article_table=_qualified_table("news_article_processed"))
-        ).bindparams(
-            bindparam("article_ids", article_ids, expanding=True)
-        )
+            """.format(
+                processed_article_table=_qualified_table('news_article_processed')
+            )
+        ).bindparams(bindparam('article_ids', article_ids, expanding=True))
         result = await self.session.execute(statement)
         rows = [self._row_to_dict(row) for row in result.all()]
-        by_id = {row["id"]: row for row in rows}
+        by_id = {row['id']: row for row in rows}
         return [by_id[article_id] for article_id in article_ids if article_id in by_id]
 
     async def list_cluster_article_links_by_business_date(
@@ -148,11 +145,14 @@ class ClusterRepository:
         *,
         market_type: str | None = None,
     ) -> list[dict]:
-        where_clauses = ["c.business_date = :business_date"]
-        params: dict[str, object] = {"business_date": business_date}
+        where_clauses = ['c.business_date = :business_date']
+        params: dict[str, object] = {'business_date': business_date}
         if market_type is not None:
-            where_clauses.append(f"c.market_type = CAST(:market_type AS {_qualified_table('market_type_enum')})")
-            params["market_type"] = market_type
+            where_clauses.append(
+                f'c.market_type = CAST(:market_type AS '
+                f'{_qualified_table("market_type_enum")})'
+            )
+            params['market_type'] = market_type
         statement = text(
             """
             SELECT
@@ -180,12 +180,11 @@ class ClusterRepository:
                 ca.article_rank ASC,
                 p.published_at DESC,
                 p.id ASC
-            """
-            .format(
-                cluster_table=_qualified_table("news_cluster"),
-                cluster_article_table=_qualified_table("news_cluster_article"),
-                processed_article_table=_qualified_table("news_article_processed"),
-                where_sql=" AND ".join(where_clauses),
+            """.format(
+                cluster_table=_qualified_table('news_cluster'),
+                cluster_article_table=_qualified_table('news_cluster_article'),
+                processed_article_table=_qualified_table('news_article_processed'),
+                where_sql=' AND '.join(where_clauses),
             )
         )
         result = await self.session.execute(statement, params)
@@ -193,17 +192,17 @@ class ClusterRepository:
 
     @staticmethod
     def _row_to_dict(row: object) -> dict:
-        mapping = getattr(row, "_mapping", None)
+        mapping = getattr(row, '_mapping', None)
         if mapping is not None:
             return dict(mapping)
         return dict(row)  # type: ignore[arg-type]
 
     @staticmethod
     def _first_row(result: object) -> object | None:
-        if hasattr(result, "one_or_none"):
+        if hasattr(result, 'one_or_none'):
             return result.one_or_none()  # type: ignore[no-any-return]
         rows = result.all()  # type: ignore[no-any-return]
         return rows[0] if rows else None
 
 
-__all__ = ["ClusterRepository"]
+__all__ = ['ClusterRepository']

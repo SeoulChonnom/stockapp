@@ -6,9 +6,9 @@ from app.db.repositories.batch_job_repo import BatchJobRepository
 
 
 class BatchStep:
-    step_code = "BASE_STEP"
-    started_message = "Step started."
-    completed_message = "Step completed."
+    step_code = 'BASE_STEP'
+    started_message = 'Step started.'
+    completed_message = 'Step completed.'
 
     async def execute(
         self,
@@ -39,4 +39,4 @@ class BatchStep:
         return context
 
 
-__all__ = ["BatchStep"]
+__all__ = ['BatchStep']

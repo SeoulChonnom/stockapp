@@ -1,23 +1,26 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from html import unescape
-import re
 
 import certifi
 import httpx
 
 from app.core.settings import Settings, get_settings
 from app.core.timezone import KST
-from app.db.repositories.projections import NewsArticleRawCreateParams, NewsSearchKeywordRecord
+from app.db.repositories.projections import (
+    NewsArticleRawCreateParams,
+    NewsSearchKeywordRecord,
+)
 
-NAVER_NEWS_PROVIDER_NAME = "NAVER_NEWS"
+NAVER_NEWS_PROVIDER_NAME = 'NAVER_NEWS'
 _NAVER_MAX_START = 1000
 _NAVER_PAGE_SIZE = 100
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_HTML_TAG_RE = re.compile(r'<[^>]+>')
 
 
 @dataclass(slots=True)
@@ -32,7 +35,9 @@ class NaverNewsProvider:
         self._settings = settings or get_settings()
 
     def is_configured(self) -> bool:
-        return bool(self._settings.naver_client_id and self._settings.naver_client_secret)
+        return bool(
+            self._settings.naver_client_id and self._settings.naver_client_secret
+        )
 
     async def collect_for_keyword(
         self,
@@ -41,7 +46,7 @@ class NaverNewsProvider:
         business_date: date,
     ) -> NaverCollectedKeywordResult:
         if not self.is_configured():
-            raise RuntimeError("Naver news API credentials are not configured.")
+            raise RuntimeError('Naver news API credentials are not configured.')
 
         fetched_count = 0
         candidate_count = 0
@@ -50,8 +55,10 @@ class NaverNewsProvider:
         async with self._build_client() as client:
             start = 1
             while start <= _NAVER_MAX_START:
-                payload = await self._fetch_page(client=client, query=keyword_record.keyword, start=start)
-                items = payload.get("items", [])
+                payload = await self._fetch_page(
+                    client=client, query=keyword_record.keyword, start=start
+                )
+                items = payload.get('items', [])
                 if not items:
                     break
 
@@ -90,14 +97,14 @@ class NaverNewsProvider:
         response = await client.get(
             self._settings.naver_news_base_url,
             params={
-                "query": query,
-                "display": _NAVER_PAGE_SIZE,
-                "start": start,
-                "sort": "date",
+                'query': query,
+                'display': _NAVER_PAGE_SIZE,
+                'start': start,
+                'sort': 'date',
             },
             headers={
-                "X-Naver-Client-Id": self._settings.naver_client_id or "",
-                "X-Naver-Client-Secret": self._settings.naver_client_secret or "",
+                'X-Naver-Client-Id': self._settings.naver_client_id or '',
+                'X-Naver-Client-Secret': self._settings.naver_client_secret or '',
             },
         )
         response.raise_for_status()
@@ -114,7 +121,7 @@ class NaverNewsProvider:
         should_stop = False
 
         for item in items:
-            published_at = self._parse_pub_date(item.get("pubDate"))
+            published_at = self._parse_pub_date(item.get('pubDate'))
             if published_at is None:
                 continue
 
@@ -128,15 +135,17 @@ class NaverNewsProvider:
             matched_articles.append(
                 NewsArticleRawCreateParams(
                     provider_name=keyword_record.provider_name,
-                    provider_article_key=self._build_provider_article_key(item, published_at),
+                    provider_article_key=self._build_provider_article_key(
+                        item, published_at
+                    ),
                     market_type=keyword_record.market_type,
                     business_date=business_date,
                     search_keyword=keyword_record.keyword,
-                    title=self._clean_html(item.get("title")),
+                    title=self._clean_html(item.get('title')),
                     publisher_name=None,
                     published_at=published_at,
-                    origin_link=item.get("originallink"),
-                    naver_link=item.get("link"),
+                    origin_link=item.get('originallink'),
+                    naver_link=item.get('link'),
                     payload_json=item,
                 )
             )
@@ -145,10 +154,10 @@ class NaverNewsProvider:
 
     @staticmethod
     def _build_provider_article_key(item: dict, published_at: datetime) -> str:
-        origin_link = item.get("originallink") or ""
-        naver_link = item.get("link") or ""
-        title = item.get("title") or ""
-        fingerprint = "|".join(
+        origin_link = item.get('originallink') or ''
+        naver_link = item.get('link') or ''
+        title = item.get('title') or ''
+        fingerprint = '|'.join(
             [
                 origin_link.strip(),
                 naver_link.strip(),
@@ -156,13 +165,13 @@ class NaverNewsProvider:
                 published_at.isoformat(),
             ]
         )
-        return sha256(fingerprint.encode("utf-8")).hexdigest()
+        return sha256(fingerprint.encode('utf-8')).hexdigest()
 
     @staticmethod
     def _clean_html(value: str | None) -> str:
         if not value:
-            return ""
-        return unescape(_HTML_TAG_RE.sub("", value)).strip()
+            return ''
+        return unescape(_HTML_TAG_RE.sub('', value)).strip()
 
     @staticmethod
     def _parse_pub_date(value: str | None) -> datetime | None:
@@ -170,11 +179,15 @@ class NaverNewsProvider:
             return None
         try:
             parsed = parsedate_to_datetime(value)
-        except (TypeError, ValueError, IndexError):
+        except TypeError, ValueError, IndexError:
             return None
         if parsed.tzinfo is None:
             return None
         return parsed
 
 
-__all__ = ["NAVER_NEWS_PROVIDER_NAME", "NaverCollectedKeywordResult", "NaverNewsProvider"]
+__all__ = [
+    'NAVER_NEWS_PROVIDER_NAME',
+    'NaverCollectedKeywordResult',
+    'NaverNewsProvider',
+]

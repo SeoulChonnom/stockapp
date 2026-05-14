@@ -1,1 +1,1 @@
-__all__ = ["assembler", "router", "service"]
+__all__ = ['assembler', 'router', 'service']

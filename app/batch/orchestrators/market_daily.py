@@ -38,7 +38,7 @@ class MarketDailyBatchOrchestrator:
             try:
                 job = await repository.get_job_by_id(job_id)
                 if job is None:
-                    raise RuntimeError(f"Batch job {job_id} was not found.")
+                    raise RuntimeError(f'Batch job {job_id} was not found.')
                 context = BatchExecutionContext(
                     job_id=job.job_id,
                     business_date=job.business_date,
@@ -47,26 +47,26 @@ class MarketDailyBatchOrchestrator:
                 )
                 await repository.add_event(
                     job_id=job_id,
-                    step_code="ORCHESTRATE",
+                    step_code='ORCHESTRATE',
                     level=EventLevel.INFO.value,
-                    message="Market daily batch orchestrator started.",
+                    message='Market daily batch orchestrator started.',
                 )
                 for step in self._steps:
                     context = await step.execute(repository, context)
             except Exception as exc:
                 await repository.add_event(
                     job_id=job_id,
-                    step_code="ORCHESTRATE",
+                    step_code='ORCHESTRATE',
                     level=EventLevel.ERROR.value,
-                    message="Market daily batch orchestrator failed.",
-                    context_json={"error": str(exc)},
+                    message='Market daily batch orchestrator failed.',
+                    context_json={'error': str(exc)},
                 )
                 await repository.mark_job_failed(
                     job_id=job_id,
-                    error_code="INTERNAL_BATCH_ERROR",
-                    error_message="배치 오케스트레이터 실행 중 오류가 발생했습니다.",
+                    error_code='INTERNAL_BATCH_ERROR',
+                    error_message='배치 오케스트레이터 실행 중 오류가 발생했습니다.',
                 )
                 raise
 
 
-__all__ = ["MarketDailyBatchOrchestrator"]
+__all__ = ['MarketDailyBatchOrchestrator']

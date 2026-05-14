@@ -77,11 +77,11 @@ class BatchJobDetailResponse(BaseModel):
 
 
 __all__ = [
-    "BatchJobDetailResponse",
-    "BatchJobListItemResponse",
-    "BatchJobListResponse",
-    "BatchJobSummaryResponse",
-    "BatchJobsPaginationResponse",
-    "BatchRunRequest",
-    "BatchRunResponse",
+    'BatchJobDetailResponse',
+    'BatchJobListItemResponse',
+    'BatchJobListResponse',
+    'BatchJobSummaryResponse',
+    'BatchJobsPaginationResponse',
+    'BatchRunRequest',
+    'BatchRunResponse',
 ]

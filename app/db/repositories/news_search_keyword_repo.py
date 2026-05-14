@@ -3,9 +3,8 @@ from __future__ import annotations
 from sqlalchemy import bindparam, text
 
 from app.core.settings import get_settings
-
-from .base import PostgresRepository
-from .projections import (
+from app.db.repositories.base import PostgresRepository
+from app.db.repositories.projections import (
     NewsSearchKeywordCreateParams,
     NewsSearchKeywordRecord,
     NewsSearchKeywordUpdateParams,
@@ -13,11 +12,13 @@ from .projections import (
 
 
 def _qualified_table(table_name: str) -> str:
-    return f"{get_settings().database_schema}.{table_name}"
+    return f'{get_settings().database_schema}.{table_name}'
 
 
 class NewsSearchKeywordRepository(PostgresRepository):
-    async def get_keyword_by_id(self, keyword_id: int) -> NewsSearchKeywordRecord | None:
+    async def get_keyword_by_id(
+        self, keyword_id: int
+    ) -> NewsSearchKeywordRecord | None:
         statement = text(
             """
             SELECT
@@ -31,9 +32,8 @@ class NewsSearchKeywordRepository(PostgresRepository):
                 updated_at
             FROM {keyword_table}
             WHERE id = :keyword_id
-            """
-            .format(keyword_table=_qualified_table("news_search_keyword"))
-        ).bindparams(bindparam("keyword_id", keyword_id))
+            """.format(keyword_table=_qualified_table('news_search_keyword'))
+        ).bindparams(bindparam('keyword_id', keyword_id))
         result = await self.session.execute(statement)
         row = result.mappings().one_or_none()
         return self._model_from_mapping(NewsSearchKeywordRecord, row) if row else None
@@ -49,18 +49,21 @@ class NewsSearchKeywordRepository(PostgresRepository):
         params: dict[str, object] = {}
 
         if provider_name is not None:
-            where_clauses.append("provider_name = :provider_name")
-            params["provider_name"] = provider_name
+            where_clauses.append('provider_name = :provider_name')
+            params['provider_name'] = provider_name
         if market_type is not None:
-            where_clauses.append(f"market_type = CAST(:market_type AS {_qualified_table('market_type_enum')})")
-            params["market_type"] = market_type
+            where_clauses.append(
+                f'market_type = CAST(:market_type AS '
+                f'{_qualified_table("market_type_enum")})'
+            )
+            params['market_type'] = market_type
         if is_active is not None:
-            where_clauses.append("is_active = :is_active")
-            params["is_active"] = is_active
+            where_clauses.append('is_active = :is_active')
+            params['is_active'] = is_active
 
-        where_sql = ""
+        where_sql = ''
         if where_clauses:
-            where_sql = "WHERE " + " AND ".join(where_clauses)
+            where_sql = 'WHERE ' + ' AND '.join(where_clauses)
 
         statement = text(
             """
@@ -76,14 +79,15 @@ class NewsSearchKeywordRepository(PostgresRepository):
             FROM {keyword_table}
             {where_sql}
             ORDER BY provider_name ASC, market_type ASC, priority ASC, id ASC
-            """
-            .format(
-                keyword_table=_qualified_table("news_search_keyword"),
+            """.format(
+                keyword_table=_qualified_table('news_search_keyword'),
                 where_sql=where_sql,
             )
         )
         result = await self.session.execute(statement, params)
-        return self._models_from_mappings(NewsSearchKeywordRecord, result.mappings().all())
+        return self._models_from_mappings(
+            NewsSearchKeywordRecord, result.mappings().all()
+        )
 
     async def list_active_keywords(
         self,
@@ -126,20 +130,19 @@ class NewsSearchKeywordRepository(PostgresRepository):
                 priority,
                 created_at,
                 updated_at
-            """
-            .format(
-                keyword_table=_qualified_table("news_search_keyword"),
-                market_type_enum=_qualified_table("market_type_enum"),
+            """.format(
+                keyword_table=_qualified_table('news_search_keyword'),
+                market_type_enum=_qualified_table('market_type_enum'),
             )
         )
         result = await self.session.execute(
             statement,
             {
-                "provider_name": params.provider_name,
-                "market_type": params.market_type,
-                "keyword": params.keyword,
-                "is_active": params.is_active,
-                "priority": params.priority,
+                'provider_name': params.provider_name,
+                'market_type': params.market_type,
+                'keyword': params.keyword,
+                'is_active': params.is_active,
+                'priority': params.priority,
             },
         )
         await self.session.commit()
@@ -170,16 +173,15 @@ class NewsSearchKeywordRepository(PostgresRepository):
                 priority,
                 created_at,
                 updated_at
-            """
-            .format(keyword_table=_qualified_table("news_search_keyword"))
+            """.format(keyword_table=_qualified_table('news_search_keyword'))
         )
         result = await self.session.execute(
             statement,
             {
-                "keyword_id": keyword_id,
-                "keyword": params.keyword,
-                "priority": params.priority,
-                "is_active": params.is_active,
+                'keyword_id': keyword_id,
+                'keyword': params.keyword,
+                'priority': params.priority,
+                'is_active': params.is_active,
             },
         )
         await self.session.commit()
@@ -187,4 +189,4 @@ class NewsSearchKeywordRepository(PostgresRepository):
         return self._model_from_mapping(NewsSearchKeywordRecord, row) if row else None
 
 
-__all__ = ["NewsSearchKeywordRepository"]
+__all__ = ['NewsSearchKeywordRepository']

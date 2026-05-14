@@ -26,4 +26,4 @@ class BatchExecutionContext:
     log_messages: list[str] = field(default_factory=list)
 
 
-__all__ = ["BatchExecutionContext"]
+__all__ = ['BatchExecutionContext']

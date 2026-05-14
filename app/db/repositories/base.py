@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import fields, is_dataclass
-from typing import Any, Mapping, Sequence, TypeVar
+from typing import Any, TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-T = TypeVar("T")
+T = TypeVar('T')
 
 
 class PostgresRepository:
@@ -18,7 +19,9 @@ class PostgresRepository:
             return model_cls(**dict(mapping))  # type: ignore[misc]
 
         allowed_fields = {field.name for field in fields(model_cls)}
-        payload = {key: value for key, value in mapping.items() if key in allowed_fields}
+        payload = {
+            key: value for key, value in mapping.items() if key in allowed_fields
+        }
         return model_cls(**payload)
 
     @classmethod

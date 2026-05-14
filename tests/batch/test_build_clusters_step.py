@@ -6,11 +6,11 @@ import pytest
 
 from tests.support import BUSINESS_DATE, RecordingAsyncSession, load_module
 
-build_clusters_module = load_module("app.batch.steps.build_clusters")
-projections_module = load_module("app.db.repositories.projections")
+build_clusters_module = load_module('app.batch.steps.build_clusters')
+projections_module = load_module('app.db.repositories.projections')
 
 BuildClustersStep = build_clusters_module.BuildClustersStep
-BatchExecutionContext = load_module("app.batch.models").BatchExecutionContext
+BatchExecutionContext = load_module('app.batch.models').BatchExecutionContext
 
 
 @dataclass
@@ -33,34 +33,34 @@ class FakeProcessedRepo:
             projections_module.NewsArticleProcessedRecord(
                 processed_article_id=4001,
                 business_date=BUSINESS_DATE,
-                market_type="US",
-                dedupe_hash="a" * 64,
-                canonical_title="엔비디아 급등에 반도체 강세",
-                publisher_name="매일경제",
+                market_type='US',
+                dedupe_hash='a' * 64,
+                canonical_title='엔비디아 급등에 반도체 강세',
+                publisher_name='매일경제',
                 published_at=None,
-                origin_link="https://example.com/article1",
-                naver_link="https://search.naver.com/article1",
-                source_summary="반도체 업종 강세가 나스닥 상승을 견인했다.",
-                article_body_excerpt="반도체 강세",
+                origin_link='https://example.com/article1',
+                naver_link='https://search.naver.com/article1',
+                source_summary='반도체 업종 강세가 나스닥 상승을 견인했다.',
+                article_body_excerpt='반도체 강세',
                 content_json={},
-                created_at="2026-03-18T06:12:10+00:00",
-                updated_at="2026-03-18T06:12:10+00:00",
+                created_at='2026-03-18T06:12:10+00:00',
+                updated_at='2026-03-18T06:12:10+00:00',
             ),
             projections_module.NewsArticleProcessedRecord(
                 processed_article_id=4002,
                 business_date=BUSINESS_DATE,
-                market_type="US",
-                dedupe_hash="b" * 64,
-                canonical_title="대형 기술주 재평가로 나스닥 반등",
-                publisher_name="한국경제",
+                market_type='US',
+                dedupe_hash='b' * 64,
+                canonical_title='대형 기술주 재평가로 나스닥 반등',
+                publisher_name='한국경제',
                 published_at=None,
-                origin_link="https://example.com/article2",
-                naver_link="https://search.naver.com/article2",
-                source_summary="대형 기술주 매수세가 확대됐다.",
-                article_body_excerpt="기술주 강세",
+                origin_link='https://example.com/article2',
+                naver_link='https://search.naver.com/article2',
+                source_summary='대형 기술주 매수세가 확대됐다.',
+                article_body_excerpt='기술주 강세',
                 content_json={},
-                created_at="2026-03-18T06:12:10+00:00",
-                updated_at="2026-03-18T06:12:10+00:00",
+                created_at='2026-03-18T06:12:10+00:00',
+                updated_at='2026-03-18T06:12:10+00:00',
             ),
         ]
 
@@ -74,7 +74,7 @@ class FakeClusterRepo:
         self.calls.append((params, list(article_ids)))
         return projections_module.ClusterRecord(
             cluster_id=7001,
-            cluster_uid="51f0d9a0-9fc5-4f15-a4f9-62856f128683",
+            cluster_uid='51f0d9a0-9fc5-4f15-a4f9-62856f128683',
             business_date=params.business_date,
             market_type=params.market_type,
             cluster_rank=params.cluster_rank,
@@ -85,8 +85,8 @@ class FakeClusterRepo:
             tags_json=params.tags_json,
             representative_article_id=params.representative_article_id,
             article_count=params.article_count,
-            created_at="2026-03-18T06:12:10+00:00",
-            updated_at="2026-03-18T06:12:10+00:00",
+            created_at='2026-03-18T06:12:10+00:00',
+            updated_at='2026-03-18T06:12:10+00:00',
         )
 
 
@@ -101,8 +101,12 @@ async def test_build_clusters_creates_scaffold_bundle(monkeypatch):
         rebuild_page_only=False,
     )
 
-    monkeypatch.setattr(build_clusters_module, "NewsArticleProcessedRepository", FakeProcessedRepo)
-    monkeypatch.setattr(build_clusters_module, "NewsClusterWriteRepository", FakeClusterRepo)
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsArticleProcessedRepository', FakeProcessedRepo
+    )
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
+    )
 
     step = BuildClustersStep()
     updated_context = await step.run(fake_repository, context)

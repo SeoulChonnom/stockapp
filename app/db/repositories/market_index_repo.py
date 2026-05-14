@@ -5,17 +5,21 @@ from datetime import date
 from sqlalchemy import text
 
 from app.core.settings import get_settings
-
-from .base import PostgresRepository
-from .projections import MarketIndexDailyCreateParams, MarketIndexDailyRecord
+from app.db.repositories.base import PostgresRepository
+from app.db.repositories.projections import (
+    MarketIndexDailyCreateParams,
+    MarketIndexDailyRecord,
+)
 
 
 def _qualified_table(table_name: str) -> str:
-    return f"{get_settings().database_schema}.{table_name}"
+    return f'{get_settings().database_schema}.{table_name}'
 
 
 class MarketIndexRepository(PostgresRepository):
-    async def upsert_index(self, params: MarketIndexDailyCreateParams) -> MarketIndexDailyRecord:
+    async def upsert_index(
+        self, params: MarketIndexDailyCreateParams
+    ) -> MarketIndexDailyRecord:
         statement = text(
             """
             INSERT INTO {index_table} (
@@ -70,26 +74,25 @@ class MarketIndexRepository(PostgresRepository):
                 provider_name,
                 collected_at,
                 created_at
-            """
-            .format(
-                index_table=_qualified_table("market_index_daily"),
-                market_type_enum=_qualified_table("market_type_enum"),
+            """.format(
+                index_table=_qualified_table('market_index_daily'),
+                market_type_enum=_qualified_table('market_type_enum'),
             )
         )
         result = await self.session.execute(
             statement,
             {
-                "business_date": params.business_date,
-                "market_type": params.market_type,
-                "index_code": params.index_code,
-                "index_name": params.index_name,
-                "close_price": params.close_price,
-                "change_value": params.change_value,
-                "change_percent": params.change_percent,
-                "high_price": params.high_price,
-                "low_price": params.low_price,
-                "currency_code": params.currency_code,
-                "provider_name": params.provider_name,
+                'business_date': params.business_date,
+                'market_type': params.market_type,
+                'index_code': params.index_code,
+                'index_name': params.index_name,
+                'close_price': params.close_price,
+                'change_value': params.change_value,
+                'change_percent': params.change_percent,
+                'high_price': params.high_price,
+                'low_price': params.low_price,
+                'currency_code': params.currency_code,
+                'provider_name': params.provider_name,
             },
         )
         row = result.mappings().one()
@@ -119,11 +122,12 @@ class MarketIndexRepository(PostgresRepository):
             FROM {index_table}
             WHERE business_date = :business_date
             ORDER BY market_type ASC, index_code ASC
-            """
-            .format(index_table=_qualified_table("market_index_daily"))
+            """.format(index_table=_qualified_table('market_index_daily'))
         )
-        result = await self.session.execute(statement, {"business_date": business_date})
-        return self._models_from_mappings(MarketIndexDailyRecord, result.mappings().all())
+        result = await self.session.execute(statement, {'business_date': business_date})
+        return self._models_from_mappings(
+            MarketIndexDailyRecord, result.mappings().all()
+        )
 
 
-__all__ = ["MarketIndexRepository"]
+__all__ = ['MarketIndexRepository']

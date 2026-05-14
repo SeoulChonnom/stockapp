@@ -4,7 +4,11 @@ from datetime import date
 
 from app.api.deps import DbSession
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
-from app.schemas.page import ArchiveItemResponse, ArchiveListResponse, PaginationResponse
+from app.schemas.page import (
+    ArchiveItemResponse,
+    ArchiveListResponse,
+    PaginationResponse,
+)
 
 
 class ArchiveService:
@@ -41,4 +45,4 @@ def get_archive_service(session: DbSession) -> ArchiveService:
     return ArchiveService(PageSnapshotRepository(session))
 
 
-__all__ = ["ArchiveService", "get_archive_service"]
+__all__ = ['ArchiveService', 'get_archive_service']

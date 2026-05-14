@@ -10,11 +10,13 @@ from app.db.enums import MarketType
 
 
 class NewsSearchKeyword(Base):
-    __tablename__ = "news_search_keyword"
+    __tablename__ = 'news_search_keyword'
 
     id: Mapped[int] = mapped_column(primary_key=True)
     provider_name: Mapped[str] = mapped_column(Text)
-    market_type: Mapped[MarketType] = mapped_column(Enum(MarketType, name="market_type_enum"))
+    market_type: Mapped[MarketType] = mapped_column(
+        Enum(MarketType, name='market_type_enum')
+    )
     keyword: Mapped[str] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     priority: Mapped[int] = mapped_column(Integer, default=100)
@@ -22,4 +24,4 @@ class NewsSearchKeyword(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
-__all__ = ["NewsSearchKeyword"]
+__all__ = ['NewsSearchKeyword']

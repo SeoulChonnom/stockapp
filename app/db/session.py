@@ -4,7 +4,12 @@ from collections.abc import AsyncIterator
 from functools import lru_cache
 
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.core.settings import get_settings
 
@@ -17,11 +22,11 @@ def get_async_engine() -> AsyncEngine:
         pool_pre_ping=True,
     )
 
-    @event.listens_for(engine.sync_engine, "connect")
+    @event.listens_for(engine.sync_engine, 'connect')
     def _set_search_path(dbapi_connection, _connection_record) -> None:
         cursor = dbapi_connection.cursor()
         try:
-            cursor.execute(f"SET search_path TO {settings.database_schema}, public")
+            cursor.execute(f'SET search_path TO {settings.database_schema}, public')
         finally:
             cursor.close()
 
@@ -44,4 +49,10 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
-__all__ = ["AsyncEngine", "AsyncSession", "get_async_engine", "get_db_session", "get_session_maker"]
+__all__ = [
+    'AsyncEngine',
+    'AsyncSession',
+    'get_async_engine',
+    'get_db_session',
+    'get_session_maker',
+]

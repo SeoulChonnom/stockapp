@@ -14,15 +14,15 @@ router = APIRouter()
 ArchiveServiceDep = Annotated[ArchiveService, Depends(get_archive_service)]
 
 
-@router.get("/archive", response_model=ApiSuccess[ArchiveListResponse])
+@router.get('/archive', response_model=ApiSuccess[ArchiveListResponse])
 async def list_archive(
     _: UserDep,
     service: ArchiveServiceDep,
-    fromDate: Annotated[date | None, Query(alias="fromDate")] = None,
-    toDate: Annotated[date | None, Query(alias="toDate")] = None,
-    status: Annotated[str | None, Query(alias="status")] = None,
-    page: Annotated[int, Query(alias="page", ge=1)] = 1,
-    size: Annotated[int, Query(alias="size", ge=1, le=100)] = 30,
+    fromDate: Annotated[date | None, Query(alias='fromDate')] = None,
+    toDate: Annotated[date | None, Query(alias='toDate')] = None,
+    status: Annotated[str | None, Query(alias='status')] = None,
+    page: Annotated[int, Query(alias='page', ge=1)] = 1,
+    size: Annotated[int, Query(alias='size', ge=1, le=100)] = 30,
 ) -> ApiSuccess[ArchiveListResponse]:
     payload = await service.list_archive(
         from_date=fromDate,
@@ -34,4 +34,4 @@ async def list_archive(
     return ApiSuccess(data=payload)
 
 
-__all__ = ["router"]
+__all__ = ['router']

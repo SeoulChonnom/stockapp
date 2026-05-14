@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel, Field
 
 from app.core.request_context import get_request_id
 
-T = TypeVar("T")
+T = TypeVar('T')
 
 
 class MetaPayload(BaseModel):
@@ -15,7 +15,7 @@ class MetaPayload(BaseModel):
     timestamp: datetime
 
 
-class ApiSuccess(BaseModel, Generic[T]):
+class ApiSuccess[T](BaseModel):
     success: bool = True
     data: T
     meta: MetaPayload = Field(default_factory=lambda: build_meta())
@@ -38,4 +38,5 @@ def build_meta() -> MetaPayload:
         timestamp=datetime.now(tz=UTC),
     )
 
-__all__ = ["ApiError", "ApiErrorDetail", "ApiSuccess", "MetaPayload", "build_meta"]
+
+__all__ = ['ApiError', 'ApiErrorDetail', 'ApiSuccess', 'MetaPayload', 'build_meta']

@@ -9,9 +9,14 @@ def determine_batch_status(context: BatchExecutionContext) -> str:
         return BatchJobStatus.FAILED.value
     if context.page_id is None:
         return BatchJobStatus.FAILED.value
-    if context.partial_message or context.partial_reasons or context.warning_messages or context.fallback_count:
+    if (
+        context.partial_message
+        or context.partial_reasons
+        or context.warning_messages
+        or context.fallback_count
+    ):
         return BatchJobStatus.PARTIAL.value
     return BatchJobStatus.SUCCESS.value
 
 
-__all__ = ["determine_batch_status"]
+__all__ = ['determine_batch_status']

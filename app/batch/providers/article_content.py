@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from html import unescape
-import re
 from urllib.parse import urlparse
 
 import certifi
@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 
 from app.core.settings import Settings, get_settings
 
-_WHITESPACE_RE = re.compile(r"\s+")
+_WHITESPACE_RE = re.compile(r'\s+')
 
 
 @dataclass(slots=True)
@@ -32,7 +32,7 @@ class ArticleContentProvider:
         return httpx.AsyncClient(
             timeout=self._settings.article_crawl_timeout_seconds,
             verify=certifi.where(),
-            headers={"User-Agent": self._settings.article_crawl_user_agent},
+            headers={'User-Agent': self._settings.article_crawl_user_agent},
             follow_redirects=True,
         )
 
@@ -67,44 +67,44 @@ class ArticleContentProvider:
             body_text=fallback_summary,
             body_excerpt=self._excerpt(fallback_summary),
             source_summary=fallback_summary,
-            source_domain=urlparse(origin_link or naver_link or "").netloc or None,
+            source_domain=urlparse(origin_link or naver_link or '').netloc or None,
             fetched_url=origin_link or naver_link,
             fallback_used=True,
         )
 
     @staticmethod
     def _extract_body_text(html: str) -> str | None:
-        soup = BeautifulSoup(html, "html.parser")
+        soup = BeautifulSoup(html, 'html.parser')
         selectors = [
-            "article",
-            "main",
-            "#dic_area",
-            ".article_body",
-            ".article_view",
-            ".news_end",
+            'article',
+            'main',
+            '#dic_area',
+            '.article_body',
+            '.article_view',
+            '.news_end',
         ]
         text_chunks: list[str] = []
         for selector in selectors:
             node = soup.select_one(selector)
             if node is not None:
-                text_chunks = [node.get_text(" ", strip=True)]
+                text_chunks = [node.get_text(' ', strip=True)]
                 break
         if not text_chunks:
             meta_description = soup.select_one("meta[name='description']")
-            if meta_description is not None and meta_description.get("content"):
-                text_chunks = [str(meta_description.get("content"))]
+            if meta_description is not None and meta_description.get('content'):
+                text_chunks = [str(meta_description.get('content'))]
 
-        normalized = _WHITESPACE_RE.sub(" ", unescape(" ".join(text_chunks))).strip()
+        normalized = _WHITESPACE_RE.sub(' ', unescape(' '.join(text_chunks))).strip()
         return normalized or None
 
     @staticmethod
     def _excerpt(text: str | None, *, max_length: int = 280) -> str | None:
         if not text:
             return None
-        normalized = _WHITESPACE_RE.sub(" ", text).strip()
+        normalized = _WHITESPACE_RE.sub(' ', text).strip()
         if len(normalized) <= max_length:
             return normalized
-        return normalized[: max_length - 1].rstrip() + "…"
+        return normalized[: max_length - 1].rstrip() + '…'
 
 
-__all__ = ["ArticleContentProvider", "ArticleContentResult"]
+__all__ = ['ArticleContentProvider', 'ArticleContentResult']

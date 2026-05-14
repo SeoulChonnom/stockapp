@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime, timezone
 
 import pytest
 
 from tests.support import DummyResult, RecordingAsyncSession, load_module
 
-orchestrator_module = load_module("app.batch.orchestrators.market_daily")
-projections_module = load_module("app.db.repositories.projections")
+orchestrator_module = load_module('app.batch.orchestrators.market_daily')
+projections_module = load_module('app.db.repositories.projections')
 
 MarketDailyBatchOrchestrator = orchestrator_module.MarketDailyBatchOrchestrator
 BatchJobRecord = projections_module.BatchJobRecord
@@ -37,13 +37,13 @@ class FakeRepository:
     async def get_job_by_id(self, job_id: int):
         return BatchJobRecord(
             job_id=job_id,
-            job_name="market_daily_batch",
+            job_name='market_daily_batch',
             business_date=date(2026, 3, 17),
-            status="RUNNING",
-            started_at=datetime(2026, 3, 18, 6, 10, tzinfo=timezone.utc),
+            status='RUNNING',
+            started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
             ended_at=None,
             duration_seconds=None,
-            market_scope="GLOBAL",
+            market_scope='GLOBAL',
             raw_news_count=0,
             processed_news_count=0,
             cluster_count=0,
@@ -62,7 +62,7 @@ class FakeRepository:
         self.completed_statuses.append(status)
 
     async def mark_job_failed(self, *, error_code: str, error_message: str):
-        self.events.append(("FAILED", f"{error_code}:{error_message}"))
+        self.events.append(('FAILED', f'{error_code}:{error_message}'))
 
 
 @pytest.mark.anyio
@@ -75,7 +75,7 @@ async def test_market_daily_orchestrator_runs_all_scaffold_steps(monkeypatch):
 
     monkeypatch.setattr(
         orchestrator_module,
-        "BatchJobRepository",
+        'BatchJobRepository',
         lambda session: fake_repository,
     )
     orchestrator = MarketDailyBatchOrchestrator(session_maker=FakeSessionMaker())
@@ -83,12 +83,12 @@ async def test_market_daily_orchestrator_runs_all_scaffold_steps(monkeypatch):
     await orchestrator.run(1001)
 
     step_codes = [step_code for step_code, _message in fake_repository.events]
-    assert step_codes[0] == "ORCHESTRATE"
-    assert "COLLECT_NEWS" in step_codes
-    assert "DEDUPE_ARTICLES" in step_codes
-    assert "BUILD_CLUSTERS" in step_codes
-    assert "COLLECT_MARKET_INDICES" in step_codes
-    assert "GENERATE_AI_SUMMARIES" in step_codes
-    assert "BUILD_PAGE_SNAPSHOT" in step_codes
-    assert "FINALIZE_JOB" in step_codes
-    assert fake_repository.completed_statuses == ["SUCCESS"]
+    assert step_codes[0] == 'ORCHESTRATE'
+    assert 'COLLECT_NEWS' in step_codes
+    assert 'DEDUPE_ARTICLES' in step_codes
+    assert 'BUILD_CLUSTERS' in step_codes
+    assert 'COLLECT_MARKET_INDICES' in step_codes
+    assert 'GENERATE_AI_SUMMARIES' in step_codes
+    assert 'BUILD_PAGE_SNAPSHOT' in step_codes
+    assert 'FINALIZE_JOB' in step_codes
+    assert fake_repository.completed_statuses == ['SUCCESS']

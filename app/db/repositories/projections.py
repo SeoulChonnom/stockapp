@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Generic, Sequence, TypeVar
+from typing import Any, TypeVar
 from uuid import UUID
 
-T = TypeVar("T")
+T = TypeVar('T')
 
 
 @dataclass(slots=True)
-class PagedResult(Generic[T]):
+class PagedResult[T]:
     items: Sequence[T]
     page: int
     size: int

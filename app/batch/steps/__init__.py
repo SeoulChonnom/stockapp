@@ -8,12 +8,12 @@ from app.batch.steps.finalize_job import FinalizeJobStep
 from app.batch.steps.generate_ai_summaries import GenerateAiSummariesStep
 
 __all__ = [
-    "BuildClustersStep",
-    "BuildPageSnapshotStep",
-    "CollectMarketIndicesStep",
-    "CollectNewsStep",
-    "CreateJobStep",
-    "DedupeArticlesStep",
-    "FinalizeJobStep",
-    "GenerateAiSummariesStep",
+    'BuildClustersStep',
+    'BuildPageSnapshotStep',
+    'CollectMarketIndicesStep',
+    'CollectNewsStep',
+    'CreateJobStep',
+    'DedupeArticlesStep',
+    'FinalizeJobStep',
+    'GenerateAiSummariesStep',
 ]

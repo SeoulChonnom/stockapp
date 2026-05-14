@@ -36,7 +36,7 @@ class ClusterDetailResponse(BaseModel):
 
 
 __all__ = [
-    "ClusterArticleResponse",
-    "ClusterDetailResponse",
-    "ClusterSummaryResponse",
+    'ClusterArticleResponse',
+    'ClusterDetailResponse',
+    'ClusterSummaryResponse',
 ]

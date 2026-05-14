@@ -11,16 +11,16 @@ from app.db.enums import AiSummaryStatus, AiSummaryType, MarketType
 
 
 class AiSummary(Base):
-    __tablename__ = "ai_summary"
+    __tablename__ = 'ai_summary'
 
     id: Mapped[int] = mapped_column(primary_key=True)
     batch_job_id: Mapped[int] = mapped_column(Integer)
     summary_type: Mapped[AiSummaryType] = mapped_column(
-        Enum(AiSummaryType, name="ai_summary_type_enum")
+        Enum(AiSummaryType, name='ai_summary_type_enum')
     )
     business_date: Mapped[date] = mapped_column(Date)
     market_type: Mapped[MarketType | None] = mapped_column(
-        Enum(MarketType, name="market_type_enum")
+        Enum(MarketType, name='market_type_enum')
     )
     cluster_id: Mapped[int | None] = mapped_column(Integer)
     title: Mapped[str | None] = mapped_column(Text)
@@ -29,7 +29,7 @@ class AiSummary(Base):
     model_name: Mapped[str | None] = mapped_column(Text)
     prompt_version: Mapped[str | None] = mapped_column(Text)
     status: Mapped[AiSummaryStatus] = mapped_column(
-        Enum(AiSummaryStatus, name="ai_summary_status_enum")
+        Enum(AiSummaryStatus, name='ai_summary_status_enum')
     )
     fallback_used: Mapped[bool]
     error_message: Mapped[str | None] = mapped_column(Text)
@@ -37,4 +37,4 @@ class AiSummary(Base):
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
-__all__ = ["AiSummary"]
+__all__ = ['AiSummary']

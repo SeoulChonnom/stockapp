@@ -112,16 +112,16 @@ class ArchiveListResponse(BaseModel):
 
 
 __all__ = [
-    "ArchiveItemResponse",
-    "ArchiveListResponse",
-    "ArticleLinkResponse",
-    "ClusterCardResponse",
-    "DailyPageResponse",
-    "IndexCardResponse",
-    "MarketAnalysisResponse",
-    "MarketMetadataResponse",
-    "MarketSectionResponse",
-    "PageMetadataResponse",
-    "PaginationResponse",
-    "RepresentativeArticleResponse",
+    'ArchiveItemResponse',
+    'ArchiveListResponse',
+    'ArticleLinkResponse',
+    'ClusterCardResponse',
+    'DailyPageResponse',
+    'IndexCardResponse',
+    'MarketAnalysisResponse',
+    'MarketMetadataResponse',
+    'MarketSectionResponse',
+    'PageMetadataResponse',
+    'PaginationResponse',
+    'RepresentativeArticleResponse',
 ]

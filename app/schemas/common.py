@@ -4,10 +4,10 @@ Meta = MetaPayload
 SuccessEnvelope = ApiSuccess
 
 __all__ = [
-    "ApiError",
-    "ApiErrorDetail",
-    "ApiSuccess",
-    "Meta",
-    "MetaPayload",
-    "SuccessEnvelope",
+    'ApiError',
+    'ApiErrorDetail',
+    'ApiSuccess',
+    'Meta',
+    'MetaPayload',
+    'SuccessEnvelope',
 ]

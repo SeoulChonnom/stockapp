@@ -9,7 +9,7 @@ from app.core.settings import get_settings
 
 
 def _qualified_table(table_name: str) -> str:
-    return f"{get_settings().database_schema}.{table_name}"
+    return f'{get_settings().database_schema}.{table_name}'
 
 
 class PageSnapshotRepository:
@@ -36,8 +36,7 @@ class PageSnapshotRepository:
             from {page_table}
             order by business_date desc, version_no desc
             limit 1
-            """
-            .format(page_table=_qualified_table("market_daily_page"))
+            """.format(page_table=_qualified_table('market_daily_page'))
         )
         result = await self.session.execute(statement)
         row = self._first_row(result)
@@ -69,11 +68,8 @@ class PageSnapshotRepository:
                 where business_date = :business_date
                 order by version_no desc
                 limit 1
-                """
-                .format(page_table=_qualified_table("market_daily_page"))
-            ).bindparams(
-                bindparam("business_date", business_date)
-            )
+                """.format(page_table=_qualified_table('market_daily_page'))
+            ).bindparams(bindparam('business_date', business_date))
         else:
             statement = text(
                 """
@@ -96,11 +92,10 @@ class PageSnapshotRepository:
                   and version_no = :version_no
                 order by version_no desc
                 limit 1
-                """
-                .format(page_table=_qualified_table("market_daily_page"))
+                """.format(page_table=_qualified_table('market_daily_page'))
             ).bindparams(
-                bindparam("business_date", business_date),
-                bindparam("version_no", version_no),
+                bindparam('business_date', business_date),
+                bindparam('version_no', version_no),
             )
         result = await self.session.execute(statement)
         row = self._first_row(result)
@@ -125,11 +120,8 @@ class PageSnapshotRepository:
                 metadata_json
             FROM {page_table}
             WHERE id = :page_id
-            """
-            .format(page_table=_qualified_table("market_daily_page"))
-        ).bindparams(
-            bindparam("page_id", page_id)
-        )
+            """.format(page_table=_qualified_table('market_daily_page'))
+        ).bindparams(bindparam('page_id', page_id))
         result = await self.session.execute(statement)
         row = self._first_row(result)
         return self._row_to_dict(row) if row else None
@@ -157,11 +149,8 @@ class PageSnapshotRepository:
             FROM {page_market_table}
             WHERE page_id = :page_id
             ORDER BY display_order
-            """
-            .format(page_market_table=_qualified_table("market_daily_page_market"))
-        ).bindparams(
-            bindparam("page_id", page_id)
-        )
+            """.format(page_market_table=_qualified_table('market_daily_page_market'))
+        ).bindparams(bindparam('page_id', page_id))
         result = await self.session.execute(statement)
         return [self._row_to_dict(row) for row in result.all()]
 
@@ -185,11 +174,12 @@ class PageSnapshotRepository:
             FROM {page_market_index_table}
             WHERE page_market_id IN :page_market_ids
             ORDER BY page_market_id, display_order
-            """
-            .format(
-                page_market_index_table=_qualified_table("market_daily_page_market_index")
+            """.format(
+                page_market_index_table=_qualified_table(
+                    'market_daily_page_market_index'
+                )
             )
-        ).bindparams(bindparam("page_market_ids", page_market_ids, expanding=True))
+        ).bindparams(bindparam('page_market_ids', page_market_ids, expanding=True))
         result = await self.session.execute(statement)
         return [self._row_to_dict(row) for row in result.all()]
 
@@ -217,11 +207,12 @@ class PageSnapshotRepository:
             FROM {page_market_cluster_table}
             WHERE page_market_id IN :page_market_ids
             ORDER BY page_market_id, display_order
-            """
-            .format(
-                page_market_cluster_table=_qualified_table("market_daily_page_market_cluster")
+            """.format(
+                page_market_cluster_table=_qualified_table(
+                    'market_daily_page_market_cluster'
+                )
             )
-        ).bindparams(bindparam("page_market_ids", page_market_ids, expanding=True))
+        ).bindparams(bindparam('page_market_ids', page_market_ids, expanding=True))
         result = await self.session.execute(statement)
         return [self._row_to_dict(row) for row in result.all()]
 
@@ -246,11 +237,12 @@ class PageSnapshotRepository:
             FROM {page_article_link_table}
             WHERE page_market_id IN :page_market_ids
             ORDER BY page_market_id, display_order
-            """
-            .format(
-                page_article_link_table=_qualified_table("market_daily_page_article_link")
+            """.format(
+                page_article_link_table=_qualified_table(
+                    'market_daily_page_article_link'
+                )
             )
-        ).bindparams(bindparam("page_market_ids", page_market_ids, expanding=True))
+        ).bindparams(bindparam('page_market_ids', page_market_ids, expanding=True))
         result = await self.session.execute(statement)
         return [self._row_to_dict(row) for row in result.all()]
 
@@ -280,15 +272,14 @@ class PageSnapshotRepository:
             {where_clause}
             ORDER BY business_date DESC, version_no DESC, id DESC
             LIMIT :limit OFFSET :offset
-            """
-            .format(
-                page_table=_qualified_table("market_daily_page"),
-                where_clause=filters["where"],
+            """.format(
+                page_table=_qualified_table('market_daily_page'),
+                where_clause=filters['where'],
             )
         ).bindparams(
-            *filters["bindparams"],
-            bindparam("limit", size),
-            bindparam("offset", (page - 1) * size),
+            *filters['bindparams'],
+            bindparam('limit', size),
+            bindparam('offset', (page - 1) * size),
         )
         result = await self.session.execute(statement)
         return [self._row_to_dict(row) for row in result.all()]
@@ -312,27 +303,24 @@ class PageSnapshotRepository:
                 {where_clause}
                 ORDER BY business_date DESC, version_no DESC, id DESC
             ) AS archive_dates
-            """
-            .format(
-                page_table=_qualified_table("market_daily_page"),
-                where_clause=filters["where"],
+            """.format(
+                page_table=_qualified_table('market_daily_page'),
+                where_clause=filters['where'],
             )
-        ).bindparams(
-            *filters["bindparams"]
-        )
+        ).bindparams(*filters['bindparams'])
         result = await self.session.execute(statement)
         return int(result.scalar_one())
 
     @staticmethod
     def _row_to_dict(row: object) -> dict:
-        mapping = getattr(row, "_mapping", None)
+        mapping = getattr(row, '_mapping', None)
         if mapping is not None:
             return dict(mapping)
         return dict(row)  # type: ignore[arg-type]
 
     @staticmethod
     def _first_row(result: object) -> object | None:
-        if hasattr(result, "one_or_none"):
+        if hasattr(result, 'one_or_none'):
             return result.one_or_none()  # type: ignore[no-any-return]
         rows = result.all()  # type: ignore[no-any-return]
         return rows[0] if rows else None
@@ -347,16 +335,18 @@ class PageSnapshotRepository:
         clauses: list[str] = []
         params = []
         if from_date is not None:
-            clauses.append("business_date >= :from_date")
-            params.append(bindparam("from_date", from_date))
+            clauses.append('business_date >= :from_date')
+            params.append(bindparam('from_date', from_date))
         if to_date is not None:
-            clauses.append("business_date <= :to_date")
-            params.append(bindparam("to_date", to_date))
+            clauses.append('business_date <= :to_date')
+            params.append(bindparam('to_date', to_date))
         if status is not None:
-            clauses.append(f"status = CAST(:status AS {_qualified_table('page_status_enum')})")
-            params.append(bindparam("status", status))
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        return {"where": where, "bindparams": params}
+            clauses.append(
+                f'status = CAST(:status AS {_qualified_table("page_status_enum")})'
+            )
+            params.append(bindparam('status', status))
+        where = f'WHERE {" AND ".join(clauses)}' if clauses else ''
+        return {'where': where, 'bindparams': params}
 
 
-__all__ = ["PageSnapshotRepository"]
+__all__ = ['PageSnapshotRepository']

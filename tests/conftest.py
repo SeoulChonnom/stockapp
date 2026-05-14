@@ -7,25 +7,25 @@ import pytest  # pyright: ignore[reportMissingImports]
 from tests.support import (
     BUSINESS_DATE,
     JWT_ISSUER,
-    JWT_TEST_SECRET,
     JWT_REFRESH_TOKEN_TYPE,
+    JWT_TEST_SECRET,
     build_archive_item_payload,
     build_archive_list_payload,
     build_batch_job_detail_payload,
     build_batch_job_list_payload,
     build_batch_run_payload,
-    build_test_jwt_subject,
+    build_cluster_article_rows,
     build_cluster_detail_payload,
+    build_cluster_row,
     build_daily_page_payload,
     build_page_article_link_rows,
     build_page_cluster_rows,
     build_page_index_rows,
     build_page_market_rows,
     build_page_snapshot_row,
-    build_cluster_article_rows,
-    build_cluster_row,
-    build_raw_article_rows,
     build_processed_article_rows,
+    build_raw_article_rows,
+    build_test_jwt_subject,
     load_module,
     mint_test_jwt,
 )
@@ -33,14 +33,14 @@ from tests.support import (
 
 @pytest.fixture(autouse=True)
 def configure_jwt_auth_env(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("STOCKAPP_APP_ENV", "production")
-    monkeypatch.setenv("STOCKAPP_CORS_ALLOWED_ORIGINS", '["http://localhost:5173"]')
-    monkeypatch.setenv("STOCKAPP_JWT_SECRET", JWT_TEST_SECRET)
-    monkeypatch.setenv("STOCKAPP_JWT_ALGORITHM", "HS512")
-    monkeypatch.setenv("STOCKAPP_JWT_ISSUER", JWT_ISSUER)
-    monkeypatch.setenv("STOCKAPP_JWT_ACCESS_AUDIENCES", '["slcn-platform"]')
+    monkeypatch.setenv('STOCKAPP_APP_ENV', 'production')
+    monkeypatch.setenv('STOCKAPP_CORS_ALLOWED_ORIGINS', '["http://localhost:5173"]')
+    monkeypatch.setenv('STOCKAPP_JWT_SECRET', JWT_TEST_SECRET)
+    monkeypatch.setenv('STOCKAPP_JWT_ALGORITHM', 'HS512')
+    monkeypatch.setenv('STOCKAPP_JWT_ISSUER', JWT_ISSUER)
+    monkeypatch.setenv('STOCKAPP_JWT_ACCESS_AUDIENCES', '["slcn-platform"]')
 
-    settings_module = load_module("app.core.settings")
+    settings_module = load_module('app.core.settings')
     settings_module.get_settings.cache_clear()
     yield
     settings_module.get_settings.cache_clear()
@@ -133,18 +133,18 @@ def sample_raw_article_rows() -> list[dict[str, Any]]:
 
 @pytest.fixture
 def app():
-    main_module = load_module("app.main")
+    main_module = load_module('app.main')
     app_instance = main_module.create_app()
-    if hasattr(app_instance, "dependency_overrides"):
+    if hasattr(app_instance, 'dependency_overrides'):
         app_instance.dependency_overrides.clear()
     yield app_instance
-    if hasattr(app_instance, "dependency_overrides"):
+    if hasattr(app_instance, 'dependency_overrides'):
         app_instance.dependency_overrides.clear()
 
 
 @pytest.fixture
 def client(app):
-    pytest.importorskip("fastapi")
+    pytest.importorskip('fastapi')
     from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
     with TestClient(app) as test_client:
@@ -160,9 +160,9 @@ def jwt_subject() -> str:
 def jwt_access_token_factory(jwt_subject: str):
     def factory(**overrides: Any) -> str:
         params = {
-            "subject": jwt_subject,
-            "username": "stockapp-user",
-            "roles": ["USER"],
+            'subject': jwt_subject,
+            'username': 'stockapp-user',
+            'roles': ['USER'],
         }
         params.update(overrides)
         return mint_test_jwt(**params)

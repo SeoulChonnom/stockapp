@@ -5,13 +5,12 @@ import json
 from sqlalchemy import text
 
 from app.core.settings import get_settings
-
-from .base import PostgresRepository
-from .projections import AiSummaryCreateParams, AiSummaryRecord
+from app.db.repositories.base import PostgresRepository
+from app.db.repositories.projections import AiSummaryCreateParams, AiSummaryRecord
 
 
 def _qualified_table(table_name: str) -> str:
-    return f"{get_settings().database_schema}.{table_name}"
+    return f'{get_settings().database_schema}.{table_name}'
 
 
 class AiSummaryWriteRepository(PostgresRepository):
@@ -67,31 +66,30 @@ class AiSummaryWriteRepository(PostgresRepository):
                 error_message,
                 metadata_json,
                 generated_at
-            """
-            .format(
-                summary_table=_qualified_table("ai_summary"),
-                summary_type_enum=_qualified_table("ai_summary_type_enum"),
-                market_type_enum=_qualified_table("market_type_enum"),
-                status_enum=_qualified_table("ai_summary_status_enum"),
+            """.format(
+                summary_table=_qualified_table('ai_summary'),
+                summary_type_enum=_qualified_table('ai_summary_type_enum'),
+                market_type_enum=_qualified_table('market_type_enum'),
+                status_enum=_qualified_table('ai_summary_status_enum'),
             )
         )
         result = await self.session.execute(
             statement,
             {
-                "batch_job_id": params.batch_job_id,
-                "summary_type": params.summary_type,
-                "business_date": params.business_date,
-                "market_type": params.market_type,
-                "cluster_id": params.cluster_id,
-                "title": params.title,
-                "body": params.body,
-                "paragraphs_json": json.dumps(params.paragraphs_json),
-                "model_name": params.model_name,
-                "prompt_version": params.prompt_version,
-                "status": params.status,
-                "fallback_used": params.fallback_used,
-                "error_message": params.error_message,
-                "metadata_json": json.dumps(params.metadata_json),
+                'batch_job_id': params.batch_job_id,
+                'summary_type': params.summary_type,
+                'business_date': params.business_date,
+                'market_type': params.market_type,
+                'cluster_id': params.cluster_id,
+                'title': params.title,
+                'body': params.body,
+                'paragraphs_json': json.dumps(params.paragraphs_json),
+                'model_name': params.model_name,
+                'prompt_version': params.prompt_version,
+                'status': params.status,
+                'fallback_used': params.fallback_used,
+                'error_message': params.error_message,
+                'metadata_json': json.dumps(params.metadata_json),
             },
         )
         row = result.mappings().one()
@@ -120,11 +118,10 @@ class AiSummaryWriteRepository(PostgresRepository):
             FROM {summary_table}
             WHERE batch_job_id = :job_id
             ORDER BY generated_at ASC, id ASC
-            """
-            .format(summary_table=_qualified_table("ai_summary"))
+            """.format(summary_table=_qualified_table('ai_summary'))
         )
-        result = await self.session.execute(statement, {"job_id": job_id})
+        result = await self.session.execute(statement, {'job_id': job_id})
         return self._models_from_mappings(AiSummaryRecord, result.mappings().all())
 
 
-__all__ = ["AiSummaryWriteRepository"]
+__all__ = ['AiSummaryWriteRepository']

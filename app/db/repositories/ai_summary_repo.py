@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-from .base import PostgresRepository
-from .projections import AiSummaryRecord
+from app.db.repositories.base import PostgresRepository
+from app.db.repositories.projections import AiSummaryRecord
 
 
 class AiSummaryRepository(PostgresRepository):
@@ -32,14 +32,14 @@ class AiSummaryRepository(PostgresRepository):
             ORDER BY generated_at ASC, id ASC
             """
         )
-        result = await self.session.execute(statement, {"job_id": job_id})
+        result = await self.session.execute(statement, {'job_id': job_id})
         return self._models_from_mappings(AiSummaryRecord, result.mappings().all())
 
     async def get_latest_cluster_summary(
         self,
         cluster_id: int,
         *,
-        summary_type: str = "CLUSTER_DETAIL_ANALYSIS",
+        summary_type: str = 'CLUSTER_DETAIL_ANALYSIS',
     ) -> AiSummaryRecord | None:
         statement = text(
             """
@@ -68,7 +68,7 @@ class AiSummaryRepository(PostgresRepository):
             """
         )
         result = await self.session.execute(
-            statement, {"cluster_id": cluster_id, "summary_type": summary_type}
+            statement, {'cluster_id': cluster_id, 'summary_type': summary_type}
         )
         row = result.mappings().one_or_none()
         return self._model_from_mapping(AiSummaryRecord, row) if row else None

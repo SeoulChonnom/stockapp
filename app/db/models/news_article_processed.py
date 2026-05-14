@@ -11,11 +11,13 @@ from app.db.enums import MarketType
 
 
 class NewsArticleProcessed(Base):
-    __tablename__ = "news_article_processed"
+    __tablename__ = 'news_article_processed'
 
     id: Mapped[int] = mapped_column(primary_key=True)
     business_date: Mapped[date] = mapped_column(Date)
-    market_type: Mapped[MarketType] = mapped_column(Enum(MarketType, name="market_type_enum"))
+    market_type: Mapped[MarketType] = mapped_column(
+        Enum(MarketType, name='market_type_enum')
+    )
     dedupe_hash: Mapped[str]
     canonical_title: Mapped[str] = mapped_column(Text)
     publisher_name: Mapped[str | None] = mapped_column(Text)
@@ -27,4 +29,4 @@ class NewsArticleProcessed(Base):
     content_json: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 
-__all__ = ["NewsArticleProcessed"]
+__all__ = ['NewsArticleProcessed']

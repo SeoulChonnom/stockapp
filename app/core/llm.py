@@ -21,7 +21,7 @@ class GeminiJsonClient:
 
     def _build_model(self) -> ChatGoogleGenerativeAI:
         if not self.is_configured():
-            raise LlmConfigurationError("Gemini API key is not configured.")
+            raise LlmConfigurationError('Gemini API key is not configured.')
         return ChatGoogleGenerativeAI(
             model=self._settings.llm_model,
             google_api_key=self._settings.gemini_api_key,
@@ -38,8 +38,8 @@ class GeminiJsonClient:
         model = self._build_model()
         response = await model.ainvoke(
             [
-                ("system", system_prompt),
-                ("human", user_prompt),
+                ('system', system_prompt),
+                ('human', user_prompt),
             ]
         )
         return self._parse_json(str(response.content))
@@ -47,14 +47,14 @@ class GeminiJsonClient:
     @staticmethod
     def _parse_json(content: str) -> dict[str, Any]:
         normalized = content.strip()
-        if normalized.startswith("```"):
-            normalized = normalized.strip("`")
-            if normalized.startswith("json"):
+        if normalized.startswith('```'):
+            normalized = normalized.strip('`')
+            if normalized.startswith('json'):
                 normalized = normalized[4:].strip()
         parsed = json.loads(normalized)
         if not isinstance(parsed, dict):
-            raise ValueError("Expected a JSON object from the LLM response.")
+            raise ValueError('Expected a JSON object from the LLM response.')
         return parsed
 
 
-__all__ = ["GeminiJsonClient", "LlmConfigurationError"]
+__all__ = ['GeminiJsonClient', 'LlmConfigurationError']
