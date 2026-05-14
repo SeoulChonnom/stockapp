@@ -11,3 +11,7 @@
 ## Task 3 Provider Observability
 - Non-fatal provider fallbacks can stay behaviorally unchanged while exposing structured failure details on existing result/metadata surfaces: provider result objects for fetchers, batch warning events for cluster enrichment, and `metadata_json` for AI summaries.
 - Structured error payloads are most useful when they keep stable keys for provider/component name, target identifier (ticker or URL), exception class, and exception message.
+
+## Task 4 Batch Transaction Policy
+- Batch startup visibility is now characterized by repository-level commits on `create_job`, so the API scheduler receives an already-durable `RUNNING` job handle.
+- Failure durability is characterized as separate durable failure-event and `FAILED` status commits after failed-step domain writes have been rolled back by the failing step/session policy.

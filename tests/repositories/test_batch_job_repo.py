@@ -71,9 +71,53 @@ async def test_create_job_inserts_running_batch_row():
 
     assert jsonable(result)['job_id'] == 1001
     assert jsonable(result)['triggered_by_user_id'] == 'USER-0001'
+    assert session.operations == ['execute', 'commit']
     sql = normalize_sql(session.statements[0])
     assert 'insert into stock.batch_job' in sql.lower()
     assert 'batch_job_status_enum' in sql
+
+
+@pytest.mark.anyio
+async def test_add_error_event_commits_for_failure_durability():
+    session = RecordingAsyncSession()
+    repo = BatchJobRepository(session)
+
+    await repo.add_event(
+        job_id=1001,
+        step_code='ORCHESTRATE',
+        level='ERROR',
+        message='Market daily batch orchestrator failed.',
+        context_json={'error': 'provider timeout'},
+    )
+
+    assert session.operations == ['execute', 'commit']
+    sql = normalize_sql(session.statements[0])
+    assert 'insert into stock.batch_job_event' in sql.lower()
+    assert session.parameters[0]['level'] == 'ERROR'
+    assert session.parameters[0]['step_code'] == 'ORCHESTRATE'
+    assert session.parameters[0]['context_json'] == '{"error": "provider timeout"}'
+
+
+@pytest.mark.anyio
+async def test_mark_job_failed_commits_failed_status():
+    session = RecordingAsyncSession()
+    repo = BatchJobRepository(session)
+
+    await repo.mark_job_failed(
+        job_id=1001,
+        error_code='INTERNAL_BATCH_ERROR',
+        error_message='배치 오케스트레이터 실행 중 오류가 발생했습니다.',
+    )
+
+    assert session.operations == ['execute', 'commit']
+    sql = normalize_sql(session.statements[0])
+    assert 'update stock.batch_job' in sql.lower()
+    assert session.parameters[0]['status'] == 'FAILED'
+    assert session.parameters[0]['error_code'] == 'INTERNAL_BATCH_ERROR'
+    assert (
+        session.parameters[0]['log_summary']
+        == '배치 오케스트레이터 실행 중 오류가 발생했습니다.'
+    )
 
 
 @pytest.mark.anyio

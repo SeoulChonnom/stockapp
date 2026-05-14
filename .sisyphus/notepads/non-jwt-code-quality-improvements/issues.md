@@ -7,3 +7,6 @@
 
 ## Task 3 Verification Notes
 - `uv run pytest tests/batch` passed on Python 3.14.4, but the suite still emits pre-existing dependency warnings from `google.genai`, `langchain_core`, and an `httpx verify=<str>` deprecation path.
+
+## Task 4 Verification Notes
+- Task 4 pytest runs pass, with the same pre-existing google.genai/langchain/httpx Python 3.14.4 warnings observed in prior batch verification.
