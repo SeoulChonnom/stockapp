@@ -16,10 +16,18 @@ from tests.support import (
 
 keyword_repo_module = load_module('app.db.repositories.news_search_keyword_repo')
 projections_module = load_module('app.db.repositories.projections')
+settings_module = load_module('app.core.settings')
 
 NewsSearchKeywordRepository = keyword_repo_module.NewsSearchKeywordRepository
 NewsSearchKeywordCreateParams = projections_module.NewsSearchKeywordCreateParams
 NewsSearchKeywordUpdateParams = projections_module.NewsSearchKeywordUpdateParams
+
+
+@pytest.fixture(autouse=True)
+def clear_settings_cache():
+    settings_module.get_settings.cache_clear()
+    yield
+    settings_module.get_settings.cache_clear()
 
 
 @pytest.mark.anyio
@@ -130,3 +138,17 @@ async def test_update_keyword_sets_updated_at_and_returns_row():
     sql = normalize_sql(session.statements[0])
     assert 'update stock.news_search_keyword' in sql.lower()
     assert 'updated_at = now()' in sql.lower()
+
+
+@pytest.mark.anyio
+async def test_list_active_keywords_rejects_invalid_database_schema_before_query(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv('STOCKAPP_DATABASE_SCHEMA', 'stock; DROP TABLE stock; --')
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = NewsSearchKeywordRepository(session)
+
+    with pytest.raises(ValueError, match='Invalid PostgreSQL schema'):
+        await repo.list_active_keywords(provider_name='NAVER_NEWS', market_type='US')
+
+    assert session.statements == []
