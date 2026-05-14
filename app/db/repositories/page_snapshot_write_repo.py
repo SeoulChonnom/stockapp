@@ -6,12 +6,12 @@ from typing import Any
 
 from sqlalchemy import text
 
-from app.core.settings import get_settings
+from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
 
 
 def _qualified_table(table_name: str) -> str:
-    return f'{get_settings().database_schema}.{table_name}'
+    return qualify_db_identifier(table_name)
 
 
 class PageSnapshotWriteRepository(PostgresRepository):
