@@ -16,6 +16,14 @@ from app.db.repositories.news_cluster_write_repo import NewsClusterWriteReposito
 from app.db.repositories.projections import NewsClusterCreateParams
 
 
+def _serialize_exception(exc: Exception) -> dict[str, str]:
+    return {
+        'provider': 'BatchLlmProvider',
+        'errorClass': type(exc).__name__,
+        'errorMessage': str(exc),
+    }
+
+
 class BuildClustersStep(BatchStep):
     step_code = 'BUILD_CLUSTERS'
     started_message = 'Build clusters step started.'
@@ -90,6 +98,22 @@ class BuildClustersStep(BatchStep):
                 enrichment = await _enrich_cluster(
                     llm_provider, market_type, ordered_articles
                 )
+                if enrichment.get('fallback_used') and enrichment.get('error_context'):
+                    await repository.add_event(
+                        job_id=context.job_id,
+                        step_code=self.step_code,
+                        level=EventLevel.WARN.value,
+                        message='Cluster enrichment used fallback response.',
+                        context_json={
+                            'marketType': market_type,
+                            'clusterRank': cluster_rank,
+                            'representativeArticleId': enrichment[
+                                'representative_article_id'
+                            ],
+                            'fallbackReason': enrichment.get('fallback_reason'),
+                            'error': enrichment['error_context'],
+                        },
+                    )
                 cluster = await cluster_repo.create_cluster_bundle(
                     NewsClusterCreateParams(
                         business_date=context.business_date,
@@ -200,6 +224,9 @@ async def _enrich_cluster(
             if value
         ],
         'representative_article_id': representative.processed_article_id,
+        'fallback_used': True,
+        'fallback_reason': 'llm_fallback',
+        'error_context': None,
     }
     if not llm_provider.is_configured():
         return fallback
@@ -207,7 +234,8 @@ async def _enrich_cluster(
         result = await llm_provider.enrich_cluster(
             market_type=market_type, articles=payload
         )
-    except Exception:
+    except Exception as exc:
+        fallback['error_context'] = _serialize_exception(exc)
         return fallback
 
     representative_index = int(result.get('representative_article_index', 0) or 0)
@@ -223,6 +251,9 @@ async def _enrich_cluster(
         'representative_article_id': articles[
             representative_index
         ].processed_article_id,
+        'fallback_used': False,
+        'fallback_reason': 'llm',
+        'error_context': None,
     }
 
 

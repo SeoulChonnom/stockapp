@@ -16,11 +16,10 @@ BatchExecutionContext = load_module('app.batch.models').BatchExecutionContext
 @dataclass
 class FakeBatchRepository:
     session: RecordingAsyncSession
-    events: list[tuple[str, str]]
+    events: list[dict]
 
     async def add_event(self, *, step_code: str, message: str, **kwargs):
-        _ = kwargs
-        self.events.append((step_code, message))
+        self.events.append({'step_code': step_code, 'message': message, **kwargs})
 
 
 class FakeProcessedRepo:
@@ -113,3 +112,46 @@ async def test_build_clusters_creates_scaffold_bundle(monkeypatch):
 
     assert updated_context.cluster_count == 1
     assert updated_context.log_messages
+
+
+@pytest.mark.anyio
+async def test_build_clusters_records_llm_fallback_error_context(monkeypatch):
+    session = RecordingAsyncSession()
+    fake_repository = FakeBatchRepository(session=session, events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    class FakeLlmProvider:
+        def is_configured(self):
+            return True
+
+        async def enrich_cluster(self, **kwargs):
+            _ = kwargs
+            raise TimeoutError('provider timeout')
+
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsArticleProcessedRepository', FakeProcessedRepo
+    )
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
+    )
+    monkeypatch.setattr(build_clusters_module, 'BatchLlmProvider', FakeLlmProvider)
+
+    updated_context = await BuildClustersStep().run(fake_repository, context)
+
+    assert updated_context.cluster_count == 1
+    warning_events = [
+        event
+        for event in fake_repository.events
+        if event['message'] == 'Cluster enrichment used fallback response.'
+    ]
+    assert len(warning_events) == 1
+    assert warning_events[0]['context_json']['error'] == {
+        'provider': 'BatchLlmProvider',
+        'errorClass': 'TimeoutError',
+        'errorMessage': 'provider timeout',
+    }

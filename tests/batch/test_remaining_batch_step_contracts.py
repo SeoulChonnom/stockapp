@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID
@@ -201,6 +201,110 @@ async def test_generate_ai_summaries_step_records_ai_summary_outputs(monkeypatch
     assert updated_context.generated_summary_count == 4
     assert updated_context.log_messages[-1].startswith('Generated 4 AI summary')
     assert len(fake_summary_repo.rows) == 4
+
+
+@pytest.mark.anyio
+async def test_generate_ai_summaries_step_records_fallback_error_metadata(monkeypatch):
+    generate_module = load_module('app.batch.steps.generate_ai_summaries')
+
+    class FakeClusterRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_clusters_by_business_date(self, business_date):
+            _ = business_date
+            return [
+                {
+                    'id': 7001,
+                    'market_type': 'US',
+                    'title': '엔비디아 강세',
+                    'summary_short': '반도체 강세가 지수를 견인했다.',
+                    'summary_long': '엔비디아와 반도체 섹터가 시장 반등을 이끌었다.',
+                    'analysis_paragraphs_json': ['반도체 강세'],
+                    'tags_json': ['반도체', 'AI'],
+                }
+            ]
+
+        async def get_cluster_articles(self, cluster_id):
+            _ = cluster_id
+            return [{'processed_article_id': 4001, 'article_rank': 1}]
+
+        async def get_processed_articles(self, article_ids):
+            _ = article_ids
+            return [
+                {
+                    'id': 4001,
+                    'canonical_title': '엔비디아 급등',
+                    'publisher_name': '매일경제',
+                    'published_at': '2026-03-17T23:15:00+00:00',
+                    'origin_link': 'https://example.com/article1',
+                    'naver_link': 'https://search.naver.com/article1',
+                    'source_summary': '반도체 강세가 지수를 견인했다.',
+                    'article_body_excerpt': '반도체 강세',
+                }
+            ]
+
+    class FakeIndexRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_indices_by_business_date(self, business_date):
+            _ = business_date
+            return []
+
+    class FakeSummaryRepo:
+        def __init__(self, session):
+            _ = session
+            self.rows = []
+
+        async def insert_summary(self, params):
+            self.rows.append(params)
+
+    class FakeLlmProvider:
+        def is_configured(self):
+            return True
+
+        async def summarize_global_headline(self, **kwargs):
+            _ = kwargs
+            raise TimeoutError('provider timeout')
+
+        async def summarize_market(self, **kwargs):
+            _ = kwargs
+            raise TimeoutError('provider timeout')
+
+        async def summarize_cluster_card(self, **kwargs):
+            _ = kwargs
+            raise TimeoutError('provider timeout')
+
+        async def summarize_cluster_detail(self, **kwargs):
+            _ = kwargs
+            raise TimeoutError('provider timeout')
+
+    fake_summary_repo = FakeSummaryRepo(BoundSession())
+    monkeypatch.setattr(generate_module, 'ClusterRepository', FakeClusterRepo)
+    monkeypatch.setattr(generate_module, 'MarketIndexRepository', FakeIndexRepo)
+    monkeypatch.setattr(
+        generate_module, 'AiSummaryWriteRepository', lambda session: fake_summary_repo
+    )
+    monkeypatch.setattr(generate_module, 'BatchLlmProvider', FakeLlmProvider)
+
+    repository = EventRepository(session=BoundSession(), events=[])
+    context = build_context()
+    context.cluster_count = 1
+
+    updated_context = await GenerateAiSummariesStep().run(repository, context)
+
+    assert updated_context.generated_summary_count == 4
+    assert updated_context.fallback_count == 4
+    assert len(fake_summary_repo.rows) == 4
+    for row in fake_summary_repo.rows:
+        assert row.fallback_used is True
+        assert row.error_message == 'provider timeout'
+        assert row.metadata_json['error'] == {
+            'provider': 'BatchLlmProvider',
+            'errorClass': 'TimeoutError',
+            'errorMessage': 'provider timeout',
+        }
 
 
 @pytest.mark.anyio
@@ -447,6 +551,20 @@ async def test_article_content_provider_uses_summary_fallback_when_fetch_times_o
     assert result.body_excerpt == 'Provider fallback summary survives timeout.'
     assert result.source_domain == 'example.com'
     assert result.fetched_url == 'https://example.com/origin'
+    assert result.failure_details == [
+        {
+            'provider': 'ArticleContentProvider',
+            'url': 'https://example.com/origin',
+            'error_class': 'TimeoutError',
+            'error_message': 'provider timeout',
+        },
+        {
+            'provider': 'ArticleContentProvider',
+            'url': 'https://search.naver.com/article',
+            'error_class': 'TimeoutError',
+            'error_message': 'provider timeout',
+        },
+    ]
 
 
 @pytest.mark.anyio
@@ -489,3 +607,14 @@ async def test_market_index_provider_ignores_failed_ticker_and_keeps_partial_res
     assert len(results) == 1
     assert results[0].index_code == 'GOOD'
     assert results[0].index_name == 'Good Index'
+    assert [asdict(failure) for failure in provider.last_failures] == [
+        {
+            'provider': 'YFINANCE',
+            'market_type': 'US',
+            'ticker': 'BROKEN',
+            'index_code': 'BROKEN',
+            'index_name': 'Broken Index',
+            'error_class': 'TimeoutError',
+            'error_message': 'provider timeout',
+        }
+    ]
