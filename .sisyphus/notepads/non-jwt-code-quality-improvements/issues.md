@@ -10,3 +10,7 @@
 
 ## Task 4 Verification Notes
 - Task 4 pytest runs pass, with the same pre-existing google.genai/langchain/httpx Python 3.14.4 warnings observed in prior batch verification.
+
+## Task 5 Verification Notes
+- Task 5 pytest runs pass with the same pre-existing google.genai/langchain/httpx Python 3.14.4 warnings observed in earlier batch tasks.
+- The orchestrator rollback helper intentionally preserves the existing Task 4 fake-session expectation by rolling back only when SQLAlchemy reports an active transaction or the recording session still has pending domain writes.

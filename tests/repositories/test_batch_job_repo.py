@@ -71,14 +71,14 @@ async def test_create_job_inserts_running_batch_row():
 
     assert jsonable(result)['job_id'] == 1001
     assert jsonable(result)['triggered_by_user_id'] == 'USER-0001'
-    assert session.operations == ['execute', 'commit']
+    assert session.operations == ['execute']
     sql = normalize_sql(session.statements[0])
     assert 'insert into stock.batch_job' in sql.lower()
     assert 'batch_job_status_enum' in sql
 
 
 @pytest.mark.anyio
-async def test_add_error_event_commits_for_failure_durability():
+async def test_add_error_event_defers_commit_to_orchestrator():
     session = RecordingAsyncSession()
     repo = BatchJobRepository(session)
 
@@ -90,7 +90,7 @@ async def test_add_error_event_commits_for_failure_durability():
         context_json={'error': 'provider timeout'},
     )
 
-    assert session.operations == ['execute', 'commit']
+    assert session.operations == ['execute']
     sql = normalize_sql(session.statements[0])
     assert 'insert into stock.batch_job_event' in sql.lower()
     assert session.parameters[0]['level'] == 'ERROR'
@@ -99,7 +99,7 @@ async def test_add_error_event_commits_for_failure_durability():
 
 
 @pytest.mark.anyio
-async def test_mark_job_failed_commits_failed_status():
+async def test_mark_job_failed_defers_commit_to_orchestrator():
     session = RecordingAsyncSession()
     repo = BatchJobRepository(session)
 
@@ -109,7 +109,7 @@ async def test_mark_job_failed_commits_failed_status():
         error_message='배치 오케스트레이터 실행 중 오류가 발생했습니다.',
     )
 
-    assert session.operations == ['execute', 'commit']
+    assert session.operations == ['execute']
     sql = normalize_sql(session.statements[0])
     assert 'update stock.batch_job' in sql.lower()
     assert session.parameters[0]['status'] == 'FAILED'

@@ -166,7 +166,6 @@ class GenerateAiSummariesStep(BatchStep):
                     detail_summary['fallback_used']
                 )
 
-        await session.commit()
         if context.fallback_count:
             await repository.add_event(
                 job_id=context.job_id,

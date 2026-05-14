@@ -126,7 +126,6 @@ class DedupeArticlesStep(BatchStep):
                 'processedArticleCount': len(processed_ids),
             },
         )
-        await session.commit()
         return context
 
 

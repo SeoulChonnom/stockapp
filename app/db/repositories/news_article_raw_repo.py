@@ -122,7 +122,6 @@ class NewsArticleRawRepository(PostgresRepository):
             if result.scalar_one_or_none() is not None:
                 inserted_count += 1
 
-        await self.session.commit()
         return inserted_count
 
 

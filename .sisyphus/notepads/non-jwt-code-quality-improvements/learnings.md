@@ -15,3 +15,8 @@
 ## Task 4 Batch Transaction Policy
 - Batch startup visibility is now characterized by repository-level commits on `create_job`, so the API scheduler receives an already-durable `RUNNING` job handle.
 - Failure durability is characterized as separate durable failure-event and `FAILED` status commits after failed-step domain writes have been rolled back by the failing step/session policy.
+
+## Task 5 Batch Transaction Ownership
+- Normal batch writes now rely on explicit service/orchestrator boundary commits instead of hidden repository or step commits.
+- Startup durability is preserved by committing the created RUNNING job and CREATE_JOB event before the API schedules the background orchestrator.
+- Failure durability is preserved by rolling back active domain work first, then committing the ORCHESTRATE error event and FAILED job status in separate orchestrator-owned commits.
