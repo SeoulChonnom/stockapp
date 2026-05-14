@@ -32,3 +32,6 @@
 ## Task 9 Verification Notes
 - A malformed shell heredoc briefly broke the router-ownership evidence dump; rerunning the command with the pipeline attached to the heredoc opener fixed the capture.
 - The verification suites still emit the pre-existing `google.genai` deprecation warning on Python 3.14.4, but the Task 9 route and API tests pass.
+
+## Task 10 Verification Notes
+- DB batch-write and LLM concurrency optimizations were left untouched because they would require broader behavior/rate-limit guarantees than the existing narrow tests provide.

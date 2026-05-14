@@ -38,3 +38,7 @@
 ## Task 9 Router Metadata Ownership
 - Feature routers can own their own `prefix` and `tags` without changing the published OpenAPI paths as long as the aggregator keeps only the global `/stock/api` prefix.
 - The archive route stays mounted under the pages namespace at `/stock/api/pages/archive` even when the archive router carries its own `archive` tag.
+
+## Task 10 Performance Cleanup
+- `ArticleContentProvider` can reduce per-fallback fetch overhead safely by reusing one HTTP client across origin/naver attempts and accepting an injected client for externally managed lifecycle tests.
+- Provider fallback observability stays preserved when client reuse is introduced because the URL loop still records provider, URL, exception class, and exception message for failed attempts before returning a later success or fallback.
