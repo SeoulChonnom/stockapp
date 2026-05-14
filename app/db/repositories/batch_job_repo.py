@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy import bindparam, text  # pyright: ignore[reportMissingImports]
 
-from app.core.settings import get_settings
+from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
 from app.db.repositories.projections import (
     BatchJobCreateParams,
@@ -17,7 +17,7 @@ from app.db.repositories.projections import (
 
 
 def _qualified_table(table_name: str) -> str:
-    return f'{get_settings().database_schema}.{table_name}'
+    return qualify_db_identifier(table_name)
 
 
 class BatchJobRepository(PostgresRepository):

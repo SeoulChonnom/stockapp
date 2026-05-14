@@ -4,13 +4,13 @@ import json
 
 from sqlalchemy import text
 
-from app.core.settings import get_settings
+from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
 from app.db.repositories.projections import AiSummaryCreateParams, AiSummaryRecord
 
 
 def _qualified_table(table_name: str) -> str:
-    return f'{get_settings().database_schema}.{table_name}'
+    return qualify_db_identifier(table_name)
 
 
 class AiSummaryWriteRepository(PostgresRepository):
