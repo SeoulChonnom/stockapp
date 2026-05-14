@@ -22,9 +22,12 @@ class ArticleContentResult:
     source_domain: str | None
     fetched_url: str | None
     fallback_used: bool
+    failure_details: list[dict[str, str]]
 
 
 class ArticleContentProvider:
+    provider_name = 'ArticleContentProvider'
+
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
 
@@ -43,6 +46,7 @@ class ArticleContentProvider:
         naver_link: str | None,
         fallback_summary: str | None,
     ) -> ArticleContentResult:
+        failure_details: list[dict[str, str]] = []
         for url in [origin_link, naver_link]:
             if not url:
                 continue
@@ -59,8 +63,17 @@ class ArticleContentProvider:
                         source_domain=urlparse(url).netloc or None,
                         fetched_url=url,
                         fallback_used=False,
+                        failure_details=failure_details,
                     )
-            except Exception:
+            except Exception as exc:
+                failure_details.append(
+                    {
+                        'provider': self.provider_name,
+                        'url': url,
+                        'error_class': type(exc).__name__,
+                        'error_message': str(exc),
+                    }
+                )
                 continue
 
         return ArticleContentResult(
@@ -70,6 +83,7 @@ class ArticleContentProvider:
             source_domain=urlparse(origin_link or naver_link or '').netloc or None,
             fetched_url=origin_link or naver_link,
             fallback_used=True,
+            failure_details=failure_details,
         )
 
     @staticmethod

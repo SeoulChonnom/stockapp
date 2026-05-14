@@ -36,23 +36,60 @@ class MarketIndexFetchResult:
     low_price: Decimal | None
 
 
+@dataclass(slots=True)
+class MarketIndexFailureDetail:
+    provider: str
+    market_type: str
+    ticker: str
+    index_code: str
+    index_name: str
+    error_class: str
+    error_message: str
+
+
 class MarketIndexProvider:
+    def __init__(self) -> None:
+        self.last_failures: list[MarketIndexFailureDetail] = []
+
     async def fetch_for_business_date(
         self, business_date: date
     ) -> list[MarketIndexFetchResult]:
-        tasks = [
-            self._fetch_single(
-                business_date=business_date,
-                market_type=market_type,
-                ticker=ticker,
-                index_name=index_name,
-                currency_code=currency_code,
-                index_code=index_code,
-            )
+        descriptors = [
+            {
+                'market_type': market_type,
+                'ticker': ticker,
+                'index_name': index_name,
+                'currency_code': currency_code,
+                'index_code': index_code,
+            }
             for market_type, rows in MARKET_INDEX_TICKERS.items()
             for ticker, index_name, currency_code, index_code in rows
         ]
+        tasks = [
+            self._fetch_single(
+                business_date=business_date,
+                market_type=descriptor['market_type'],
+                ticker=descriptor['ticker'],
+                index_name=descriptor['index_name'],
+                currency_code=descriptor['currency_code'],
+                index_code=descriptor['index_code'],
+            )
+            for descriptor in descriptors
+        ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        self.last_failures = [
+            MarketIndexFailureDetail(
+                provider=YFINANCE_PROVIDER_NAME,
+                market_type=descriptor['market_type'],
+                ticker=descriptor['ticker'],
+                index_code=descriptor['index_code'],
+                index_name=descriptor['index_name'],
+                error_class=type(result).__name__,
+                error_message=str(result),
+            )
+            for descriptor, result in zip(descriptors, results, strict=True)
+            if isinstance(result, Exception)
+        ]
         return [
             result for result in results if isinstance(result, MarketIndexFetchResult)
         ]
@@ -128,6 +165,7 @@ class MarketIndexProvider:
 
 __all__ = [
     'MARKET_INDEX_TICKERS',
+    'MarketIndexFailureDetail',
     'MarketIndexFetchResult',
     'MarketIndexProvider',
     'YFINANCE_PROVIDER_NAME',

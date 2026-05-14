@@ -11,6 +11,14 @@ from app.db.repositories.market_index_repo import MarketIndexRepository
 from app.db.repositories.projections import AiSummaryCreateParams
 
 
+def _llm_error_metadata(exc: Exception) -> dict[str, str]:
+    return {
+        'provider': 'BatchLlmProvider',
+        'errorClass': type(exc).__name__,
+        'errorMessage': str(exc),
+    }
+
+
 class GenerateAiSummariesStep(BatchStep):
     step_code = 'GENERATE_AI_SUMMARIES'
     started_message = 'Generate AI summaries step started.'
@@ -214,6 +222,10 @@ async def _generate_global_headline(
         }
     except Exception as exc:
         fallback['error_message'] = str(exc)
+        fallback['metadata_json'] = {
+            **fallback['metadata_json'],
+            'error': _llm_error_metadata(exc),
+        }
         return fallback
 
 
@@ -230,6 +242,7 @@ async def _generate_market_summary(
         'status': AiSummaryStatus.FALLBACK.value,
         'fallback_used': True,
         'metadata_json': {
+            'reason': 'llm_fallback',
             'background': [
                 cluster['summary_short']
                 for cluster in clusters[:2]
@@ -282,6 +295,10 @@ async def _generate_market_summary(
         }
     except Exception as exc:
         fallback['error_message'] = str(exc)
+        fallback['metadata_json'] = {
+            **fallback['metadata_json'],
+            'error': _llm_error_metadata(exc),
+        }
         return fallback
 
 
@@ -316,6 +333,10 @@ async def _generate_cluster_card_summary(
         }
     except Exception as exc:
         fallback['error_message'] = str(exc)
+        fallback['metadata_json'] = {
+            **fallback['metadata_json'],
+            'error': _llm_error_metadata(exc),
+        }
         return fallback
 
 
@@ -355,6 +376,10 @@ async def _generate_cluster_detail_summary(
         }
     except Exception as exc:
         fallback['error_message'] = str(exc)
+        fallback['metadata_json'] = {
+            **fallback['metadata_json'],
+            'error': _llm_error_metadata(exc),
+        }
         return fallback
 
 
