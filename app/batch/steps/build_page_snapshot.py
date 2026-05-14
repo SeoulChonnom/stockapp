@@ -187,7 +187,6 @@ class BuildPageSnapshotStep(BatchStep):
                     }
                 )
 
-        await session.commit()
         context.page_id = page_id
         context.page_version_no = version_no
         if page_status == PageStatus.PARTIAL.value:

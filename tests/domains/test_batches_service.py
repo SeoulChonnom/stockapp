@@ -30,6 +30,7 @@ class FakeBatchJobRepository:
         self.detailed_job = detailed_job
         self.created_params = None
         self.events: list[dict] = []
+        self.commits = 0
 
     async def has_active_job_for_business_date(self, business_date):
         return self.active_exists
@@ -43,6 +44,9 @@ class FakeBatchJobRepository:
 
     async def add_event(self, **kwargs):
         self.events.append(kwargs)
+
+    async def commit(self):
+        self.commits += 1
 
     async def list_jobs(self, **kwargs):
         return self.listed_jobs
@@ -86,6 +90,7 @@ async def test_start_market_daily_batch_creates_running_job():
     assert payload['jobId'] == 1001
     assert repository.created_params.status == 'RUNNING'
     assert repository.events[0]['step_code'] == 'CREATE_JOB'
+    assert repository.commits == 1
 
 
 @pytest.mark.anyio

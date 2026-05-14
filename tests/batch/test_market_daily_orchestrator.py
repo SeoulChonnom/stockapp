@@ -65,6 +65,12 @@ class FakeRepository:
         self.completed_statuses.append('FAILED')
         self.events.append(('FAILED', f'{error_code}:{error_message}', kwargs))
 
+    async def commit(self):
+        await self.session.commit()
+
+    async def rollback(self):
+        await self.session.rollback()
+
 
 @pytest.mark.anyio
 async def test_market_daily_orchestrator_runs_all_scaffold_steps(monkeypatch):

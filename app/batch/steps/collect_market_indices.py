@@ -70,7 +70,6 @@ class CollectMarketIndicesStep(BatchStep):
                     f'trading date {result.source_date.isoformat()}.'
                 )
 
-        await session.commit()
         context.collected_index_count += inserted_count
         context.log_messages.append(f'Collected {inserted_count} market index row(s).')
         return context

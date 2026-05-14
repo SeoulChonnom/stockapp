@@ -145,7 +145,6 @@ class NewsSearchKeywordRepository(PostgresRepository):
                 'priority': params.priority,
             },
         )
-        await self.session.commit()
         row = result.mappings().one()
         return self._model_from_mapping(NewsSearchKeywordRecord, row)
 
@@ -184,7 +183,6 @@ class NewsSearchKeywordRepository(PostgresRepository):
                 'is_active': params.is_active,
             },
         )
-        await self.session.commit()
         row = result.mappings().one_or_none()
         return self._model_from_mapping(NewsSearchKeywordRecord, row) if row else None
 

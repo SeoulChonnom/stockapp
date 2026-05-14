@@ -21,6 +21,12 @@ def _qualified_table(table_name: str) -> str:
 
 
 class BatchJobRepository(PostgresRepository):
+    async def commit(self) -> None:
+        await self.session.commit()
+
+    async def rollback(self) -> None:
+        await self.session.rollback()
+
     async def get_job_by_id(self, job_id: int) -> BatchJobRecord | None:
         statement = text(
             """
@@ -138,7 +144,6 @@ class BatchJobRepository(PostgresRepository):
             bindparam('rebuild_page_only', params.rebuild_page_only),
         )
         result = await self.session.execute(statement)
-        await self.session.commit()
         row = result.mappings().one()
         return self._model_from_mapping(BatchJobRecord, row)
 
@@ -182,7 +187,6 @@ class BatchJobRepository(PostgresRepository):
                 'context_json': json.dumps(context_json or {}),
             },
         )
-        await self.session.commit()
 
     async def mark_job_completed(
         self,
@@ -241,7 +245,6 @@ class BatchJobRepository(PostgresRepository):
                 'log_summary': log_summary,
             },
         )
-        await self.session.commit()
 
     async def mark_job_failed(
         self, *, job_id: int, error_code: str, error_message: str

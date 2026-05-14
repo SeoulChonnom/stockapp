@@ -144,8 +144,6 @@ class BuildClustersStep(BatchStep):
                         'articleCount': len(ordered_articles),
                     },
                 )
-            await session.commit()
-
         context.cluster_count += created_cluster_count
         context.log_messages.append(
             f'Created {created_cluster_count} clustering scaffold bundle(s) '

@@ -153,6 +153,7 @@ class BatchesService:
                 'rebuildPageOnly': rebuild_page_only,
             },
         )
+        await self._repo.commit()
         return BatchRunResponse(
             jobId=job.job_id,
             jobName=job.job_name,
