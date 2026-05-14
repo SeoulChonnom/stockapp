@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from app.api.deps import DbSession
+from typing import Any
+
 from app.core.exceptions import NotFoundError
 from app.db.repositories.cluster_repo import ClusterRepository
-from app.domains.clusters.assembler import build_cluster_detail_response
-from app.schemas.cluster import ClusterDetailResponse
+from app.domains.clusters.assembler import build_cluster_detail_payload
 
 
 class ClustersService:
     def __init__(self, repository: ClusterRepository) -> None:
         self._repo = repository
 
-    async def get_cluster_detail(self, cluster_id: str) -> ClusterDetailResponse:
+    async def get_cluster_detail(self, cluster_id: str) -> dict[str, Any]:
         cluster = await self._repo.get_cluster_by_uid(cluster_id)
         if cluster is None:
             raise NotFoundError(
@@ -33,13 +33,9 @@ class ClustersService:
             for row in cluster_articles
             if row['processed_article_id'] in by_id
         ]
-        return build_cluster_detail_response(
+        return build_cluster_detail_payload(
             cluster, representative_article, ordered_articles
         )
 
 
-def get_clusters_service(session: DbSession) -> ClustersService:
-    return ClustersService(ClusterRepository(session))
-
-
-__all__ = ['ClustersService', 'get_clusters_service']
+__all__ = ['ClustersService']
