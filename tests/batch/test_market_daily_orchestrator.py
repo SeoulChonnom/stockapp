@@ -61,8 +61,8 @@ class FakeRepository:
         _ = kwargs
         self.completed_statuses.append(status)
 
-    async def mark_job_failed(self, *, error_code: str, error_message: str):
-        self.events.append(('FAILED', f'{error_code}:{error_message}'))
+    async def mark_job_failed(self, *, error_code: str, error_message: str, **kwargs):
+        self.events.append(('FAILED', f'{error_code}:{error_message}', kwargs))
 
 
 @pytest.mark.anyio
@@ -92,3 +92,35 @@ async def test_market_daily_orchestrator_runs_all_scaffold_steps(monkeypatch):
     assert 'BUILD_PAGE_SNAPSHOT' in step_codes
     assert 'FINALIZE_JOB' in step_codes
     assert fake_repository.completed_statuses == ['SUCCESS']
+
+
+@pytest.mark.anyio
+async def test_market_daily_orchestrator_marks_job_failed_when_step_raises(monkeypatch):
+    fake_repository = FakeRepository(
+        events=[],
+        completed_statuses=[],
+        session=RecordingAsyncSession(results=[DummyResult([])]),
+    )
+
+    class FailingStep:
+        async def execute(self, repository, context):
+            _ = (repository, context)
+            raise TimeoutError('provider timeout')
+
+    monkeypatch.setattr(
+        orchestrator_module,
+        'BatchJobRepository',
+        lambda session: fake_repository,
+    )
+    orchestrator = MarketDailyBatchOrchestrator(session_maker=FakeSessionMaker())
+    orchestrator._steps = [FailingStep()]
+
+    with pytest.raises(TimeoutError, match='provider timeout'):
+        await orchestrator.run(1001)
+
+    assert fake_repository.completed_statuses == []
+    assert fake_repository.events[-2][0] == 'ORCHESTRATE'
+    assert fake_repository.events[-2][1] == 'Market daily batch orchestrator failed.'
+    assert fake_repository.events[-1][0] == 'FAILED'
+    assert fake_repository.events[-1][1].startswith('INTERNAL_BATCH_ERROR:')
+    assert fake_repository.events[-1][2]['job_id'] == 1001

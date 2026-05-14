@@ -79,6 +79,7 @@ def test_start_market_daily_batch_returns_job_handle(client, sample_batch_run_pa
 
     assert response.status_code == 200
     payload = response.json()['data']
+    assert set(payload) == {'jobId', 'jobName', 'businessDate', 'status', 'startedAt'}
     assert payload['jobId'] == sample_batch_run_payload['jobId']
     assert payload['status'] == 'RUNNING'
     assert scheduler.job_ids == [sample_batch_run_payload['jobId']]
@@ -144,6 +145,23 @@ def test_list_batch_jobs_allows_admin(client, sample_batch_job_list_payload):
 
     assert response.status_code == 200
     payload = response.json()['data']
+    assert set(payload) == {'items', 'pagination', 'summary'}
+    assert {
+        'jobId',
+        'jobName',
+        'businessDate',
+        'status',
+        'startedAt',
+        'endedAt',
+        'durationSeconds',
+        'marketScope',
+        'rawNewsCount',
+        'processedNewsCount',
+        'clusterCount',
+        'pageId',
+        'pageVersionNo',
+        'partialMessage',
+    } <= set(payload['items'][0])
     assert (
         payload['items'][0]['jobId']
         == sample_batch_job_list_payload['items'][0]['jobId']
@@ -192,6 +210,26 @@ def test_get_batch_job_detail_allows_admin(client, sample_batch_job_detail_paylo
 
     assert response.status_code == 200
     payload = response.json()['data']
+    assert {
+        'jobId',
+        'jobName',
+        'businessDate',
+        'status',
+        'forceRun',
+        'rebuildPageOnly',
+        'startedAt',
+        'endedAt',
+        'durationSeconds',
+        'rawNewsCount',
+        'processedNewsCount',
+        'clusterCount',
+        'pageId',
+        'pageVersionNo',
+        'partialMessage',
+        'errorCode',
+        'errorMessage',
+        'logSummary',
+    } <= set(payload)
     assert payload['jobId'] == sample_batch_job_detail_payload['jobId']
     assert payload['logSummary'] == sample_batch_job_detail_payload['logSummary']
 

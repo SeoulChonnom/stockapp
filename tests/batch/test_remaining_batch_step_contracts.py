@@ -419,3 +419,73 @@ async def test_build_page_snapshot_step_sets_page_identity_and_writes_snapshot(
     assert article_link_calls[0]['processed_article_id'] == 4001
     assert article_link_calls[1]['display_order'] == 2
     assert article_link_calls[1]['processed_article_id'] == 4002
+
+
+@pytest.mark.anyio
+async def test_article_content_provider_uses_summary_fallback_when_fetch_times_out():
+    provider_module = load_module('app.batch.providers.article_content')
+    provider = provider_module.ArticleContentProvider()
+
+    class TimeoutClient:
+        async def __aenter__(self):
+            raise TimeoutError('provider timeout')
+
+        async def __aexit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+    provider._build_client = TimeoutClient
+
+    result = await provider.fetch_article_content(
+        origin_link='https://example.com/origin',
+        naver_link='https://search.naver.com/article',
+        fallback_summary='Provider fallback summary survives timeout.',
+    )
+
+    assert result.fallback_used is True
+    assert result.body_text == 'Provider fallback summary survives timeout.'
+    assert result.body_excerpt == 'Provider fallback summary survives timeout.'
+    assert result.source_domain == 'example.com'
+    assert result.fetched_url == 'https://example.com/origin'
+
+
+@pytest.mark.anyio
+async def test_market_index_provider_ignores_failed_ticker_and_keeps_partial_results(
+    monkeypatch,
+):
+    provider_module = load_module('app.batch.providers.market_index_provider')
+    provider = provider_module.MarketIndexProvider()
+    monkeypatch.setattr(
+        provider_module,
+        'MARKET_INDEX_TICKERS',
+        {
+            'US': [
+                ('BROKEN', 'Broken Index', 'USD', 'BROKEN'),
+                ('GOOD', 'Good Index', 'USD', 'GOOD'),
+            ]
+        },
+    )
+
+    async def fake_fetch_single(**kwargs):
+        if kwargs['ticker'] == 'BROKEN':
+            raise TimeoutError('provider timeout')
+        return provider_module.MarketIndexFetchResult(
+            market_type=kwargs['market_type'],
+            index_code=kwargs['index_code'],
+            index_name=kwargs['index_name'],
+            currency_code=kwargs['currency_code'],
+            source_date=date(2026, 3, 17),
+            close_price=Decimal('100.0000'),
+            change_value=Decimal('1.0000'),
+            change_percent=Decimal('1.0000'),
+            high_price=Decimal('101.0000'),
+            low_price=Decimal('99.0000'),
+        )
+
+    monkeypatch.setattr(provider, '_fetch_single', fake_fetch_single)
+
+    results = await provider.fetch_for_business_date(date(2026, 3, 17))
+
+    assert len(results) == 1
+    assert results[0].index_code == 'GOOD'
+    assert results[0].index_name == 'Good Index'

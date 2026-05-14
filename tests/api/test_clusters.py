@@ -47,6 +47,26 @@ def test_get_cluster_detail_returns_contract(client, sample_cluster_detail_paylo
 
     assert response.status_code == 200
     payload = response.json()['data']
+    assert {
+        'clusterId',
+        'businessDate',
+        'marketType',
+        'marketLabel',
+        'title',
+        'tags',
+        'summary',
+        'representativeArticle',
+        'articles',
+        'lastUpdatedAt',
+    } <= set(payload)
+    assert {'short', 'long', 'analysis'} <= set(payload['summary'])
+    assert {
+        'title',
+        'publisherName',
+        'publishedAt',
+        'originLink',
+        'naverLink',
+    } <= set(payload['representativeArticle'])
     assert payload['clusterId'] == sample_cluster_detail_payload['clusterId']
     assert payload['marketType'] == 'US'
     assert payload['representativeArticle']['publisherName'] == '매일경제'

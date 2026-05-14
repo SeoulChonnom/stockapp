@@ -67,8 +67,21 @@ def test_get_latest_page_allows_user_and_admin_roles(
 
     assert response.status_code == 200
     payload = response.json()
+    assert set(payload) == {'success', 'data', 'meta'}
     assert payload['success'] is True
     data = payload['data']
+    assert {
+        'pageId',
+        'businessDate',
+        'versionNo',
+        'pageTitle',
+        'status',
+        'globalHeadline',
+        'generatedAt',
+        'partialMessage',
+        'markets',
+        'metadata',
+    } <= set(data)
     assert data['pageId'] == sample_daily_page_payload['pageId']
     assert data['markets'][0]['marketType'] == 'US'
     assert (
@@ -139,6 +152,16 @@ def test_get_archive_lists_latest_snapshot_per_date(
 
     assert response.status_code == 200
     payload = response.json()['data']
+    assert set(payload) == {'items', 'pagination'}
+    assert {
+        'pageId',
+        'businessDate',
+        'pageTitle',
+        'headlineSummary',
+        'status',
+        'generatedAt',
+        'partialMessage',
+    } <= set(payload['items'][0])
     assert (
         payload['items'][0]['businessDate']
         == sample_archive_list_payload['items'][0]['businessDate']
