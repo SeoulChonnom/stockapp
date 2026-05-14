@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.settings import get_settings
+from app.db.identifiers import build_search_path_sql
 
 
 @lru_cache
@@ -26,7 +27,7 @@ def get_async_engine() -> AsyncEngine:
     def _set_search_path(dbapi_connection, _connection_record) -> None:
         cursor = dbapi_connection.cursor()
         try:
-            cursor.execute(f'SET search_path TO {settings.database_schema}, public')
+            cursor.execute(build_search_path_sql(settings.database_schema))
         finally:
             cursor.close()
 
