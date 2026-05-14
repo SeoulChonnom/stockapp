@@ -5,6 +5,8 @@ from pathlib import Path
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.db.identifiers import validate_postgres_identifier
+
 
 class Settings(BaseSettings):
     app_name: str = 'Market Daily Brief API'
@@ -134,6 +136,13 @@ class Settings(BaseSettings):
     def normalize_app_env(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip().lower()
+        return value
+
+    @field_validator('database_schema', mode='before')
+    @classmethod
+    def normalize_database_schema(cls, value: object) -> object:
+        if isinstance(value, str):
+            return validate_postgres_identifier(value, kind='schema')
         return value
 
     @field_validator('cors_allowed_origins', mode='before')
