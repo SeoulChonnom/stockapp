@@ -147,6 +147,7 @@ async def test_archive_service_returns_paged_summary(page_repository):
         page=1,
         size=30,
     )
+    assert isinstance(result, dict)
     payload = jsonable(result)
 
     assert payload['items'][0]['businessDate'] == '2026-03-17'

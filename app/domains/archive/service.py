@@ -2,13 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.api.deps import DbSession
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
-from app.schemas.page import (
-    ArchiveItemResponse,
-    ArchiveListResponse,
-    PaginationResponse,
-)
+from app.domains.archive.assembler import build_archive_list_payload
 
 
 class ArchiveService:
@@ -22,7 +17,7 @@ class ArchiveService:
         status: str | None,
         page: int,
         size: int,
-    ) -> ArchiveListResponse:
+    ) -> dict[str, object]:
         items = await self._repo.list_archive_page_headers(
             from_date=from_date,
             to_date=to_date,
@@ -35,14 +30,12 @@ class ArchiveService:
             to_date=to_date,
             status=status,
         )
-        return ArchiveListResponse(
-            items=[ArchiveItemResponse.model_validate(item) for item in items],
-            pagination=PaginationResponse(page=page, size=size, totalCount=total_count),
+        return build_archive_list_payload(
+            items,
+            page=page,
+            size=size,
+            total_count=total_count,
         )
 
 
-def get_archive_service(session: DbSession) -> ArchiveService:
-    return ArchiveService(PageSnapshotRepository(session))
-
-
-__all__ = ['ArchiveService', 'get_archive_service']
+__all__ = ['ArchiveService']

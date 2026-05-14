@@ -2,22 +2,16 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import BackgroundTasks
-
-from app.api.deps import DbSession
 from app.batch.orchestrators.market_daily import MarketDailyBatchOrchestrator
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.timezone import get_business_date
 from app.db.enums import BatchJobStatus, BatchTriggerType
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.projections import BatchJobCreateParams
-from app.schemas.batch import (
-    BatchJobDetailResponse,
-    BatchJobListItemResponse,
-    BatchJobListResponse,
-    BatchJobsPaginationResponse,
-    BatchJobSummaryResponse,
-    BatchRunResponse,
+from app.domains.batches.assembler import (
+    build_batch_job_detail_payload,
+    build_batch_job_list_payload,
+    build_batch_run_payload,
 )
 
 
@@ -27,8 +21,8 @@ class BatchJobScheduler:
     ) -> None:
         self._orchestrator = orchestrator or MarketDailyBatchOrchestrator()
 
-    def schedule(self, background_tasks: BackgroundTasks, job_id: int) -> None:
-        background_tasks.add_task(self._orchestrator.run, job_id)
+    async def run_market_daily(self, job_id: int) -> None:
+        await self._orchestrator.run(job_id)
 
 
 class BatchesService:
@@ -43,7 +37,7 @@ class BatchesService:
         status: str | None,
         page: int,
         size: int,
-    ) -> BatchJobListResponse:
+    ) -> dict[str, object]:
         result = await self._repo.list_jobs(
             from_date=from_date,
             to_date=to_date,
@@ -51,65 +45,15 @@ class BatchesService:
             page=page,
             size=size,
         )
-        return BatchJobListResponse(
-            items=[
-                BatchJobListItemResponse(
-                    jobId=item.job_id,
-                    jobName=item.job_name,
-                    businessDate=item.business_date,
-                    status=item.status,
-                    startedAt=item.started_at,
-                    endedAt=item.ended_at,
-                    durationSeconds=item.duration_seconds,
-                    marketScope=item.market_scope,
-                    rawNewsCount=item.raw_news_count,
-                    processedNewsCount=item.processed_news_count,
-                    clusterCount=item.cluster_count,
-                    pageId=item.page_id,
-                    pageVersionNo=item.page_version_no,
-                    partialMessage=item.partial_message,
-                )
-                for item in result.items
-            ],
-            pagination=BatchJobsPaginationResponse(
-                page=result.page,
-                size=result.size,
-                totalCount=result.total_count,
-            ),
-            summary=BatchJobSummaryResponse(
-                successCount=result.summary.success_count,
-                partialCount=result.summary.partial_count,
-                failedCount=result.summary.failed_count,
-                avgDurationSeconds=result.summary.avg_duration_seconds,
-            ),
-        )
+        return build_batch_job_list_payload(result)
 
-    async def get_job_detail(self, job_id: int) -> BatchJobDetailResponse:
+    async def get_job_detail(self, job_id: int) -> dict[str, object]:
         job = await self._repo.get_job_by_id(job_id)
         if job is None:
             raise NotFoundError(
                 'BATCH_JOB_NOT_FOUND', '요청한 배치 작업을 찾을 수 없습니다.'
             )
-        return BatchJobDetailResponse(
-            jobId=job.job_id,
-            jobName=job.job_name,
-            businessDate=job.business_date,
-            status=job.status,
-            forceRun=job.force_run,
-            rebuildPageOnly=job.rebuild_page_only,
-            startedAt=job.started_at,
-            endedAt=job.ended_at,
-            durationSeconds=job.duration_seconds,
-            rawNewsCount=job.raw_news_count,
-            processedNewsCount=job.processed_news_count,
-            clusterCount=job.cluster_count,
-            pageId=job.page_id,
-            pageVersionNo=job.page_version_no,
-            partialMessage=job.partial_message,
-            errorCode=job.error_code,
-            errorMessage=job.error_message,
-            logSummary=job.log_summary,
-        )
+        return build_batch_job_detail_payload(job)
 
     async def start_market_daily_batch(
         self,
@@ -118,7 +62,7 @@ class BatchesService:
         user_id: str | None,
         force: bool,
         rebuild_page_only: bool,
-    ) -> BatchRunResponse:
+    ) -> dict[str, object]:
         resolved_business_date = business_date or get_business_date()
         if await self._repo.has_active_job_for_business_date(resolved_business_date):
             raise ConflictError(
@@ -154,26 +98,10 @@ class BatchesService:
             },
         )
         await self._repo.commit()
-        return BatchRunResponse(
-            jobId=job.job_id,
-            jobName=job.job_name,
-            businessDate=job.business_date,
-            status=job.status,
-            startedAt=job.started_at,
-        )
-
-
-def get_batches_service(session: DbSession) -> BatchesService:
-    return BatchesService(BatchJobRepository(session))
-
-
-def get_batch_job_scheduler() -> BatchJobScheduler:
-    return BatchJobScheduler()
+        return build_batch_run_payload(job)
 
 
 __all__ = [
     'BatchJobScheduler',
     'BatchesService',
-    'get_batch_job_scheduler',
-    'get_batches_service',
 ]

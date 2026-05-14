@@ -23,3 +23,8 @@
 ## Task 7 Verification Notes
 - A first pass at dict payload assembly used default `model_dump()` and surfaced a regression where service-level payloads exposed Python `date` objects instead of the existing JSON-string contract; switching to `model_dump(mode='json')` fixed it.
 - Standalone API smoke scripts do not inherit the pytest JWT env fixture, so manual driver checks must bootstrap the JWT env vars before importing `app.main`.
+
+## Task 8 Verification Notes
+- The first focused run exposed a contract regression where Pydantic serialized UTC datetimes as `Z`; switching the batch assembler to explicit `isoformat()` restored the existing `+00:00` response shape.
+- Standalone API smoke scripts still need the pytest-style JWT environment bootstrap before importing `app.main`; otherwise authenticated route checks fail with 401 even when the endpoint wiring is correct.
+- Required Task 8 pytest suites passed on Python 3.14.4, with the same pre-existing `google.genai` and `langchain_core` warnings seen in earlier tasks.

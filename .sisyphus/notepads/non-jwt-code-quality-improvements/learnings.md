@@ -29,3 +29,8 @@
 ## Task 7 Pages/Clusters Decoupling
 - Pages and clusters services can stay HTTP-free by returning JSON-shaped domain payload dicts while routers own both FastAPI dependency factories and final `response_model` assembly.
 - When replacing service-layer Pydantic returns with dict payloads, `model_dump(mode='json')` preserves the existing serialized date/datetime contract that the characterization tests expect.
+
+## Task 8 Batch and Archive Boundaries
+- Batches and archive can follow the Task 7 pages pattern by returning JSON-shaped dict payloads from services while routers own FastAPI dependency wiring, `response_model` validation, and final envelope assembly.
+- To preserve existing batch datetime strings exactly, batch payload builders must serialize datetimes with `datetime.isoformat()` instead of relying on Pydantic's UTC `Z` normalization.
+- Moving background scheduling to the router boundary still preserves Task 5 startup durability when the service commits the RUNNING job and CREATE_JOB event before the router adds the orchestrator task.
