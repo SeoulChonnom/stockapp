@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -12,12 +13,24 @@ class LlmConfigurationError(RuntimeError):
     pass
 
 
+class LlmTimeoutError(RuntimeError):
+    pass
+
+
 class GeminiJsonClient:
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
 
     def is_configured(self) -> bool:
         return bool(self._settings.gemini_api_key)
+
+    @property
+    def model_name(self) -> str:
+        return self._settings.llm_model
+
+    @property
+    def concurrency_limit(self) -> int:
+        return self._settings.llm_concurrency_limit
 
     def _build_model(self) -> ChatGoogleGenerativeAI:
         if not self.is_configured():
@@ -36,12 +49,18 @@ class GeminiJsonClient:
         user_prompt: str,
     ) -> dict[str, Any]:
         model = self._build_model()
-        response = await model.ainvoke(
-            [
-                ('system', system_prompt),
-                ('human', user_prompt),
-            ]
-        )
+        try:
+            response = await asyncio.wait_for(
+                model.ainvoke(
+                    [
+                        ('system', system_prompt),
+                        ('human', user_prompt),
+                    ]
+                ),
+                timeout=self._settings.llm_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise LlmTimeoutError('LLM invocation timed out.') from exc
         return self._parse_json(str(response.content))
 
     @staticmethod
@@ -57,4 +76,4 @@ class GeminiJsonClient:
         return parsed
 
 
-__all__ = ['GeminiJsonClient', 'LlmConfigurationError']
+__all__ = ['GeminiJsonClient', 'LlmConfigurationError', 'LlmTimeoutError']
