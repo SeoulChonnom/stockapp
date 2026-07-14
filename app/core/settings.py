@@ -1,6 +1,9 @@
+import base64
+import binascii
 import json
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,6 +23,26 @@ class Settings(BaseSettings):
         default='postgresql+psycopg://mcp_doc:mcp_doc_password@localhost:5432/slcn',
     )
     database_schema: str = 'stock'
+    database_pool_size: int = Field(
+        default=5,
+        ge=1,
+        validation_alias=AliasChoices('STOCKAPP_DATABASE_POOL_SIZE', 'database_pool_size'),
+    )
+    database_max_overflow: int = Field(
+        default=10,
+        ge=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_DATABASE_MAX_OVERFLOW', 'database_max_overflow'
+        ),
+    )
+    database_pool_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_DATABASE_POOL_TIMEOUT_SECONDS',
+            'database_pool_timeout_seconds',
+        ),
+    )
     auth_stub_token: str = 'dev-token'
     jwt_secret: str | None = Field(
         default=None,
@@ -97,6 +120,14 @@ class Settings(BaseSettings):
             'article_crawl_user_agent',
         ),
     )
+    article_crawl_concurrency_limit: int = Field(
+        default=4,
+        ge=1,
+        validation_alias=AliasChoices(
+            'STOCKAPP_ARTICLE_CRAWL_CONCURRENCY_LIMIT',
+            'article_crawl_concurrency_limit',
+        ),
+    )
     yfinance_timeout_seconds: float = Field(
         default=10.0,
         validation_alias=AliasChoices(
@@ -119,6 +150,20 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(
         default=2,
         validation_alias=AliasChoices('STOCKAPP_LLM_MAX_RETRIES', 'llm_max_retries'),
+    )
+    llm_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_TIMEOUT_SECONDS', 'llm_timeout_seconds'
+        ),
+    )
+    llm_concurrency_limit: int = Field(
+        default=2,
+        ge=1,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_CONCURRENCY_LIMIT', 'llm_concurrency_limit'
+        ),
     )
     gemini_api_key: str | None = Field(
         default=None,
@@ -214,6 +259,44 @@ class Settings(BaseSettings):
             for origin in self.cors_allowed_origins.split(',')
             if origin.strip()
         ]
+
+    def validate_for_app_startup(self) -> None:
+        if not self.app_env == 'production':
+            return
+
+        unsafe_reasons = [
+            *self._unsafe_database_reasons(),
+            *self._unsafe_jwt_reasons(),
+        ]
+        if unsafe_reasons:
+            raise RuntimeError(
+                'Unsafe production configuration: ' + '; '.join(unsafe_reasons)
+            )
+
+    def _unsafe_database_reasons(self) -> list[str]:
+        parsed = urlparse(self.database_url)
+        reasons: list[str] = []
+        if not parsed.scheme.startswith('postgresql'):
+            reasons.append('database_url must use PostgreSQL in production')
+        if parsed.hostname in {'localhost', '127.0.0.1', '::1'}:
+            reasons.append('database_url must not target localhost in production')
+        if parsed.username == 'mcp_doc' or parsed.password == 'mcp_doc_password':
+            reasons.append('database_url must not use bundled default credentials')
+        return reasons
+
+    def _unsafe_jwt_reasons(self) -> list[str]:
+        secret = self.jwt_secret.strip() if isinstance(self.jwt_secret, str) else ''
+        if not secret:
+            return ['jwt_secret is required in production']
+
+        padding = '=' * (-len(secret) % 4)
+        try:
+            decoded_secret = base64.urlsafe_b64decode(f'{secret}{padding}')
+        except (ValueError, binascii.Error):
+            return ['jwt_secret must be base64url encoded']
+        if len(decoded_secret) < 32:
+            return ['jwt_secret must decode to at least 32 bytes']
+        return []
 
 
 @lru_cache

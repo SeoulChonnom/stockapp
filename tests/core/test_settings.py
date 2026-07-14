@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from tests.support import load_module
+from tests.support import JWT_TEST_SECRET, load_module
 
 settings_module = load_module('app.core.settings')
 
@@ -63,3 +63,59 @@ def test_settings_accept_valid_database_schema_identifier():
     settings = settings_module.Settings(database_schema='stock')
 
     assert settings.database_schema == 'stock'
+
+
+def test_production_startup_validation_rejects_default_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv('STOCKAPP_DATABASE_URL', raising=False)
+    monkeypatch.delenv('database_url', raising=False)
+    settings = settings_module.Settings(jwt_secret=JWT_TEST_SECRET)
+
+    with pytest.raises(RuntimeError, match='database_url'):
+        settings.validate_for_app_startup()
+
+
+@pytest.mark.parametrize('jwt_secret', [None, '', 'not-base64url!'])
+def test_production_startup_validation_rejects_unsafe_jwt_secret(
+    jwt_secret: str | None,
+):
+    settings = settings_module.Settings(
+        database_url='postgresql+psycopg://app:secret@db.example.com:5432/slcn',
+        jwt_secret=jwt_secret,
+    )
+
+    with pytest.raises(RuntimeError, match='jwt_secret'):
+        settings.validate_for_app_startup()
+
+
+def test_production_startup_validation_accepts_safe_required_configuration():
+    settings = settings_module.Settings(
+        database_url='postgresql+psycopg://app:secret@db.example.com:5432/slcn',
+        jwt_secret=JWT_TEST_SECRET,
+    )
+
+    settings.validate_for_app_startup()
+
+
+def test_development_startup_validation_allows_local_defaults():
+    settings = settings_module.Settings(app_env='development')
+
+    settings.validate_for_app_startup()
+
+
+def test_test_startup_validation_allows_local_defaults():
+    settings = settings_module.Settings(app_env='test')
+
+    settings.validate_for_app_startup()
+
+
+def test_settings_accepts_batch_concurrency_limits():
+    settings = settings_module.Settings(
+        app_env='development',
+        article_crawl_concurrency_limit=3,
+        llm_concurrency_limit=2,
+    )
+
+    assert settings.article_crawl_concurrency_limit == 3
+    assert settings.llm_concurrency_limit == 2
