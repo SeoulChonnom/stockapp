@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports]
 
 from tests.support import BUSINESS_DATE, RecordingAsyncSession, load_module
 
@@ -100,12 +101,17 @@ async def test_build_clusters_creates_scaffold_bundle(monkeypatch):
         rebuild_page_only=False,
     )
 
+    class FakeLlmProvider:
+        def is_configured(self):
+            return False
+
     monkeypatch.setattr(
         build_clusters_module, 'NewsArticleProcessedRepository', FakeProcessedRepo
     )
     monkeypatch.setattr(
         build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
     )
+    monkeypatch.setattr(build_clusters_module, 'BatchLlmProvider', FakeLlmProvider)
 
     step = BuildClustersStep()
     updated_context = await step.run(fake_repository, context)
@@ -156,3 +162,102 @@ async def test_build_clusters_records_llm_fallback_error_context(monkeypatch):
             'errorClass': 'TimeoutError',
             'errorMessage': 'provider timeout',
         }
+
+
+@pytest.mark.anyio
+async def test_build_clusters_falls_back_when_llm_enrichment_is_malformed(
+    monkeypatch,
+):
+    session = RecordingAsyncSession()
+    fake_repository = FakeBatchRepository(session=session, events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    class FakeLlmProvider:
+        def is_configured(self):
+            return True
+
+        async def enrich_cluster(self, **kwargs):
+            _ = kwargs
+            return {'title': 'LLM title', 'tags': 'not-a-list'}
+
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsArticleProcessedRepository', FakeProcessedRepo
+    )
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
+    )
+    monkeypatch.setattr(build_clusters_module, 'BatchLlmProvider', FakeLlmProvider)
+
+    updated_context = await BuildClustersStep().run(fake_repository, context)
+
+    assert updated_context.cluster_count == 2
+    warning_events = [
+        event
+        for event in fake_repository.events
+        if event['message'] == 'Cluster enrichment used fallback response.'
+    ]
+    assert len(warning_events) == 2
+    for event in warning_events:
+        assert event['context_json']['fallbackReason'] == 'llm_malformed_response'
+        assert event['context_json']['error'] == {
+            'provider': 'BatchLlmProvider',
+            'errorClass': 'ValueError',
+            'errorMessage': 'Cluster enrichment tags must be a list.',
+        }
+
+
+@pytest.mark.anyio
+async def test_build_clusters_bounds_llm_enrichment_concurrency(monkeypatch):
+    session = RecordingAsyncSession()
+    fake_repository = FakeBatchRepository(session=session, events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    class TrackingLlmProvider:
+        concurrency_limit = 2
+
+        def __init__(self):
+            self.active = 0
+            self.max_active = 0
+
+        def is_configured(self):
+            return True
+
+        async def enrich_cluster(self, **kwargs):
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            await asyncio.sleep(0.01)
+            self.active -= 1
+            return {
+                'title': kwargs['articles'][0]['title'],
+                'summary_short': kwargs['articles'][0]['summary'],
+                'summary_long': kwargs['articles'][0]['summary'],
+                'tags': ['tag'],
+                'analysis_paragraphs': ['analysis'],
+                'representative_article_index': 0,
+            }
+
+    llm_provider = TrackingLlmProvider()
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsArticleProcessedRepository', FakeProcessedRepo
+    )
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
+    )
+    monkeypatch.setattr(
+        build_clusters_module, 'BatchLlmProvider', lambda: llm_provider
+    )
+
+    updated_context = await BuildClustersStep().run(fake_repository, context)
+
+    assert llm_provider.max_active == 2
+    assert updated_context.cluster_count == 2

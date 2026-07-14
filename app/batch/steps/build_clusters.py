@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from collections.abc import Callable
 from datetime import UTC, datetime, timezone
+from typing import Any
 
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import normalize_title, tokenize_text
@@ -25,6 +27,14 @@ def _serialize_exception(exc: Exception) -> dict[str, str]:
     }
 
 
+def _serialize_malformed_response(reason: str) -> dict[str, str]:
+    return {
+        'provider': 'BatchLlmProvider',
+        'errorClass': 'ValueError',
+        'errorMessage': reason,
+    }
+
+
 class BuildClustersStep(BatchStep):
     step_code = 'BUILD_CLUSTERS'
     started_message = 'Build clusters step started.'
@@ -33,9 +43,9 @@ class BuildClustersStep(BatchStep):
     def __init__(
         self,
         *,
-        processed_repo_factory: Callable[[object], object] | None = None,
-        cluster_repo_factory: Callable[[object], object] | None = None,
-        llm_provider_factory: Callable[[], object] | None = None,
+        processed_repo_factory: Callable[[object], Any] | None = None,
+        cluster_repo_factory: Callable[[object], Any] | None = None,
+        llm_provider_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._processed_repo_factory = (
             processed_repo_factory or NewsArticleProcessedRepository
@@ -96,8 +106,8 @@ class BuildClustersStep(BatchStep):
                     )
                 )
                 await cluster_repo.delete_clusters_by_ids(existing_cluster_ids)
-            for cluster_rank, cluster_articles in enumerate(market_clusters, start=1):
-                ordered_articles = sorted(
+            ordered_cluster_articles = [
+                sorted(
                     cluster_articles,
                     key=lambda article: (
                         article.published_at or datetime.min.replace(tzinfo=UTC),
@@ -105,10 +115,16 @@ class BuildClustersStep(BatchStep):
                     ),
                     reverse=True,
                 )
-                ordered_articles[0]
-                enrichment = await _enrich_cluster(
-                    llm_provider, market_type, ordered_articles
-                )
+                for cluster_articles in market_clusters
+            ]
+            enrichments = await _enrich_market_clusters(
+                llm_provider,
+                market_type,
+                ordered_cluster_articles,
+            )
+            for cluster_rank, (ordered_articles, enrichment) in enumerate(
+                zip(ordered_cluster_articles, enrichments, strict=True), start=1
+            ):
                 if enrichment.get('fallback_used') and enrichment.get('error_context'):
                     await repository.add_event(
                         job_id=context.job_id,
@@ -247,15 +263,43 @@ async def _enrich_cluster(
         fallback['error_context'] = _serialize_exception(exc)
         return fallback
 
-    representative_index = int(result.get('representative_article_index', 0) or 0)
+    if not isinstance(result, dict):
+        fallback['fallback_reason'] = 'llm_malformed_response'
+        fallback['error_context'] = _serialize_malformed_response(
+            'Cluster enrichment response must be an object.'
+        )
+        return fallback
+
+    tags = result.get('tags')
+    if tags is not None and not isinstance(tags, list):
+        fallback['fallback_reason'] = 'llm_malformed_response'
+        fallback['error_context'] = _serialize_malformed_response(
+            'Cluster enrichment tags must be a list.'
+        )
+        return fallback
+    analysis_paragraphs = result.get('analysis_paragraphs')
+    if analysis_paragraphs is not None and not isinstance(analysis_paragraphs, list):
+        fallback['fallback_reason'] = 'llm_malformed_response'
+        fallback['error_context'] = _serialize_malformed_response(
+            'Cluster enrichment analysis_paragraphs must be a list.'
+        )
+        return fallback
+    try:
+        representative_index = int(result.get('representative_article_index', 0) or 0)
+    except (TypeError, ValueError):
+        fallback['fallback_reason'] = 'llm_malformed_response'
+        fallback['error_context'] = _serialize_malformed_response(
+            'Cluster enrichment representative_article_index must be an integer.'
+        )
+        return fallback
     if representative_index < 0 or representative_index >= len(articles):
         representative_index = 0
     return {
         'title': result.get('title') or fallback['title'],
         'summary_short': result.get('summary_short') or fallback['summary_short'],
         'summary_long': result.get('summary_long') or fallback['summary_long'],
-        'tags': result.get('tags') or fallback['tags'],
-        'analysis_paragraphs': result.get('analysis_paragraphs')
+        'tags': tags or fallback['tags'],
+        'analysis_paragraphs': analysis_paragraphs
         or fallback['analysis_paragraphs'],
         'representative_article_id': articles[
             representative_index
@@ -264,6 +308,19 @@ async def _enrich_cluster(
         'fallback_reason': 'llm',
         'error_context': None,
     }
+
+
+async def _enrich_market_clusters(
+    llm_provider: BatchLlmProvider, market_type: str, clusters: list[list]
+) -> list[dict]:
+    concurrency_limit = getattr(llm_provider, 'concurrency_limit', 1)
+    semaphore = asyncio.Semaphore(concurrency_limit)
+
+    async def enrich(articles: list) -> dict:
+        async with semaphore:
+            return await _enrich_cluster(llm_provider, market_type, articles)
+
+    return await asyncio.gather(*(enrich(articles) for articles in clusters))
 
 
 __all__ = ['BuildClustersStep']
