@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
+from typing import Any
 
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
@@ -21,6 +23,53 @@ def _llm_error_metadata(exc: Exception) -> dict[str, str]:
     }
 
 
+def _llm_malformed_metadata(reason: str) -> dict[str, str]:
+    return {
+        'provider': 'BatchLlmProvider',
+        'errorClass': 'ValueError',
+        'errorMessage': reason,
+    }
+
+
+def _with_malformed_fallback(fallback: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {
+        **fallback,
+        'error_message': reason,
+        'metadata_json': {
+            **fallback.get('metadata_json', {}),
+            'reason': 'llm_malformed_response',
+            'error': _llm_malformed_metadata(reason),
+        },
+    }
+
+
+def _is_optional_string(value: object) -> bool:
+    return value is None or isinstance(value, str)
+
+
+def _is_string_list(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _validate_summary_result(
+    result: object,
+    *,
+    summary_name: str,
+    string_fields: tuple[str, ...] = (),
+    list_fields: tuple[str, ...] = (),
+) -> str | None:
+    if not isinstance(result, dict):
+        return f'{summary_name} response must be an object.'
+    for field in string_fields:
+        if not _is_optional_string(result.get(field)):
+            return f'{summary_name} {field} must be a string.'
+    for field in list_fields:
+        value = result.get(field)
+        if value is not None and not _is_string_list(value):
+            return f'{summary_name} {field} must be a list of strings.'
+    return None
+
+
 class GenerateAiSummariesStep(BatchStep):
     step_code = 'GENERATE_AI_SUMMARIES'
     started_message = 'Generate AI summaries step started.'
@@ -29,10 +78,10 @@ class GenerateAiSummariesStep(BatchStep):
     def __init__(
         self,
         *,
-        cluster_repo_factory: Callable[[object], object] | None = None,
-        index_repo_factory: Callable[[object], object] | None = None,
-        summary_repo_factory: Callable[[object], object] | None = None,
-        llm_provider_factory: Callable[[], object] | None = None,
+        cluster_repo_factory: Callable[[object], Any] | None = None,
+        index_repo_factory: Callable[[object], Any] | None = None,
+        summary_repo_factory: Callable[[object], Any] | None = None,
+        llm_provider_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._cluster_repo_factory = cluster_repo_factory or ClusterRepository
         self._index_repo_factory = index_repo_factory or MarketIndexRepository
@@ -44,6 +93,12 @@ class GenerateAiSummariesStep(BatchStep):
         repository: BatchJobRepository,
         context: BatchExecutionContext,
     ) -> BatchExecutionContext:
+        if context.rebuild_page_only:
+            context.log_messages.append(
+                'Skipped AI summary generation because rebuild_page_only=true.'
+            )
+            return context
+
         session = require_repository_session(repository, step_code=self.step_code)
 
         cluster_repo = self._cluster_repo_factory(session)
@@ -55,33 +110,24 @@ class GenerateAiSummariesStep(BatchStep):
             context.business_date
         )
         indices = await index_repo.list_indices_by_business_date(context.business_date)
-        if not clusters and not context.rebuild_page_only:
-            context.partial_reasons.append('요약 생성에 필요한 클러스터가 없습니다.')
+        if not clusters:
+            reason = '요약 생성에 필요한 클러스터가 없습니다.'
+            context.partial_reasons.append(reason)
+            await repository.add_event(
+                job_id=context.job_id,
+                step_code=self.step_code,
+                level=EventLevel.WARN.value,
+                message='Skipped AI summary generation because no clusters exist.',
+                context_json={'businessDate': context.business_date.isoformat()},
+            )
             return context
 
-        global_payload = await _generate_global_headline(
-            llm_provider, clusters, indices
-        )
-        await summary_repo.insert_summary(
-            AiSummaryCreateParams(
-                batch_job_id=context.job_id,
-                summary_type=AiSummaryType.GLOBAL_HEADLINE.value,
-                business_date=context.business_date,
-                market_type=None,
-                cluster_id=None,
-                title=global_payload['title'],
-                body=global_payload.get('body'),
-                paragraphs_json=[],
-                model_name=global_payload.get('model_name'),
-                prompt_version=PROMPT_VERSION,
-                status=global_payload['status'],
-                fallback_used=global_payload['fallback_used'],
-                error_message=global_payload.get('error_message'),
-                metadata_json=global_payload.get('metadata_json', {}),
-            )
-        )
-        context.generated_summary_count += 1
-        context.fallback_count += int(global_payload['fallback_used'])
+        concurrency_limit = getattr(llm_provider, 'concurrency_limit', 1)
+        semaphore = asyncio.Semaphore(concurrency_limit)
+
+        async def bounded_generate(callable_, *args, **kwargs) -> dict:
+            async with semaphore:
+                return await callable_(*args, **kwargs)
 
         by_market: dict[str, list[dict]] = {}
         for cluster in clusters:
@@ -90,34 +136,34 @@ class GenerateAiSummariesStep(BatchStep):
         for index in indices:
             indices_by_market.setdefault(index.market_type, []).append(index)
 
+        summary_jobs: list[dict[str, Any]] = [
+            {
+                'summary_type': AiSummaryType.GLOBAL_HEADLINE.value,
+                'market_type': None,
+                'cluster_id': None,
+                'payload': bounded_generate(
+                    _generate_global_headline,
+                    llm_provider,
+                    clusters,
+                    indices,
+                ),
+            }
+        ]
         for market_type, market_clusters in by_market.items():
-            market_summary = await _generate_market_summary(
-                llm_provider,
-                market_type=market_type,
-                clusters=market_clusters,
-                indices=indices_by_market.get(market_type, []),
+            summary_jobs.append(
+                {
+                    'summary_type': AiSummaryType.MARKET_SUMMARY.value,
+                    'market_type': market_type,
+                    'cluster_id': None,
+                    'payload': bounded_generate(
+                        _generate_market_summary,
+                        llm_provider,
+                        market_type=market_type,
+                        clusters=market_clusters,
+                        indices=indices_by_market.get(market_type, []),
+                    ),
+                }
             )
-            await summary_repo.insert_summary(
-                AiSummaryCreateParams(
-                    batch_job_id=context.job_id,
-                    summary_type=AiSummaryType.MARKET_SUMMARY.value,
-                    business_date=context.business_date,
-                    market_type=market_type,
-                    cluster_id=None,
-                    title=market_summary['title'],
-                    body=market_summary.get('body'),
-                    paragraphs_json=[],
-                    model_name=market_summary.get('model_name'),
-                    prompt_version=PROMPT_VERSION,
-                    status=market_summary['status'],
-                    fallback_used=market_summary['fallback_used'],
-                    error_message=market_summary.get('error_message'),
-                    metadata_json=market_summary.get('metadata_json', {}),
-                )
-            )
-            context.generated_summary_count += 1
-            context.fallback_count += int(market_summary['fallback_used'])
-
             for cluster in market_clusters:
                 cluster_articles = await cluster_repo.get_cluster_articles(
                     cluster['id']
@@ -125,58 +171,59 @@ class GenerateAiSummariesStep(BatchStep):
                 processed_articles = await cluster_repo.get_processed_articles(
                     [row['processed_article_id'] for row in cluster_articles]
                 )
-                card_summary = await _generate_cluster_card_summary(
-                    llm_provider,
-                    market_type,
-                    cluster,
-                    processed_articles,
+                summary_jobs.append(
+                    {
+                        'summary_type': AiSummaryType.CLUSTER_CARD_SUMMARY.value,
+                        'market_type': market_type,
+                        'cluster_id': cluster['id'],
+                        'payload': bounded_generate(
+                            _generate_cluster_card_summary,
+                            llm_provider,
+                            market_type,
+                            cluster,
+                            processed_articles,
+                        ),
+                    }
                 )
-                await summary_repo.insert_summary(
-                    AiSummaryCreateParams(
-                        batch_job_id=context.job_id,
-                        summary_type=AiSummaryType.CLUSTER_CARD_SUMMARY.value,
-                        business_date=context.business_date,
-                        market_type=market_type,
-                        cluster_id=cluster['id'],
-                        title=card_summary.get('title'),
-                        body=card_summary.get('body'),
-                        paragraphs_json=[],
-                        model_name=card_summary.get('model_name'),
-                        prompt_version=PROMPT_VERSION,
-                        status=card_summary['status'],
-                        fallback_used=card_summary['fallback_used'],
-                        error_message=card_summary.get('error_message'),
-                        metadata_json=card_summary.get('metadata_json', {}),
-                    )
+                summary_jobs.append(
+                    {
+                        'summary_type': AiSummaryType.CLUSTER_DETAIL_ANALYSIS.value,
+                        'market_type': market_type,
+                        'cluster_id': cluster['id'],
+                        'payload': bounded_generate(
+                            _generate_cluster_detail_summary,
+                            llm_provider,
+                            market_type,
+                            cluster,
+                            processed_articles,
+                        ),
+                    }
                 )
-                detail_summary = await _generate_cluster_detail_summary(
-                    llm_provider,
-                    market_type,
-                    cluster,
-                    processed_articles,
+
+        payloads = await asyncio.gather(
+            *(summary_job['payload'] for summary_job in summary_jobs)
+        )
+        for summary_job, payload in zip(summary_jobs, payloads, strict=True):
+            await summary_repo.insert_summary(
+                AiSummaryCreateParams(
+                    batch_job_id=context.job_id,
+                    summary_type=summary_job['summary_type'],
+                    business_date=context.business_date,
+                    market_type=summary_job['market_type'],
+                    cluster_id=summary_job['cluster_id'],
+                    title=payload.get('title'),
+                    body=payload.get('body'),
+                    paragraphs_json=payload.get('paragraphs', []),
+                    model_name=payload.get('model_name'),
+                    prompt_version=PROMPT_VERSION,
+                    status=payload['status'],
+                    fallback_used=payload['fallback_used'],
+                    error_message=payload.get('error_message'),
+                    metadata_json=payload.get('metadata_json', {}),
                 )
-                await summary_repo.insert_summary(
-                    AiSummaryCreateParams(
-                        batch_job_id=context.job_id,
-                        summary_type=AiSummaryType.CLUSTER_DETAIL_ANALYSIS.value,
-                        business_date=context.business_date,
-                        market_type=market_type,
-                        cluster_id=cluster['id'],
-                        title=detail_summary.get('title'),
-                        body=detail_summary.get('body'),
-                        paragraphs_json=detail_summary.get('paragraphs', []),
-                        model_name=detail_summary.get('model_name'),
-                        prompt_version=PROMPT_VERSION,
-                        status=detail_summary['status'],
-                        fallback_used=detail_summary['fallback_used'],
-                        error_message=detail_summary.get('error_message'),
-                        metadata_json=detail_summary.get('metadata_json', {}),
-                    )
-                )
-                context.generated_summary_count += 2
-                context.fallback_count += int(card_summary['fallback_used']) + int(
-                    detail_summary['fallback_used']
-                )
+            )
+            context.generated_summary_count += 1
+            context.fallback_count += int(payload['fallback_used'])
 
         if context.fallback_count:
             await repository.add_event(
@@ -208,6 +255,7 @@ async def _generate_global_headline(
     }
     if not llm_provider.is_configured():
         return fallback
+    model_name = getattr(llm_provider, 'model_name', None)
     try:
         result = await llm_provider.summarize_global_headline(
             clusters=[
@@ -223,12 +271,19 @@ async def _generate_global_headline(
                 for index in indices
             ],
         )
+        malformed_reason = _validate_summary_result(
+            result,
+            summary_name='Global headline',
+            string_fields=('title', 'body'),
+        )
+        if malformed_reason:
+            return _with_malformed_fallback(fallback, malformed_reason)
         return {
             'title': result.get('title') or fallback_title,
             'body': result.get('body'),
             'status': AiSummaryStatus.SUCCESS.value,
             'fallback_used': False,
-            'model_name': 'gemini-3.1-flash-lite',
+            'model_name': model_name,
             'metadata_json': {'reason': 'llm'},
         }
     except Exception as exc:
@@ -269,6 +324,7 @@ async def _generate_market_summary(
     }
     if not llm_provider.is_configured():
         return fallback
+    model_name = getattr(llm_provider, 'model_name', None)
     try:
         result = await llm_provider.summarize_market(
             market_type=market_type,
@@ -289,12 +345,20 @@ async def _generate_market_summary(
                 for cluster in clusters
             ],
         )
+        malformed_reason = _validate_summary_result(
+            result,
+            summary_name='Market summary',
+            string_fields=('title', 'body', 'outlook'),
+            list_fields=('background', 'key_themes'),
+        )
+        if malformed_reason:
+            return _with_malformed_fallback(fallback, malformed_reason)
         return {
             'title': result.get('title') or fallback['title'],
             'body': result.get('body') or fallback['body'],
             'status': AiSummaryStatus.SUCCESS.value,
             'fallback_used': False,
-            'model_name': 'gemini-3.1-flash-lite',
+            'model_name': model_name,
             'metadata_json': {
                 'background': result.get('background')
                 or fallback['metadata_json']['background'],
@@ -328,18 +392,26 @@ async def _generate_cluster_card_summary(
     }
     if not llm_provider.is_configured():
         return fallback
+    model_name = getattr(llm_provider, 'model_name', None)
     try:
         result = await llm_provider.summarize_cluster_card(
             market_type=market_type,
             cluster={'title': cluster['title'], 'summary': cluster['summary_short']},
             articles=articles,
         )
+        malformed_reason = _validate_summary_result(
+            result,
+            summary_name='Cluster card summary',
+            string_fields=('title', 'body'),
+        )
+        if malformed_reason:
+            return _with_malformed_fallback(fallback, malformed_reason)
         return {
             'title': result.get('title') or fallback['title'],
             'body': result.get('body') or fallback['body'],
             'status': AiSummaryStatus.SUCCESS.value,
             'fallback_used': False,
-            'model_name': 'gemini-3.1-flash-lite',
+            'model_name': model_name,
             'metadata_json': {'reason': 'llm'},
         }
     except Exception as exc:
@@ -367,6 +439,7 @@ async def _generate_cluster_detail_summary(
     }
     if not llm_provider.is_configured():
         return fallback
+    model_name = getattr(llm_provider, 'model_name', None)
     try:
         result = await llm_provider.summarize_cluster_detail(
             market_type=market_type,
@@ -376,13 +449,21 @@ async def _generate_cluster_detail_summary(
             },
             articles=articles,
         )
+        malformed_reason = _validate_summary_result(
+            result,
+            summary_name='Cluster detail summary',
+            string_fields=('title', 'body'),
+            list_fields=('paragraphs',),
+        )
+        if malformed_reason:
+            return _with_malformed_fallback(fallback, malformed_reason)
         return {
             'title': result.get('title') or fallback['title'],
             'body': result.get('body') or fallback['body'],
             'paragraphs': result.get('paragraphs') or fallback['paragraphs'],
             'status': AiSummaryStatus.SUCCESS.value,
             'fallback_used': False,
-            'model_name': 'gemini-3.1-flash-lite',
+            'model_name': model_name,
             'metadata_json': {'reason': 'llm'},
         }
     except Exception as exc:

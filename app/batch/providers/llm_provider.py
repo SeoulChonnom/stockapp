@@ -15,6 +15,14 @@ class BatchLlmProvider:
     def is_configured(self) -> bool:
         return self._client.is_configured()
 
+    @property
+    def model_name(self) -> str:
+        return self._client.model_name
+
+    @property
+    def concurrency_limit(self) -> int:
+        return self._client.concurrency_limit
+
     async def enrich_cluster(
         self,
         *,

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports]
 
 from tests.support import RecordingAsyncSession, load_module
 
@@ -30,6 +31,15 @@ class EventRepository:
         self.events.append((step_code, message))
 
 
+@dataclass
+class RichEventRepository:
+    session: RecordingAsyncSession
+    events: list[dict]
+
+    async def add_event(self, *, step_code: str, message: str, **kwargs):
+        self.events.append({'step_code': step_code, 'message': message, **kwargs})
+
+
 def build_context() -> BatchExecutionContext:
     return BatchExecutionContext(
         job_id=1001,
@@ -37,6 +47,117 @@ def build_context() -> BatchExecutionContext:
         force_run=False,
         rebuild_page_only=False,
     )
+
+
+@pytest.mark.anyio
+async def test_collect_news_step_skips_provider_when_rebuild_page_only(monkeypatch):
+    collect_module = load_module('app.batch.steps.collect_news')
+
+    class FailingProvider:
+        def __init__(self):
+            raise AssertionError('provider must not be created')
+
+    monkeypatch.setattr(collect_module, 'NaverNewsProvider', FailingProvider)
+
+    repository = RichEventRepository(session=RecordingAsyncSession(), events=[])
+    context = build_context()
+    context.rebuild_page_only = True
+
+    updated_context = await collect_module.CollectNewsStep().run(repository, context)
+
+    assert updated_context.raw_news_count == 0
+    assert updated_context.log_messages == [
+        'Skipped news collection because rebuild_page_only=true.'
+    ]
+
+
+@pytest.mark.anyio
+async def test_collect_news_step_preserves_successful_keyword_when_one_fails(
+    monkeypatch,
+):
+    collect_module = load_module('app.batch.steps.collect_news')
+    provider_module = load_module('app.batch.providers.naver_news')
+
+    class FakeKeywordRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_active_keywords(self, *, provider_name):
+            return [
+                projections_module.NewsSearchKeywordRecord(
+                    keyword_id=1,
+                    provider_name=provider_name,
+                    market_type='US',
+                    keyword='broken',
+                    is_active=True,
+                    priority=1,
+                    created_at=datetime(2026, 3, 18, 6, 0, tzinfo=UTC),
+                    updated_at=datetime(2026, 3, 18, 6, 0, tzinfo=UTC),
+                ),
+                projections_module.NewsSearchKeywordRecord(
+                    keyword_id=2,
+                    provider_name=provider_name,
+                    market_type='KR',
+                    keyword='working',
+                    is_active=True,
+                    priority=2,
+                    created_at=datetime(2026, 3, 18, 6, 0, tzinfo=UTC),
+                    updated_at=datetime(2026, 3, 18, 6, 0, tzinfo=UTC),
+                ),
+            ]
+
+    class FakeRawRepo:
+        def __init__(self, session):
+            _ = session
+            self.inserted = []
+
+        async def insert_articles(self, articles):
+            self.inserted.extend(articles)
+            return len(articles)
+
+    class FakeProvider:
+        def is_configured(self):
+            return True
+
+        async def collect_for_keyword(self, *, keyword_record, business_date):
+            _ = business_date
+            if keyword_record.keyword == 'broken':
+                raise TimeoutError('provider timeout')
+            return provider_module.NaverCollectedKeywordResult(
+                fetched_count=2,
+                candidate_count=1,
+                articles=[object()],
+            )
+
+    fake_raw_repo = FakeRawRepo(RecordingAsyncSession())
+    monkeypatch.setattr(collect_module, 'NewsSearchKeywordRepository', FakeKeywordRepo)
+    monkeypatch.setattr(
+        collect_module, 'NewsArticleRawRepository', lambda session: fake_raw_repo
+    )
+    monkeypatch.setattr(collect_module, 'NaverNewsProvider', FakeProvider)
+
+    repository = RichEventRepository(session=RecordingAsyncSession(), events=[])
+    context = build_context()
+
+    updated_context = await collect_module.CollectNewsStep().run(repository, context)
+
+    assert updated_context.raw_news_count == 1
+    assert len(fake_raw_repo.inserted) == 1
+    assert updated_context.warning_messages == [
+        'Failed to collect Naver news for keyword: broken'
+    ]
+    warning_events = [
+        event
+        for event in repository.events
+        if event['message'] == 'Failed to collect Naver news for keyword.'
+    ]
+    assert len(warning_events) == 1
+    assert warning_events[0]['context_json']['keyword'] == 'broken'
+    assert warning_events[0]['context_json']['error'] == {
+        'provider': 'NaverNewsProvider',
+        'errorClass': 'TimeoutError',
+        'errorMessage': 'provider timeout',
+    }
 
 
 @pytest.mark.anyio
@@ -193,6 +314,293 @@ async def test_generate_ai_summaries_step_records_ai_summary_outputs(monkeypatch
     assert updated_context.generated_summary_count == 4
     assert updated_context.log_messages[-1].startswith('Generated 4 AI summary')
     assert len(fake_summary_repo.rows) == 4
+
+
+@pytest.mark.anyio
+async def test_generate_ai_summaries_skips_provider_when_rebuild_page_only():
+    class FailingFactory:
+        def __init__(self, _session=None):
+            raise AssertionError('factory must not be created')
+
+    class FailingLlmProvider:
+        def __init__(self):
+            raise AssertionError('LLM provider must not be created')
+
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
+    context = build_context()
+    context.rebuild_page_only = True
+
+    updated_context = await GenerateAiSummariesStep(
+        cluster_repo_factory=FailingFactory,
+        index_repo_factory=FailingFactory,
+        summary_repo_factory=FailingFactory,
+        llm_provider_factory=FailingLlmProvider,
+    ).run(repository, context)
+
+    assert updated_context.generated_summary_count == 0
+    assert updated_context.log_messages == [
+        'Skipped AI summary generation because rebuild_page_only=true.'
+    ]
+
+
+@pytest.mark.anyio
+async def test_generate_ai_summaries_bounds_llm_calls_and_persists_model_name():
+    class MultiClusterRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_clusters_by_business_date(self, business_date):
+            _ = business_date
+            return [
+                {
+                    'id': 7001,
+                    'market_type': 'US',
+                    'title': 'First cluster',
+                    'summary_short': 'First short summary',
+                    'summary_long': 'First long summary',
+                    'analysis_paragraphs_json': ['first paragraph'],
+                    'tags_json': ['AI'],
+                },
+                {
+                    'id': 7002,
+                    'market_type': 'US',
+                    'title': 'Second cluster',
+                    'summary_short': 'Second short summary',
+                    'summary_long': 'Second long summary',
+                    'analysis_paragraphs_json': ['second paragraph'],
+                    'tags_json': ['chips'],
+                },
+            ]
+
+        async def get_cluster_articles(self, cluster_id):
+            return [{'processed_article_id': cluster_id + 100, 'article_rank': 1}]
+
+        async def get_processed_articles(self, article_ids):
+            return [
+                {
+                    'id': article_ids[0],
+                    'canonical_title': f'article {article_ids[0]}',
+                    'publisher_name': 'publisher',
+                    'published_at': '2026-03-17T23:15:00+00:00',
+                    'origin_link': 'https://example.com/article',
+                    'naver_link': 'https://search.naver.com/article',
+                    'source_summary': 'source summary',
+                    'article_body_excerpt': 'excerpt',
+                }
+            ]
+
+    class EmptyIndexRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_indices_by_business_date(self, business_date):
+            _ = business_date
+            return []
+
+    class RecordingSummaryRepo:
+        def __init__(self, session):
+            _ = session
+            self.rows = []
+
+        async def insert_summary(self, params):
+            self.rows.append(params)
+
+    class TrackingLlmProvider:
+        model_name = 'test-configured-model'
+        concurrency_limit = 2
+
+        def __init__(self):
+            self.active = 0
+            self.max_active = 0
+
+        def is_configured(self):
+            return True
+
+        async def _record(self, title):
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            await asyncio.sleep(0.01)
+            self.active -= 1
+            return {
+                'title': title,
+                'body': f'{title} body',
+                'background': ['background'],
+                'key_themes': ['theme'],
+                'outlook': 'outlook',
+                'paragraphs': [f'{title} paragraph'],
+            }
+
+        async def summarize_global_headline(self, **kwargs):
+            _ = kwargs
+            return await self._record('global')
+
+        async def summarize_market(self, **kwargs):
+            _ = kwargs
+            return await self._record('market')
+
+        async def summarize_cluster_card(self, **kwargs):
+            return await self._record(f"card-{kwargs['cluster']['title']}")
+
+        async def summarize_cluster_detail(self, **kwargs):
+            return await self._record(f"detail-{kwargs['cluster']['title']}")
+
+    summary_repo = RecordingSummaryRepo(RecordingAsyncSession())
+    llm_provider = TrackingLlmProvider()
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
+    context = build_context()
+
+    updated_context = await GenerateAiSummariesStep(
+        cluster_repo_factory=MultiClusterRepo,
+        index_repo_factory=EmptyIndexRepo,
+        summary_repo_factory=lambda session: summary_repo,
+        llm_provider_factory=lambda: llm_provider,
+    ).run(repository, context)
+
+    assert llm_provider.max_active == 2
+    assert updated_context.generated_summary_count == 6
+    assert updated_context.fallback_count == 0
+    assert [row.summary_type for row in summary_repo.rows] == [
+        'GLOBAL_HEADLINE',
+        'MARKET_SUMMARY',
+        'CLUSTER_CARD_SUMMARY',
+        'CLUSTER_DETAIL_ANALYSIS',
+        'CLUSTER_CARD_SUMMARY',
+        'CLUSTER_DETAIL_ANALYSIS',
+    ]
+    assert [row.cluster_id for row in summary_repo.rows] == [
+        None,
+        None,
+        7001,
+        7001,
+        7002,
+        7002,
+    ]
+    assert {row.model_name for row in summary_repo.rows} == {'test-configured-model'}
+
+
+@pytest.mark.anyio
+async def test_generate_ai_summaries_uses_fallback_for_malformed_market_metadata():
+    class SingleClusterRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_clusters_by_business_date(self, business_date):
+            _ = business_date
+            return [
+                {
+                    'id': 7001,
+                    'market_type': 'US',
+                    'title': 'Semiconductors rally',
+                    'summary_short': 'Chip stocks lifted the index.',
+                    'summary_long': 'Chip stocks led a broad technology rebound.',
+                    'analysis_paragraphs_json': ['Chip demand improved.'],
+                    'tags_json': ['chips', 'AI'],
+                }
+            ]
+
+        async def get_cluster_articles(self, cluster_id):
+            _ = cluster_id
+            return [{'processed_article_id': 4001, 'article_rank': 1}]
+
+        async def get_processed_articles(self, article_ids):
+            _ = article_ids
+            return [
+                {
+                    'id': 4001,
+                    'canonical_title': 'Chip stocks rally',
+                    'publisher_name': 'Example News',
+                    'published_at': '2026-03-17T23:15:00+00:00',
+                    'origin_link': 'https://example.com/article',
+                    'naver_link': 'https://search.naver.com/article',
+                    'source_summary': 'Chip stocks lifted the index.',
+                    'article_body_excerpt': 'Chip stocks rallied.',
+                }
+            ]
+
+    class EmptyIndexRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_indices_by_business_date(self, business_date):
+            _ = business_date
+            return []
+
+    class RecordingSummaryRepo:
+        def __init__(self, session):
+            _ = session
+            self.rows = []
+
+        async def insert_summary(self, params):
+            self.rows.append(params)
+
+    class MalformedMarketLlmProvider:
+        model_name = 'test-configured-model'
+        concurrency_limit = 1
+
+        def is_configured(self):
+            return True
+
+        async def summarize_global_headline(self, **kwargs):
+            _ = kwargs
+            return {'title': 'Global headline', 'body': 'Global body'}
+
+        async def summarize_market(self, **kwargs):
+            _ = kwargs
+            return {
+                'title': 'Market title',
+                'body': 'Market body',
+                'background': 'this must not become characters',
+                'key_themes': ['AI'],
+                'outlook': 'Outlook text',
+            }
+
+        async def summarize_cluster_card(self, **kwargs):
+            return {
+                'title': kwargs['cluster']['title'],
+                'body': kwargs['cluster']['summary'],
+            }
+
+        async def summarize_cluster_detail(self, **kwargs):
+            return {
+                'title': kwargs['cluster']['title'],
+                'body': kwargs['cluster']['summary'],
+                'paragraphs': ['Detailed paragraph.'],
+            }
+
+    summary_repo = RecordingSummaryRepo(RecordingAsyncSession())
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
+    context = build_context()
+
+    updated_context = await GenerateAiSummariesStep(
+        cluster_repo_factory=SingleClusterRepo,
+        index_repo_factory=EmptyIndexRepo,
+        summary_repo_factory=lambda session: summary_repo,
+        llm_provider_factory=MalformedMarketLlmProvider,
+    ).run(repository, context)
+
+    market_row = next(
+        row for row in summary_repo.rows if row.summary_type == 'MARKET_SUMMARY'
+    )
+    assert updated_context.fallback_count == 1
+    assert repository.events == [
+        (
+            GenerateAiSummariesStep.step_code,
+            'AI summaries generated with fallback responses.',
+        )
+    ]
+    assert market_row.fallback_used is True
+    assert market_row.status == 'FALLBACK'
+    assert market_row.metadata_json['background'] == ['Chip stocks lifted the index.']
+    assert market_row.metadata_json['keyThemes'] == ['chips', 'AI']
+    assert market_row.metadata_json['outlook'] == (
+        'Chip stocks led a broad technology rebound.'
+    )
+    assert market_row.metadata_json['reason'] == 'llm_malformed_response'
+    assert market_row.metadata_json['error'] == {
+        'provider': 'BatchLlmProvider',
+        'errorClass': 'ValueError',
+        'errorMessage': 'Market summary background must be a list of strings.',
+    }
 
 
 @pytest.mark.anyio
@@ -515,6 +923,94 @@ async def test_build_page_snapshot_step_sets_page_identity_and_writes_snapshot(
     assert article_link_calls[0]['processed_article_id'] == 4001
     assert article_link_calls[1]['display_order'] == 2
     assert article_link_calls[1]['processed_article_id'] == 4002
+
+
+@pytest.mark.anyio
+async def test_build_page_snapshot_drops_malformed_market_metadata_fields():
+    class EmptyClusterRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_clusters_by_business_date(self, business_date):
+            _ = business_date
+            return []
+
+        async def list_cluster_article_links_by_business_date(self, business_date):
+            _ = business_date
+            return []
+
+    class EmptyIndexRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_indices_by_business_date(self, business_date):
+            _ = business_date
+            return []
+
+    class MalformedSummaryRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_summaries_for_job(self, job_id):
+            _ = job_id
+            return [
+                AiSummaryRecord(
+                    summary_id=2,
+                    batch_job_id=1001,
+                    summary_type='MARKET_SUMMARY',
+                    business_date=date(2026, 3, 17),
+                    market_type='US',
+                    cluster_id=None,
+                    title='미국 시장 요약',
+                    body='기술주 중심 반등',
+                    paragraphs_json=[],
+                    model_name=None,
+                    prompt_version='v1',
+                    status='FALLBACK',
+                    fallback_used=True,
+                    error_message=None,
+                    metadata_json={
+                        'background': 'bad background',
+                        'keyThemes': 'bad themes',
+                        'outlook': ['bad outlook'],
+                    },
+                    generated_at=datetime(2026, 3, 18, 6, 0, tzinfo=UTC),
+                )
+            ]
+
+    class RecordingSnapshotRepo:
+        def __init__(self, session):
+            _ = session
+            self.market_calls = []
+
+        async def get_next_version_no(self, business_date):
+            _ = business_date
+            return 1
+
+        async def create_page(self, **kwargs):
+            _ = kwargs
+            return 501
+
+        async def create_page_market(self, **kwargs):
+            self.market_calls.append(kwargs)
+            return 1001
+
+    snapshot_repo = RecordingSnapshotRepo(RecordingAsyncSession())
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
+    context = build_context()
+    context.rebuild_page_only = True
+
+    await BuildPageSnapshotStep(
+        cluster_repo_factory=EmptyClusterRepo,
+        summary_repo_factory=MalformedSummaryRepo,
+        index_repo_factory=EmptyIndexRepo,
+        snapshot_repo_factory=lambda session: snapshot_repo,
+    ).run(repository, context)
+
+    us_market = snapshot_repo.market_calls[0]
+    assert us_market['analysis_background_json'] == []
+    assert us_market['analysis_key_themes_json'] == []
+    assert us_market['analysis_outlook'] is None
 
 
 @pytest.mark.anyio
