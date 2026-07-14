@@ -54,6 +54,16 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
         return JSONResponse(status_code=422, content=payload.model_dump(mode='json'))
 
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(_: Request, __: Exception) -> JSONResponse:
+        payload = ApiError(
+            error=ApiErrorDetail(
+                code='INTERNAL_SERVER_ERROR',
+                message='Internal server error',
+            )
+        )
+        return JSONResponse(status_code=500, content=payload.model_dump(mode='json'))
+
 
 __all__ = [
     'AppError',

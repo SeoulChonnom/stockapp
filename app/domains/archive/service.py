@@ -5,6 +5,8 @@ from datetime import date
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.domains.archive.assembler import build_archive_list_payload
 
+ARCHIVE_STATUSES = frozenset({'READY', 'PARTIAL', 'FAILED'})
+
 
 class ArchiveService:
     def __init__(self, repository: PageSnapshotRepository) -> None:
@@ -18,17 +20,20 @@ class ArchiveService:
         page: int,
         size: int,
     ) -> dict[str, object]:
+        normalized_status = status.upper() if status is not None else None
+        if normalized_status is not None and normalized_status not in ARCHIVE_STATUSES:
+            raise ValueError(f'Unsupported archive status: {status}')
         items = await self._repo.list_archive_page_headers(
             from_date=from_date,
             to_date=to_date,
-            status=status,
+            status=normalized_status,
             page=page,
             size=size,
         )
         total_count = await self._repo.count_archive_page_headers(
             from_date=from_date,
             to_date=to_date,
-            status=status,
+            status=normalized_status,
         )
         return build_archive_list_payload(
             items,

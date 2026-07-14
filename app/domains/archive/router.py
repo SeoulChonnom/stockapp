@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal, TypeAlias
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DbSession, UserDep
+from app.api.deps.auth import CurrentUser, require_roles
+from app.api.deps.db import get_db_session
 from app.core.response import ApiSuccess
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.domains.archive.assembler import assemble_archive_list_response
@@ -13,13 +15,16 @@ from app.domains.archive.service import ArchiveService
 from app.schemas.page import ArchiveListResponse
 
 router = APIRouter(prefix='/pages', tags=['archive'])
+DbSessionDep: TypeAlias = Annotated[AsyncSession, Depends(get_db_session)]
+UserDep: TypeAlias = Annotated[CurrentUser, Depends(require_roles('USER', 'ADMIN'))]
 
 
-def get_archive_service(session: DbSession) -> ArchiveService:
+def get_archive_service(session: DbSessionDep) -> ArchiveService:
     return ArchiveService(PageSnapshotRepository(session))
 
 
-ArchiveServiceDep = Annotated[ArchiveService, Depends(get_archive_service)]
+ArchiveServiceDep: TypeAlias = Annotated[ArchiveService, Depends(get_archive_service)]
+ArchiveStatus: TypeAlias = Literal['READY', 'PARTIAL', 'FAILED']
 
 
 @router.get('/archive', response_model=ApiSuccess[ArchiveListResponse])
@@ -28,7 +33,7 @@ async def list_archive(
     service: ArchiveServiceDep,
     fromDate: Annotated[date | None, Query(alias='fromDate')] = None,
     toDate: Annotated[date | None, Query(alias='toDate')] = None,
-    status: Annotated[str | None, Query(alias='status')] = None,
+    status: Annotated[ArchiveStatus | None, Query(alias='status')] = None,
     page: Annotated[int, Query(alias='page', ge=1)] = 1,
     size: Annotated[int, Query(alias='size', ge=1, le=100)] = 30,
 ) -> ApiSuccess[ArchiveListResponse]:
