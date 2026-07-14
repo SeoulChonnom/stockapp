@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from hashlib import sha256
 from typing import Any
 
 from sqlalchemy import text
@@ -14,8 +15,20 @@ def _qualified_table(table_name: str) -> str:
     return qualify_db_identifier(table_name)
 
 
+def _page_version_lock_key(business_date: date) -> int:
+    lock_identity = f'market_daily_page:{business_date.isoformat()}'
+    digest = sha256(lock_identity.encode('utf-8')).digest()
+    return int.from_bytes(digest[:8], byteorder='big', signed=True)
+
+
 class PageSnapshotWriteRepository(PostgresRepository):
     async def get_next_version_no(self, business_date: date) -> int:
+        lock_statement = text('SELECT pg_advisory_xact_lock(:lock_key)')
+        await self.session.execute(
+            lock_statement,
+            {'lock_key': _page_version_lock_key(business_date)},
+        )
+
         statement = text(
             """
             SELECT COALESCE(MAX(version_no), 0) + 1
