@@ -21,6 +21,9 @@ def get_async_engine() -> AsyncEngine:
     engine = create_async_engine(
         settings.database_url,
         pool_pre_ping=True,
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
+        pool_timeout=settings.database_pool_timeout_seconds,
     )
 
     @event.listens_for(engine.sync_engine, 'connect')
@@ -47,7 +50,11 @@ def get_session_maker() -> async_sessionmaker[AsyncSession]:
 async def get_db_session() -> AsyncIterator[AsyncSession]:
     session_maker = get_session_maker()
     async with session_maker() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
 
 
 __all__ = [

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from types import SimpleNamespace
 
 import pytest
@@ -59,7 +60,8 @@ def test_get_async_engine_sets_validated_quoted_search_path(
     monkeypatch: pytest.MonkeyPatch,
 ):
     executed_sql: list[str] = []
-    listener: dict[str, object] = {}
+    engine_kwargs: dict[str, object] = {}
+    listener: dict[str, Callable[[DummyConnection, object | None], None]] = {}
 
     class DummyCursor:
         def execute(self, statement: str) -> None:
@@ -77,6 +79,7 @@ def test_get_async_engine_sets_validated_quoted_search_path(
             self.sync_engine = object()
 
     def fake_create_async_engine(*args, **kwargs):
+        engine_kwargs.update(kwargs)
         return DummyEngine()
 
     def fake_listens_for(target, identifier: str):
@@ -89,6 +92,9 @@ def test_get_async_engine_sets_validated_quoted_search_path(
         return decorator
 
     monkeypatch.setenv('STOCKAPP_DATABASE_SCHEMA', 'stock')
+    monkeypatch.setenv('STOCKAPP_DATABASE_POOL_SIZE', '7')
+    monkeypatch.setenv('STOCKAPP_DATABASE_MAX_OVERFLOW', '2')
+    monkeypatch.setenv('STOCKAPP_DATABASE_POOL_TIMEOUT_SECONDS', '4.5')
     monkeypatch.setattr(
         session_module,
         'create_async_engine',
@@ -105,3 +111,7 @@ def test_get_async_engine_sets_validated_quoted_search_path(
     handler = listener['handler']
     handler(DummyConnection(), None)
     assert executed_sql == ['SET search_path TO "stock", public']
+    assert engine_kwargs['pool_pre_ping'] is True
+    assert engine_kwargs['pool_size'] == 7
+    assert engine_kwargs['max_overflow'] == 2
+    assert engine_kwargs['pool_timeout'] == 4.5
