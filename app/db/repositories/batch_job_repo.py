@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import bindparam, text  # pyright: ignore[reportMissingImports]
+from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
 
 from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
@@ -87,6 +88,45 @@ class BatchJobRepository(PostgresRepository):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none() is not None
 
+    async def terminalize_stale_active_jobs(
+        self,
+        business_date: date,
+        *,
+        stale_before: datetime,
+    ) -> None:
+        statement = text(
+            """
+            UPDATE {batch_job_table}
+            SET
+                status = CAST(:status AS {status_enum}),
+                ended_at = now(),
+                duration_seconds = GREATEST(
+                    EXTRACT(EPOCH FROM (now() - started_at))::int,
+                    0
+                ),
+                error_code = :error_code,
+                error_message = :error_message,
+                log_summary = :error_message,
+                updated_at = now()
+            WHERE business_date = :business_date
+              AND status IN ('PENDING', 'RUNNING')
+              AND started_at < :stale_before
+            """.format(
+                batch_job_table=_qualified_table('batch_job'),
+                status_enum=_qualified_table('batch_job_status_enum'),
+            )
+        )
+        await self.session.execute(
+            statement,
+            {
+                'business_date': business_date,
+                'stale_before': stale_before,
+                'status': 'FAILED',
+                'error_code': 'STALE_BATCH_JOB',
+                'error_message': '오래 실행 중인 배치 작업을 실패 처리했습니다.',
+            },
+        )
+
     async def create_job(self, params: BatchJobCreateParams) -> BatchJobRecord:
         statement = text(
             """
@@ -143,7 +183,11 @@ class BatchJobRepository(PostgresRepository):
             bindparam('force_run', params.force_run),
             bindparam('rebuild_page_only', params.rebuild_page_only),
         )
-        result = await self.session.execute(statement)
+        try:
+            result = await self.session.execute(statement)
+        except IntegrityError:
+            await self.rollback()
+            raise
         row = result.mappings().one()
         return self._model_from_mapping(BatchJobRecord, row)
 

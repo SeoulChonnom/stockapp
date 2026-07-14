@@ -6,6 +6,8 @@ import pytest  # pyright: ignore[reportMissingImports]
 
 pytest.importorskip('sqlalchemy')
 
+from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
+
 from tests.support import (
     DummyResult,
     RecordingAsyncSession,
@@ -19,6 +21,14 @@ projections_module = load_module('app.db.repositories.projections')
 
 BatchJobRepository = batch_repo_module.BatchJobRepository
 BatchJobCreateParams = projections_module.BatchJobCreateParams
+
+
+class IntegrityErrorSession(RecordingAsyncSession):
+    async def execute(self, statement, params=None):
+        self.statements.append(statement)
+        self.parameters.append(params)
+        self.operations.append('execute')
+        raise IntegrityError('insert batch job', params, Exception('duplicate'))
 
 
 @pytest.mark.anyio
@@ -75,6 +85,48 @@ async def test_create_job_inserts_running_batch_row():
     sql = normalize_sql(session.statements[0])
     assert 'insert into stock.batch_job' in sql.lower()
     assert 'batch_job_status_enum' in sql
+
+
+@pytest.mark.anyio
+async def test_create_job_rolls_back_integrity_error_before_reraising():
+    session = IntegrityErrorSession()
+    repo = BatchJobRepository(session)
+
+    with pytest.raises(IntegrityError):
+        await repo.create_job(
+            BatchJobCreateParams(
+                business_date=date(2026, 3, 17),
+                status='RUNNING',
+                trigger_type='MANUAL',
+                triggered_by_user_id='USER-0001',
+                force_run=False,
+                rebuild_page_only=False,
+            )
+        )
+
+    assert session.operations == ['execute', 'rollback']
+
+
+@pytest.mark.anyio
+async def test_terminalize_stale_active_jobs_marks_old_running_jobs_failed():
+    session = RecordingAsyncSession()
+    repo = BatchJobRepository(session)
+    stale_before = datetime(2026, 3, 18, 0, 10, tzinfo=UTC)
+
+    await repo.terminalize_stale_active_jobs(
+        date(2026, 3, 17),
+        stale_before=stale_before,
+    )
+
+    assert session.operations == ['execute']
+    sql = normalize_sql(session.statements[0])
+    assert 'update stock.batch_job' in sql.lower()
+    assert "status in ('pending', 'running')" in sql.lower()
+    assert 'started_at <' in sql.lower()
+    assert session.parameters[0]['business_date'] == date(2026, 3, 17)
+    assert session.parameters[0]['stale_before'] == stale_before
+    assert session.parameters[0]['status'] == 'FAILED'
+    assert session.parameters[0]['error_code'] == 'STALE_BATCH_JOB'
 
 
 @pytest.mark.anyio
