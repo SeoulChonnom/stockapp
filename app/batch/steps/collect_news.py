@@ -19,6 +19,12 @@ class CollectNewsStep(BatchStep):
         repository: BatchJobRepository,
         context: BatchExecutionContext,
     ) -> BatchExecutionContext:
+        if context.rebuild_page_only:
+            context.log_messages.append(
+                'Skipped news collection because rebuild_page_only=true.'
+            )
+            return context
+
         keyword_repo = NewsSearchKeywordRepository(repository.session)
         raw_repo = NewsArticleRawRepository(repository.session)
         provider = NaverNewsProvider()
@@ -44,10 +50,33 @@ class CollectNewsStep(BatchStep):
         total_inserted = 0
 
         for keyword in keywords:
-            collection = await provider.collect_for_keyword(
-                keyword_record=keyword,
-                business_date=context.business_date,
-            )
+            try:
+                collection = await provider.collect_for_keyword(
+                    keyword_record=keyword,
+                    business_date=context.business_date,
+                )
+            except Exception as exc:
+                warning_message = (
+                    f'Failed to collect Naver news for keyword: {keyword.keyword}'
+                )
+                context.warning_messages.append(warning_message)
+                await repository.add_event(
+                    job_id=context.job_id,
+                    step_code=self.step_code,
+                    level=EventLevel.WARN.value,
+                    message='Failed to collect Naver news for keyword.',
+                    context_json={
+                        'provider': keyword.provider_name,
+                        'marketType': keyword.market_type,
+                        'keyword': keyword.keyword,
+                        'error': {
+                            'provider': 'NaverNewsProvider',
+                            'errorClass': type(exc).__name__,
+                            'errorMessage': str(exc),
+                        },
+                    },
+                )
+                continue
             inserted_count = await raw_repo.insert_articles(collection.articles)
             total_fetched += collection.fetched_count
             total_candidates += collection.candidate_count
