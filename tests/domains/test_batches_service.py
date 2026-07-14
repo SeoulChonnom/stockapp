@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-import pytest
+from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
+
+import pytest  # pyright: ignore[reportMissingImports]
 
 from tests.support import jsonable, load_module
 
@@ -33,8 +35,15 @@ class FakeBatchJobRepository:
         self.created_params = None
         self.events: list[dict] = []
         self.commits = 0
+        self.rollbacks = 0
+        self.terminalized_cutoffs: list[tuple[date, datetime]] = []
+        self.create_error: Exception | None = None
+
+    async def terminalize_stale_active_jobs(self, business_date, *, stale_before):
+        self.terminalized_cutoffs.append((business_date, stale_before))
 
     async def has_active_job_for_business_date(self, business_date):
+        assert self.terminalized_cutoffs
         return self.active_exists
 
     async def has_completed_page_for_business_date(self, business_date):
@@ -42,6 +51,8 @@ class FakeBatchJobRepository:
 
     async def create_job(self, params):
         self.created_params = params
+        if self.create_error is not None:
+            raise self.create_error
         return self.created_job
 
     async def add_event(self, **kwargs):
@@ -49,6 +60,9 @@ class FakeBatchJobRepository:
 
     async def commit(self):
         self.commits += 1
+
+    async def rollback(self):
+        self.rollbacks += 1
 
     async def list_jobs(self, **kwargs):
         return self.listed_jobs
@@ -79,7 +93,10 @@ async def test_start_market_daily_batch_creates_running_job():
             rebuild_page_only=False,
         )
     )
-    service = BatchesService(repository)
+    service = BatchesService(
+        repository,
+        now_factory=lambda: datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+    )
 
     result = await service.start_market_daily_batch(
         business_date=date(2026, 3, 17),
@@ -91,9 +108,13 @@ async def test_start_market_daily_batch_creates_running_job():
     assert isinstance(result, dict)
     payload = jsonable(result)
     assert payload['jobId'] == 1001
+    assert repository.created_params is not None
     assert repository.created_params.status == 'RUNNING'
+    assert repository.terminalized_cutoffs == [
+        (date(2026, 3, 17), datetime(2026, 3, 18, 0, 10, tzinfo=UTC))
+    ]
     assert repository.events[0]['step_code'] == 'CREATE_JOB'
-    assert repository.commits == 1
+    assert repository.commits == 2
 
 
 @pytest.mark.anyio
@@ -109,6 +130,28 @@ async def test_start_market_daily_batch_rejects_duplicate_running_job():
         )
 
     assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
+
+
+@pytest.mark.anyio
+async def test_start_market_daily_batch_converts_create_race_to_conflict():
+    repository = FakeBatchJobRepository()
+    repository.create_error = IntegrityError('insert batch job', {}, Exception('duplicate'))
+    service = BatchesService(
+        repository,
+        now_factory=lambda: datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+    )
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='test-user',
+            force=False,
+            rebuild_page_only=False,
+    )
+
+    assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
+    assert repository.events == []
+    assert repository.commits == 1
 
 
 @pytest.mark.anyio

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from datetime import date
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
+
+from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
 
 from app.batch.orchestrators.market_daily import MarketDailyBatchOrchestrator
 from app.core.exceptions import ConflictError, NotFoundError
@@ -15,6 +18,9 @@ from app.domains.batches.assembler import (
 )
 
 
+STALE_ACTIVE_JOB_AFTER = timedelta(hours=6)
+
+
 class BatchJobScheduler:
     def __init__(
         self, orchestrator: MarketDailyBatchOrchestrator | None = None
@@ -26,8 +32,14 @@ class BatchJobScheduler:
 
 
 class BatchesService:
-    def __init__(self, repository: BatchJobRepository) -> None:
+    def __init__(
+        self,
+        repository: BatchJobRepository,
+        *,
+        now_factory: Callable[[], datetime] | None = None,
+    ) -> None:
         self._repo = repository
+        self._now_factory = now_factory or (lambda: datetime.now(UTC))
 
     async def list_jobs(
         self,
@@ -64,6 +76,12 @@ class BatchesService:
         rebuild_page_only: bool,
     ) -> dict[str, object]:
         resolved_business_date = business_date or get_business_date()
+        now = self._now_factory()
+        await self._repo.terminalize_stale_active_jobs(
+            resolved_business_date,
+            stale_before=now - STALE_ACTIVE_JOB_AFTER,
+        )
+        await self._repo.commit()
         if await self._repo.has_active_job_for_business_date(resolved_business_date):
             raise ConflictError(
                 'BATCH_ALREADY_RUNNING',
@@ -77,16 +95,22 @@ class BatchesService:
                 '이미 생성된 페이지가 있어 배치를 시작할 수 없습니다.',
             )
 
-        job = await self._repo.create_job(
-            BatchJobCreateParams(
-                business_date=resolved_business_date,
-                status=BatchJobStatus.RUNNING.value,
-                trigger_type=BatchTriggerType.MANUAL.value,
-                triggered_by_user_id=user_id,
-                force_run=force,
-                rebuild_page_only=rebuild_page_only,
+        try:
+            job = await self._repo.create_job(
+                BatchJobCreateParams(
+                    business_date=resolved_business_date,
+                    status=BatchJobStatus.RUNNING.value,
+                    trigger_type=BatchTriggerType.MANUAL.value,
+                    triggered_by_user_id=user_id,
+                    force_run=force,
+                    rebuild_page_only=rebuild_page_only,
+                )
             )
-        )
+        except IntegrityError as exc:
+            raise ConflictError(
+                'BATCH_ALREADY_RUNNING',
+                '동일 날짜의 배치가 이미 실행 중입니다.',
+            ) from exc
         await self._repo.add_event(
             job_id=job.job_id,
             step_code='CREATE_JOB',
@@ -104,4 +128,5 @@ class BatchesService:
 __all__ = [
     'BatchJobScheduler',
     'BatchesService',
+    'STALE_ACTIVE_JOB_AFTER',
 ]
