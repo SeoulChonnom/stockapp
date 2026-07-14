@@ -1,11 +1,13 @@
 from fastapi import APIRouter
 
+from app.api.health import router as health_router
 from app.domains.archive.router import router as archive_router
 from app.domains.batches.router import router as batches_router
 from app.domains.clusters.router import router as clusters_router
 from app.domains.pages.router import router as pages_router
 
 api_router = APIRouter(prefix='/stock/api')
+api_router.include_router(health_router)
 api_router.include_router(batches_router)
 api_router.include_router(archive_router)
 api_router.include_router(pages_router)
