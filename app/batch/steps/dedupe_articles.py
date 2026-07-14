@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import (
@@ -9,8 +12,12 @@ from app.batch.normalizers import (
     excerpt_text,
     normalize_title,
 )
-from app.batch.providers.article_content import ArticleContentProvider
+from app.batch.providers.article_content import (
+    ArticleContentProvider,
+    ArticleContentResult,
+)
 from app.batch.steps.base import BatchStep, require_repository_session
+from app.core.settings import Settings, get_settings
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.news_article_processed_repo import (
@@ -23,6 +30,14 @@ from app.db.repositories.projections import (
 )
 
 
+@dataclass(slots=True)
+class _ArticleContentFetchTarget:
+    raw_article: Any
+    dedupe_hash: str
+    link: str | None
+    fallback_summary: str | None
+
+
 class DedupeArticlesStep(BatchStep):
     step_code = 'DEDUPE_ARTICLES'
     started_message = 'Dedupe articles step started.'
@@ -31,9 +46,10 @@ class DedupeArticlesStep(BatchStep):
     def __init__(
         self,
         *,
-        raw_repo_factory: Callable[[object], object] | None = None,
-        processed_repo_factory: Callable[[object], object] | None = None,
-        content_provider_factory: Callable[[], object] | None = None,
+        raw_repo_factory: Callable[[object], Any] | None = None,
+        processed_repo_factory: Callable[[object], Any] | None = None,
+        content_provider_factory: Callable[[], Any] | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self._raw_repo_factory = raw_repo_factory or NewsArticleRawRepository
         self._processed_repo_factory = (
@@ -42,6 +58,7 @@ class DedupeArticlesStep(BatchStep):
         self._content_provider_factory = (
             content_provider_factory or ArticleContentProvider
         )
+        self._settings = settings or get_settings()
 
     async def run(
         self,
@@ -75,6 +92,35 @@ class DedupeArticlesStep(BatchStep):
             )
             return context
 
+        unique_targets: list[_ArticleContentFetchTarget] = []
+        seen_target_hashes: set[str] = set()
+        for raw_article in raw_articles:
+            link = raw_article.origin_link or raw_article.naver_link
+            dedupe_hash = build_dedupe_hash(raw_article.title, link)
+            if dedupe_hash in seen_target_hashes:
+                continue
+            description = None
+            if isinstance(raw_article.payload_json, dict):
+                description = raw_article.payload_json.get('description')
+            unique_targets.append(
+                _ArticleContentFetchTarget(
+                    raw_article=raw_article,
+                    dedupe_hash=dedupe_hash,
+                    link=link,
+                    fallback_summary=excerpt_text(description),
+                )
+            )
+            seen_target_hashes.add(dedupe_hash)
+
+        content_results = await self._fetch_unique_article_contents(
+            content_provider=content_provider,
+            targets=unique_targets,
+        )
+        content_by_hash = {
+            target.dedupe_hash: result
+            for target, result in zip(unique_targets, content_results, strict=True)
+        }
+
         seen_hashes: dict[str, int] = {}
         processed_ids: set[int] = set()
 
@@ -83,14 +129,20 @@ class DedupeArticlesStep(BatchStep):
             dedupe_hash = build_dedupe_hash(raw_article.title, link)
             processed_id = seen_hashes.get(dedupe_hash)
             if processed_id is None:
-                description = None
-                if isinstance(raw_article.payload_json, dict):
-                    description = raw_article.payload_json.get('description')
-                content_result = await content_provider.fetch_article_content(
-                    origin_link=raw_article.origin_link,
-                    naver_link=raw_article.naver_link,
-                    fallback_summary=excerpt_text(description),
-                )
+                content_result = content_by_hash[dedupe_hash]
+                if content_result.failure_details:
+                    await repository.add_event(
+                        job_id=context.job_id,
+                        step_code=self.step_code,
+                        level=EventLevel.WARN.value,
+                        message='Article content fetch recorded provider failure.',
+                        context_json={
+                            'rawArticleId': raw_article.raw_article_id,
+                            'dedupeHash': dedupe_hash,
+                            'fallbackUsed': content_result.fallback_used,
+                            'failures': content_result.failure_details,
+                        },
+                    )
                 processed = await processed_repo.get_or_create_processed_article(
                     NewsArticleProcessedCreateParams(
                         business_date=raw_article.business_date,
@@ -141,6 +193,42 @@ class DedupeArticlesStep(BatchStep):
             },
         )
         return context
+
+    async def _fetch_unique_article_contents(
+        self,
+        *,
+        content_provider: Any,
+        targets: list[_ArticleContentFetchTarget],
+    ) -> list[ArticleContentResult]:
+        semaphore = asyncio.Semaphore(self._settings.article_crawl_concurrency_limit)
+
+        async def fetch(target: _ArticleContentFetchTarget) -> ArticleContentResult:
+            try:
+                async with semaphore:
+                    return await content_provider.fetch_article_content(
+                        origin_link=target.raw_article.origin_link,
+                        naver_link=target.raw_article.naver_link,
+                        fallback_summary=target.fallback_summary,
+                    )
+            except Exception as exc:
+                return ArticleContentResult(
+                    body_text=target.fallback_summary,
+                    body_excerpt=target.fallback_summary,
+                    source_summary=target.fallback_summary,
+                    source_domain=None,
+                    fetched_url=target.link,
+                    fallback_used=True,
+                    failure_details=[
+                        {
+                            'provider': 'ArticleContentProvider',
+                            'url': target.link or '',
+                            'error_class': type(exc).__name__,
+                            'error_message': str(exc),
+                        }
+                    ],
+                )
+
+        return await asyncio.gather(*(fetch(target) for target in targets))
 
 
 __all__ = ['DedupeArticlesStep']

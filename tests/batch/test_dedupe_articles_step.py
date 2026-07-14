@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 import pytest
@@ -11,6 +12,7 @@ projections_module = load_module('app.db.repositories.projections')
 
 DedupeArticlesStep = dedupe_module.DedupeArticlesStep
 BatchExecutionContext = load_module('app.batch.models').BatchExecutionContext
+Settings = load_module('app.core.settings').Settings
 
 
 @dataclass
@@ -98,6 +100,24 @@ class FakeProcessedRepo:
         self.mappings.append(params)
 
 
+class FakeContentProvider:
+    async def fetch_article_content(
+        self, *, origin_link, naver_link, fallback_summary
+    ):
+        _ = naver_link
+        return load_module(
+            'app.batch.providers.article_content'
+        ).ArticleContentResult(
+            body_text=f'body:{origin_link}',
+            body_excerpt=f'body:{origin_link}',
+            source_summary=fallback_summary,
+            source_domain='example.com',
+            fetched_url=origin_link,
+            fallback_used=False,
+            failure_details=[],
+        )
+
+
 @pytest.mark.anyio
 async def test_dedupe_articles_updates_processed_count_and_logs(monkeypatch):
     session = RecordingAsyncSession(results=[DummyResult([])])
@@ -114,8 +134,108 @@ async def test_dedupe_articles_updates_processed_count_and_logs(monkeypatch):
         dedupe_module, 'NewsArticleProcessedRepository', FakeProcessedRepo
     )
 
-    step = DedupeArticlesStep()
+    step = DedupeArticlesStep(content_provider_factory=FakeContentProvider)
     updated_context = await step.run(fake_repository, context)
 
     assert updated_context.processed_news_count == 1
     assert updated_context.log_messages
+
+
+@pytest.mark.anyio
+async def test_dedupe_articles_bounds_content_fetches_and_keeps_partial_results():
+    class ManyRawRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_articles_by_business_date(
+            self, business_date, *, market_type=None
+        ):
+            _ = (business_date, market_type)
+            return [
+                projections_module.NewsArticleRawRecord(
+                    raw_article_id=index,
+                    provider_name='NAVER_NEWS',
+                    provider_article_key=f'raw-{index}',
+                    market_type='US',
+                    business_date=BUSINESS_DATE,
+                    search_keyword='keyword',
+                    title=f'article {index}',
+                    publisher_name='publisher',
+                    published_at=None,
+                    origin_link=f'https://example.com/article-{index}',
+                    naver_link=f'https://search.naver.com/article-{index}',
+                    payload_json={'description': f'fallback {index}'},
+                    collected_at='2026-03-18T06:12:10+00:00',
+                    created_at='2026-03-18T06:12:10+00:00',
+                )
+                for index in range(1, 5)
+            ]
+
+    class TrackingContentProvider:
+        def __init__(self):
+            self.active = 0
+            self.max_active = 0
+
+        async def fetch_article_content(
+            self, *, origin_link, naver_link, fallback_summary
+        ):
+            _ = naver_link
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            await asyncio.sleep(0.01)
+            self.active -= 1
+            if origin_link.endswith('article-2'):
+                raise TimeoutError('provider timeout')
+            return load_module(
+                'app.batch.providers.article_content'
+            ).ArticleContentResult(
+                body_text=f'body:{origin_link}',
+                body_excerpt=f'body:{origin_link}',
+                source_summary=fallback_summary,
+                source_domain='example.com',
+                fetched_url=origin_link,
+                fallback_used=False,
+                failure_details=[],
+            )
+
+    provider = TrackingContentProvider()
+    processed_repo = FakeProcessedRepo(RecordingAsyncSession())
+    repository = FakeBatchRepository(session=RecordingAsyncSession(), events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await DedupeArticlesStep(
+        raw_repo_factory=ManyRawRepo,
+        processed_repo_factory=lambda session: processed_repo,
+        content_provider_factory=lambda: provider,
+        settings=Settings(
+            app_env='development',
+            article_crawl_concurrency_limit=2,
+        ),
+    ).run(repository, context)
+
+    assert provider.max_active == 2
+    assert context.processed_news_count == 4
+    assert [mapping.raw_article_id for mapping in processed_repo.mappings] == [
+        1,
+        2,
+        3,
+        4,
+    ]
+    assert len(processed_repo.created) == 4
+    assert processed_repo.created[1].source_summary == 'fallback 2'
+    fallback_events = [
+        event
+        for event in repository.events
+        if event[1] == 'Article content fetch recorded provider failure.'
+    ]
+    assert fallback_events == [
+        (
+            DedupeArticlesStep.step_code,
+            'Article content fetch recorded provider failure.',
+        )
+    ]
