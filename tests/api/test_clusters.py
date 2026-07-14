@@ -6,15 +6,28 @@ from app.core.exceptions import NotFoundError
 from tests.support import load_module
 
 pytest.importorskip('fastapi')
+from fastapi import FastAPI  # pyright: ignore[reportMissingImports]
 from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
 clusters_router_module = load_module('app.domains.clusters.router')
 auth_module = load_module('app.api.deps.auth')
+exceptions_module = load_module('app.core.exceptions')
 
 
 class FakeClustersService:
     def __init__(self, payload: dict):
-        self.payload = payload
+        self.payload = {
+            **payload,
+            'articleCount': 3,
+            'representativeArticle': {
+                **payload['representativeArticle'],
+                'sourceSummary': '반도체 업종 강세가 나스닥 상승을 견인했다.',
+            },
+            'articles': [
+                {**article, 'sourceSummary': f'요약 {index}'}
+                for index, article in enumerate(payload['articles'], start=1)
+            ],
+        }
 
     async def get_cluster_detail(self, cluster_id):
         if str(cluster_id) == self.payload['clusterId']:
@@ -25,8 +38,11 @@ class FakeClustersService:
 
 
 @pytest.fixture
-def client(app, sample_cluster_detail_payload):
+def client(sample_cluster_detail_payload):
     fake_clusters_service = FakeClustersService(sample_cluster_detail_payload)
+    app = FastAPI()
+    exceptions_module.register_exception_handlers(app)
+    app.include_router(clusters_router_module.router, prefix='/stock/api')
     app.dependency_overrides[auth_module.get_current_user] = lambda: (
         auth_module.CurrentUser(
             user_id='test-user',
@@ -61,6 +77,7 @@ def test_get_cluster_detail_returns_contract(client, sample_cluster_detail_paylo
         'representativeArticle',
         'articles',
         'lastUpdatedAt',
+        'articleCount',
     } <= set(payload)
     assert {'short', 'long', 'analysis'} <= set(payload['summary'])
     assert {
@@ -69,10 +86,15 @@ def test_get_cluster_detail_returns_contract(client, sample_cluster_detail_paylo
         'publishedAt',
         'originLink',
         'naverLink',
+        'sourceSummary',
     } <= set(payload['representativeArticle'])
     assert payload['clusterId'] == sample_cluster_detail_payload['clusterId']
     assert payload['marketType'] == 'US'
     assert payload['representativeArticle']['publisherName'] == '매일경제'
+    assert payload['representativeArticle']['sourceSummary'] == (
+        '반도체 업종 강세가 나스닥 상승을 견인했다.'
+    )
+    assert payload['articleCount'] == 3
     assert payload['articles'][1]['title'] == '엔비디아 강세에 반도체 섹터 동반 상승'
 
 

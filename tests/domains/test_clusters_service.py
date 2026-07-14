@@ -57,7 +57,14 @@ async def test_cluster_service_returns_cluster_detail(
 
     assert payload['clusterId'] == sample_cluster_detail_payload['clusterId']
     assert payload['representativeArticle']['title'] == '엔비디아 급등에 반도체 강세'
+    assert payload['representativeArticle']['sourceSummary'] == (
+        '반도체 업종 강세가 나스닥 상승을 견인했다.'
+    )
     assert payload['articles'][0]['title'] == '엔비디아 급등에 반도체 강세'
+    assert payload['articles'][0]['sourceSummary'] == (
+        '반도체 업종 강세가 나스닥 상승을 견인했다.'
+    )
     assert payload['articles'][1]['title'] == '엔비디아 강세에 반도체 섹터 동반 상승'
+    assert payload['articleCount'] == 6
     assert cluster_repository.calls[0][0] == 'get_cluster_by_uid'
     assert cluster_repository.calls[1][0] == 'get_cluster_articles'

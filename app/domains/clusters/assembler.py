@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
+from app.core.timezone import isoformat_datetime
 from app.schemas.cluster import (
     ClusterArticleResponse,
     ClusterDetailResponse,
@@ -14,9 +15,13 @@ def _as_iso(value: Any) -> str | None:
     if value is None:
         return None
     if isinstance(value, str):
-        return value
+        try:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            return value
+        return isoformat_datetime(parsed)
     if isinstance(value, datetime):
-        return value.isoformat()
+        return isoformat_datetime(value)
     return str(value)
 
 
@@ -54,6 +59,7 @@ def build_cluster_detail_payload(
             publishedAt=_as_iso(representative_article.get('published_at')),
             originLink=representative_article['origin_link'],
             naverLink=representative_article.get('naver_link'),
+            sourceSummary=representative_article.get('source_summary'),
         ),
         articles=[
             ClusterArticleResponse(
@@ -63,11 +69,12 @@ def build_cluster_detail_payload(
                 publishedAt=_as_iso(article.get('published_at')),
                 originLink=article['origin_link'],
                 naverLink=article.get('naver_link'),
+                sourceSummary=article.get('source_summary'),
             )
             for article in articles
         ],
         lastUpdatedAt=_as_iso(cluster['last_updated_at']),
-        articleCount=cluster.get('article_count'),
+        articleCount=cluster['article_count'],
     ).model_dump(mode='json')
 
 
