@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import date, datetime
 from typing import Any
 
+from app.core.timezone import isoformat_datetime
 from app.schemas.page import (
     ArticleLinkResponse,
     ClusterCardResponse,
@@ -21,9 +22,13 @@ def _as_iso(value: Any) -> str | None:
     if value is None:
         return None
     if isinstance(value, str):
-        return value
+        try:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            return value
+        return isoformat_datetime(parsed)
     if isinstance(value, datetime):
-        return value.isoformat()
+        return isoformat_datetime(value)
     return str(value)
 
 
@@ -134,6 +139,7 @@ def build_daily_page_payload(
             processedNewsCount=page['processed_news_count'],
             clusterCount=page['cluster_count'],
             lastUpdatedAt=_as_iso(page['last_updated_at']),
+            isLatest=bool(page.get('is_latest', False)),
         ),
     ).model_dump(mode='json')
 

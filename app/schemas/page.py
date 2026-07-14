@@ -2,8 +2,25 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.core.timezone import isoformat_datetime
+
+
+def _normalize_timestamp(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return isoformat_datetime(value)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            return value
+        return isoformat_datetime(parsed)
+    return value
 
 
 class RepresentativeArticleResponse(BaseModel):
@@ -12,6 +29,10 @@ class RepresentativeArticleResponse(BaseModel):
     publishedAt: datetime | str | None = None
     originLink: str | None = None
     naverLink: str | None = None
+
+    _normalize_published_at = field_validator('publishedAt', mode='before')(
+        _normalize_timestamp
+    )
 
 
 class IndexCardResponse(BaseModel):
@@ -43,6 +64,10 @@ class ArticleLinkResponse(BaseModel):
     originLink: str
     naverLink: str | None = None
 
+    _normalize_published_at = field_validator('publishedAt', mode='before')(
+        _normalize_timestamp
+    )
+
 
 class MarketAnalysisResponse(BaseModel):
     background: list[str]
@@ -56,6 +81,10 @@ class MarketMetadataResponse(BaseModel):
     clusterCount: int
     lastUpdatedAt: datetime | str
     partialMessage: str | None = None
+
+    _normalize_last_updated_at = field_validator('lastUpdatedAt', mode='before')(
+        _normalize_timestamp
+    )
 
 
 class MarketSectionResponse(BaseModel):
@@ -75,6 +104,11 @@ class PageMetadataResponse(BaseModel):
     processedNewsCount: int
     clusterCount: int
     lastUpdatedAt: datetime | str
+    isLatest: bool = False
+
+    _normalize_last_updated_at = field_validator('lastUpdatedAt', mode='before')(
+        _normalize_timestamp
+    )
 
 
 class DailyPageResponse(BaseModel):
@@ -89,6 +123,10 @@ class DailyPageResponse(BaseModel):
     markets: list[MarketSectionResponse]
     metadata: PageMetadataResponse
 
+    _normalize_generated_at = field_validator('generatedAt', mode='before')(
+        _normalize_timestamp
+    )
+
 
 class ArchiveItemResponse(BaseModel):
     pageId: int
@@ -98,6 +136,10 @@ class ArchiveItemResponse(BaseModel):
     status: str
     generatedAt: datetime | str
     partialMessage: str | None = None
+
+    _normalize_generated_at = field_validator('generatedAt', mode='before')(
+        _normalize_timestamp
+    )
 
 
 class PaginationResponse(BaseModel):

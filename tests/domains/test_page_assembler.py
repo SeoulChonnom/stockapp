@@ -38,3 +38,24 @@ def test_daily_page_assembler_preserves_display_order(sample_daily_page_payload)
     assert (
         response['markets'][1]['topClusters'][0]['title'] == '반도체와 자동차 동반 강세'
     )
+
+
+def test_daily_page_assembler_normalizes_utc_timestamps_to_z(
+    sample_page_snapshot_row,
+    sample_page_market_rows,
+    sample_page_index_rows,
+    sample_page_cluster_rows,
+    sample_page_article_link_rows,
+):
+    payload = pages_assembler_module.build_daily_page_payload(
+        {**sample_page_snapshot_row, 'is_latest': True},
+        sample_page_market_rows,
+        sample_page_index_rows,
+        sample_page_cluster_rows,
+        sample_page_article_link_rows,
+    )
+
+    assert payload['generatedAt'] == '2026-03-18T06:12:10Z'
+    assert payload['metadata']['lastUpdatedAt'] == '2026-03-18T06:20:00Z'
+    assert payload['metadata']['isLatest'] is True
+    assert payload['markets'][0]['metadata']['lastUpdatedAt'] == '2026-03-18T06:20:00Z'
