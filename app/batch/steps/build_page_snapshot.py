@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 from app.batch.models import BatchExecutionContext
 from app.batch.steps.base import BatchStep, require_repository_session
@@ -12,6 +13,20 @@ from app.db.repositories.market_index_repo import MarketIndexRepository
 from app.db.repositories.page_snapshot_write_repo import PageSnapshotWriteRepository
 
 
+def _metadata_string_list(metadata: dict[str, Any], key: str) -> list[str]:
+    value = metadata.get(key)
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _metadata_optional_string(metadata: dict[str, Any], key: str) -> str | None:
+    value = metadata.get(key)
+    if isinstance(value, str):
+        return value
+    return None
+
+
 class BuildPageSnapshotStep(BatchStep):
     step_code = 'BUILD_PAGE_SNAPSHOT'
     started_message = 'Build page snapshot step started.'
@@ -20,10 +35,10 @@ class BuildPageSnapshotStep(BatchStep):
     def __init__(
         self,
         *,
-        cluster_repo_factory: Callable[[object], object] | None = None,
-        summary_repo_factory: Callable[[object], object] | None = None,
-        index_repo_factory: Callable[[object], object] | None = None,
-        snapshot_repo_factory: Callable[[object], object] | None = None,
+        cluster_repo_factory: Callable[[object], Any] | None = None,
+        summary_repo_factory: Callable[[object], Any] | None = None,
+        index_repo_factory: Callable[[object], Any] | None = None,
+        snapshot_repo_factory: Callable[[object], Any] | None = None,
     ) -> None:
         self._cluster_repo_factory = cluster_repo_factory or ClusterRepository
         self._summary_repo_factory = summary_repo_factory or AiSummaryRepository
@@ -58,6 +73,13 @@ class BuildPageSnapshotStep(BatchStep):
         if not clusters and not context.rebuild_page_only:
             context.error_code = 'SNAPSHOT_SOURCE_MISSING'
             context.error_message = '스냅샷 생성에 필요한 클러스터 데이터가 없습니다.'
+            await repository.add_event(
+                job_id=context.job_id,
+                step_code=self.step_code,
+                level=EventLevel.WARN.value,
+                message='Skipped page snapshot creation because no clusters exist.',
+                context_json={'businessDate': context.business_date.isoformat()},
+            )
             return context
 
         summary_by_type: dict[tuple[str, str | None, int | None], object] = {}
@@ -114,9 +136,13 @@ class BuildPageSnapshotStep(BatchStep):
                 else '한국 증시 일간 요약',
                 summary_title=getattr(market_summary, 'title', None),
                 summary_body=getattr(market_summary, 'body', None),
-                analysis_background_json=list(market_metadata.get('background', [])),
-                analysis_key_themes_json=list(market_metadata.get('keyThemes', [])),
-                analysis_outlook=market_metadata.get('outlook'),
+                analysis_background_json=_metadata_string_list(
+                    market_metadata, 'background'
+                ),
+                analysis_key_themes_json=_metadata_string_list(
+                    market_metadata, 'keyThemes'
+                ),
+                analysis_outlook=_metadata_optional_string(market_metadata, 'outlook'),
                 raw_news_count=context.raw_news_count,
                 processed_news_count=context.processed_news_count,
                 cluster_count=len(by_market.get(market_type, [])),

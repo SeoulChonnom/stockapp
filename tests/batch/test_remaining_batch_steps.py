@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports]
 
 from tests.support import load_module
 
@@ -268,3 +268,55 @@ async def test_remaining_batch_steps_require_repository_session(step):
         match='requires a repository with an attached session',
     ):
         await step.run(EventRecorder(session=None, events=[]), context)
+
+
+@pytest.mark.anyio
+async def test_generate_ai_summaries_records_warning_event_when_clusters_missing():
+    repository = EventRecorder(session=object(), events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await GenerateAiSummariesStep(
+        cluster_repo_factory=EmptyClusterRepo,
+        index_repo_factory=EmptyIndexRepo,
+        summary_repo_factory=UnusedProcessedRepo,
+        llm_provider_factory=EmptyLlmProvider,
+    ).run(repository, context)
+
+    assert repository.events == [
+        (
+            GenerateAiSummariesStep.step_code,
+            'WARN',
+            'Skipped AI summary generation because no clusters exist.',
+        )
+    ]
+
+
+@pytest.mark.anyio
+async def test_build_page_snapshot_records_warning_event_when_clusters_missing():
+    repository = EventRecorder(session=object(), events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await BuildPageSnapshotStep(
+        cluster_repo_factory=EmptyClusterRepo,
+        summary_repo_factory=EmptySummaryRepo,
+        index_repo_factory=EmptyIndexRepo,
+        snapshot_repo_factory=UnusedSnapshotRepo,
+    ).run(repository, context)
+
+    assert repository.events == [
+        (
+            BuildPageSnapshotStep.step_code,
+            'WARN',
+            'Skipped page snapshot creation because no clusters exist.',
+        )
+    ]
