@@ -6,10 +6,12 @@ from app.core.exceptions import NotFoundError
 from tests.support import build_test_bearer_headers, load_module
 
 pytest.importorskip('fastapi')
+from fastapi import FastAPI  # pyright: ignore[reportMissingImports]
 from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
 pages_router_module = load_module('app.domains.pages.router')
 archive_router_module = load_module('app.domains.archive.router')
+exceptions_module = load_module('app.core.exceptions')
 
 
 class FakePagesService:
@@ -25,7 +27,20 @@ class FakePagesService:
             raise NotFoundError(
                 'PAGE_NOT_FOUND', '요청한 날짜의 페이지가 존재하지 않습니다.'
             )
-        return self.page_payload
+        if version_no == 1:
+            historical_payload = dict(self.page_payload)
+            historical_payload['metadata'] = {
+                **self.page_payload['metadata'],
+                'isLatest': False,
+            }
+            return historical_payload
+        if version_no == 999:
+            raise NotFoundError(
+                'PAGE_VERSION_NOT_FOUND', '요청한 페이지 버전이 존재하지 않습니다.'
+            )
+        latest_payload = dict(self.page_payload)
+        latest_payload['metadata'] = {**self.page_payload['metadata'], 'isLatest': True}
+        return latest_payload
 
     async def get_page_by_id(self, page_id):
         if page_id in self.missing_page_ids:
@@ -44,9 +59,13 @@ class FakeArchiveService:
 
 
 @pytest.fixture
-def client(app, sample_daily_page_payload, sample_archive_list_payload):
+def client(sample_daily_page_payload, sample_archive_list_payload):
     fake_pages_service = FakePagesService(sample_daily_page_payload)
     fake_archive_service = FakeArchiveService(sample_archive_list_payload)
+    app = FastAPI()
+    exceptions_module.register_exception_handlers(app)
+    app.include_router(archive_router_module.router, prefix='/stock/api')
+    app.include_router(pages_router_module.router, prefix='/stock/api')
     app.dependency_overrides[pages_router_module.get_pages_service] = lambda: (
         fake_pages_service
     )
@@ -100,6 +119,8 @@ def test_get_latest_page_allows_user_and_admin_roles(
     assert 'articleLinks' not in data
     assert payload['meta']['requestId']
     assert payload['meta']['timestamp']
+    assert data['generatedAt'].endswith('Z')
+    assert data['metadata']['lastUpdatedAt'].endswith('Z')
 
 
 def test_get_latest_page_rejects_missing_token_as_unauthorized(client):
@@ -128,6 +149,38 @@ def test_get_daily_page_uses_business_date_query(client, sample_daily_page_paylo
     data = response.json()['data']
     assert data['businessDate'] == sample_daily_page_payload['businessDate']
     assert data['versionNo'] == sample_daily_page_payload['versionNo']
+    assert data['metadata']['isLatest'] is True
+
+
+def test_get_daily_page_distinguishes_missing_version(client, sample_daily_page_payload):
+    response = client.get(
+        '/stock/api/pages/daily',
+        params={
+            'businessDate': sample_daily_page_payload['businessDate'],
+            'versionNo': 999,
+        },
+        headers=build_test_bearer_headers('USER'),
+    )
+
+    assert response.status_code == 404
+    assert response.json()['error']['code'] == 'PAGE_VERSION_NOT_FOUND'
+
+
+def test_get_historical_ready_page_sets_conservative_cache_headers(
+    client, sample_daily_page_payload
+):
+    response = client.get(
+        '/stock/api/pages/daily',
+        params={
+            'businessDate': sample_daily_page_payload['businessDate'],
+            'versionNo': 1,
+        },
+        headers=build_test_bearer_headers('USER'),
+    )
+
+    assert response.status_code == 200
+    assert response.json()['data']['metadata']['isLatest'] is False
+    assert response.headers['cache-control'] == 'public, max-age=300, immutable'
 
 
 def test_get_daily_page_requires_business_date(client):
@@ -136,6 +189,53 @@ def test_get_daily_page_requires_business_date(client):
     )
 
     assert response.status_code == 422
+
+
+def test_get_archive_rejects_invalid_status_with_standard_422(client):
+    response = client.get(
+        '/stock/api/pages/archive',
+        params={'status': 'archived'},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload['success'] is False
+    assert payload['error']['code'] == 'REQUEST_VALIDATION_ERROR'
+    assert payload['meta']['requestId']
+
+
+def test_unexpected_page_failure_uses_standard_500_envelope(
+    sample_archive_list_payload,
+):
+    class BrokenPagesService:
+        async def get_latest_page(self):
+            raise RuntimeError('boom')
+
+    app = FastAPI()
+    exceptions_module.register_exception_handlers(app)
+    app.include_router(archive_router_module.router, prefix='/stock/api')
+    app.include_router(pages_router_module.router, prefix='/stock/api')
+    app.dependency_overrides[pages_router_module.get_pages_service] = lambda: (
+        BrokenPagesService()
+    )
+    app.dependency_overrides[archive_router_module.get_archive_service] = lambda: (
+        FakeArchiveService(sample_archive_list_payload)
+    )
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        response = test_client.get(
+            '/stock/api/pages/daily/latest', headers=build_test_bearer_headers('USER')
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 500
+    payload = response.json()
+    assert payload['success'] is False
+    assert payload['error'] == {
+        'code': 'INTERNAL_SERVER_ERROR',
+        'message': 'Internal server error',
+    }
+    assert payload['meta']['requestId']
 
 
 def test_get_archive_lists_latest_snapshot_per_date(

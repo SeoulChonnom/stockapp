@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 
 import pytest
@@ -32,6 +33,9 @@ class FakePageSnapshotRepository:
         self.article_links = article_links
         self.archive_items = archive_items
         self.archive_total_count = archive_total_count
+        self.has_page_for_date = True
+        self.concurrent_detail_calls = 0
+        self.max_concurrent_detail_calls = 0
         self.calls: list[tuple] = []
 
     async def get_latest_page_header(self):
@@ -42,7 +46,17 @@ class FakePageSnapshotRepository:
         self.calls.append(
             ('get_page_header_by_business_date', business_date, version_no)
         )
+        if version_no == 999:
+            return None
         return self.page_header
+
+    async def exists_page_for_business_date(self, business_date):
+        self.calls.append(('exists_page_for_business_date', business_date))
+        return self.has_page_for_date
+
+    async def get_latest_version_no(self, business_date):
+        self.calls.append(('get_latest_version_no', business_date))
+        return self.page_header['version_no']
 
     async def get_page_header_by_id(self, page_id):
         self.calls.append(('get_page_header_by_id', page_id))
@@ -53,15 +67,33 @@ class FakePageSnapshotRepository:
         return self.markets
 
     async def get_page_indices(self, page_market_ids):
+        self.concurrent_detail_calls += 1
+        self.max_concurrent_detail_calls = max(
+            self.max_concurrent_detail_calls, self.concurrent_detail_calls
+        )
+        await asyncio.sleep(0)
         self.calls.append(('get_page_indices', tuple(page_market_ids)))
+        self.concurrent_detail_calls -= 1
         return self.indices
 
     async def get_page_clusters(self, page_market_ids):
+        self.concurrent_detail_calls += 1
+        self.max_concurrent_detail_calls = max(
+            self.max_concurrent_detail_calls, self.concurrent_detail_calls
+        )
+        await asyncio.sleep(0)
         self.calls.append(('get_page_clusters', tuple(page_market_ids)))
+        self.concurrent_detail_calls -= 1
         return self.clusters
 
     async def get_page_article_links(self, page_market_ids):
+        self.concurrent_detail_calls += 1
+        self.max_concurrent_detail_calls = max(
+            self.max_concurrent_detail_calls, self.concurrent_detail_calls
+        )
+        await asyncio.sleep(0)
         self.calls.append(('get_page_article_links', tuple(page_market_ids)))
+        self.concurrent_detail_calls -= 1
         return self.article_links
 
     async def list_archive_page_headers(self, **kwargs):
@@ -109,13 +141,16 @@ async def test_pages_service_fetches_latest_page_bundle(
         payload['markets'][0]['topClusters'][0]['clusterId']
         == sample_daily_page_payload['markets'][0]['topClusters'][0]['clusterId']
     )
-    assert [call[0] for call in page_repository.calls[:5]] == [
+    assert [call[0] for call in page_repository.calls[:2]] == [
         'get_latest_page_header',
         'get_page_markets',
+    ]
+    assert {
         'get_page_indices',
         'get_page_clusters',
         'get_page_article_links',
-    ]
+    } <= {call[0] for call in page_repository.calls}
+    assert page_repository.max_concurrent_detail_calls > 1
 
 
 @pytest.mark.anyio
@@ -134,6 +169,21 @@ async def test_pages_service_uses_versioned_lookup_when_date_is_explicit(
         BUSINESS_DATE,
         3,
     )
+    assert payload['metadata']['isLatest'] is True
+
+
+@pytest.mark.anyio
+async def test_pages_service_distinguishes_missing_page_version(page_repository):
+    service = PagesService(page_repository)
+
+    with pytest.raises(pages_service_module.NotFoundError) as exc_info:
+        await service.get_page_by_date(BUSINESS_DATE, version_no=999)
+
+    assert exc_info.value.code == 'PAGE_VERSION_NOT_FOUND'
+    assert page_repository.calls == [
+        ('get_page_header_by_business_date', BUSINESS_DATE, 999),
+        ('exists_page_for_business_date', BUSINESS_DATE),
+    ]
 
 
 @pytest.mark.anyio

@@ -32,6 +32,7 @@ class PageSnapshotRepository:
                 processed_news_count,
                 cluster_count,
                 last_updated_at,
+                true as is_latest,
                 metadata_json
             from {page_table}
             order by business_date desc, version_no desc
@@ -63,9 +64,27 @@ class PageSnapshotRepository:
                     processed_news_count,
                     cluster_count,
                     last_updated_at,
-                    metadata_json
-                from {page_table}
-                where business_date = :business_date
+                    metadata_json,
+                    is_latest
+                from (
+                    select
+                        id,
+                        business_date,
+                        version_no,
+                        page_title,
+                        status,
+                        global_headline,
+                        generated_at,
+                        partial_message,
+                        raw_news_count,
+                        processed_news_count,
+                        cluster_count,
+                        last_updated_at,
+                        metadata_json,
+                        (version_no = max(version_no) over (partition by business_date)) as is_latest
+                    from {page_table}
+                    where business_date = :business_date
+                ) page_versions
                 order by version_no desc
                 limit 1
                 """.format(page_table=_qualified_table('market_daily_page'))
@@ -86,10 +105,28 @@ class PageSnapshotRepository:
                     processed_news_count,
                     cluster_count,
                     last_updated_at,
-                    metadata_json
-                from {page_table}
-                where business_date = :business_date
-                  and version_no = :version_no
+                    metadata_json,
+                    is_latest
+                from (
+                    select
+                        id,
+                        business_date,
+                        version_no,
+                        page_title,
+                        status,
+                        global_headline,
+                        generated_at,
+                        partial_message,
+                        raw_news_count,
+                        processed_news_count,
+                        cluster_count,
+                        last_updated_at,
+                        metadata_json,
+                        (version_no = max(version_no) over (partition by business_date)) as is_latest
+                    from {page_table}
+                    where business_date = :business_date
+                ) page_versions
+                where version_no = :version_no
                 order by version_no desc
                 limit 1
                 """.format(page_table=_qualified_table('market_daily_page'))
@@ -117,14 +154,56 @@ class PageSnapshotRepository:
                 processed_news_count,
                 cluster_count,
                 last_updated_at,
-                metadata_json
-            FROM {page_table}
+                metadata_json,
+                is_latest
+            FROM (
+                SELECT
+                    id,
+                    business_date,
+                    version_no,
+                    page_title,
+                    status,
+                    global_headline,
+                    generated_at,
+                    partial_message,
+                    raw_news_count,
+                    processed_news_count,
+                    cluster_count,
+                    last_updated_at,
+                    metadata_json,
+                    (version_no = max(version_no) over (partition by business_date)) as is_latest
+                FROM {page_table}
+            ) page_versions
             WHERE id = :page_id
             """.format(page_table=_qualified_table('market_daily_page'))
         ).bindparams(bindparam('page_id', page_id))
         result = await self.session.execute(statement)
         row = self._first_row(result)
         return self._row_to_dict(row) if row else None
+
+    async def exists_page_for_business_date(self, business_date: date) -> bool:
+        statement = text(
+            """
+            select 1
+            from {page_table}
+            where business_date = :business_date
+            limit 1
+            """.format(page_table=_qualified_table('market_daily_page'))
+        ).bindparams(bindparam('business_date', business_date))
+        result = await self.session.execute(statement)
+        return self._first_row(result) is not None
+
+    async def get_latest_version_no(self, business_date: date) -> int | None:
+        statement = text(
+            """
+            select max(version_no)
+            from {page_table}
+            where business_date = :business_date
+            """.format(page_table=_qualified_table('market_daily_page'))
+        ).bindparams(bindparam('business_date', business_date))
+        result = await self.session.execute(statement)
+        value = result.scalar_one_or_none()
+        return int(value) if value is not None else None
 
     async def get_page_markets(self, page_id: int) -> list[dict]:
         statement = text(
@@ -342,7 +421,7 @@ class PageSnapshotRepository:
             params.append(bindparam('to_date', to_date))
         if status is not None:
             clauses.append(
-                f'status = CAST(:status AS {_qualified_table("page_status_enum")})'
+                f'status = CAST(UPPER(:status) AS {_qualified_table("page_status_enum")})'
             )
             params.append(bindparam('status', status))
         where = f'WHERE {" AND ".join(clauses)}' if clauses else ''
