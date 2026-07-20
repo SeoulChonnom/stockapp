@@ -43,7 +43,7 @@ docstring-code-format = true
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "TID"]
 ignore = [
-  "F401",
+  "E501",
 ]
 
 [tool.ruff.lint.flake8-tidy-imports]
