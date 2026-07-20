@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
-
 import pytest  # pyright: ignore[reportMissingImports]
+from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
 
 from tests.support import jsonable, load_module
 

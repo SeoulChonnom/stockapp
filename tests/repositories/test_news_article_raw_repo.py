@@ -7,7 +7,6 @@ pytest.importorskip('sqlalchemy')
 from tests.support import (
     DummyResult,
     RecordingAsyncSession,
-    jsonable,
     load_module,
     normalize_sql,
 )
