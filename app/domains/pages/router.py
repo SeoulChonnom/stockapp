@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated, TypeAlias
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,15 +15,15 @@ from app.domains.pages.service import PagesService
 from app.schemas.page import DailyPageResponse
 
 router = APIRouter(prefix='/pages', tags=['pages'])
-DbSessionDep: TypeAlias = Annotated[AsyncSession, Depends(get_db_session)]
-UserDep: TypeAlias = Annotated[CurrentUser, Depends(require_roles('USER', 'ADMIN'))]
+type DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
+type UserDep = Annotated[CurrentUser, Depends(require_roles('USER', 'ADMIN'))]
 
 
 def get_pages_service(session: DbSessionDep) -> PagesService:
     return PagesService(PageSnapshotRepository(session))
 
 
-PagesServiceDep: TypeAlias = Annotated[PagesService, Depends(get_pages_service)]
+type PagesServiceDep = Annotated[PagesService, Depends(get_pages_service)]
 
 
 @router.get('/daily/latest', response_model=ApiSuccess[DailyPageResponse])

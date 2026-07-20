@@ -17,7 +17,6 @@ from app.domains.batches.assembler import (
     build_batch_run_payload,
 )
 
-
 STALE_ACTIVE_JOB_AFTER = timedelta(hours=6)
 
 

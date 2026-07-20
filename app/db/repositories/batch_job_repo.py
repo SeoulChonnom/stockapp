@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import bindparam, text  # pyright: ignore[reportMissingImports]

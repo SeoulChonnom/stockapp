@@ -1,5 +1,5 @@
-from contextvars import ContextVar
 import re
+from contextvars import ContextVar
 from uuid import uuid4
 
 from fastapi import FastAPI, Request

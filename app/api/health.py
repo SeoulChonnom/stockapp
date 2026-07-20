@@ -1,4 +1,4 @@
-from typing import Annotated, TypeAlias
+from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
@@ -11,7 +11,7 @@ from app.db.session import get_db_session
 
 router = APIRouter(tags=['health'])
 
-DbSessionDep: TypeAlias = Annotated[AsyncSession, Depends(get_db_session)]
+type DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 
 
 @router.get('/health')

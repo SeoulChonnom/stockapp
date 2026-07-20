@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated, Literal, TypeAlias
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,16 +15,16 @@ from app.domains.archive.service import ArchiveService
 from app.schemas.page import ArchiveListResponse
 
 router = APIRouter(prefix='/pages', tags=['archive'])
-DbSessionDep: TypeAlias = Annotated[AsyncSession, Depends(get_db_session)]
-UserDep: TypeAlias = Annotated[CurrentUser, Depends(require_roles('USER', 'ADMIN'))]
+type DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
+type UserDep = Annotated[CurrentUser, Depends(require_roles('USER', 'ADMIN'))]
 
 
 def get_archive_service(session: DbSessionDep) -> ArchiveService:
     return ArchiveService(PageSnapshotRepository(session))
 
 
-ArchiveServiceDep: TypeAlias = Annotated[ArchiveService, Depends(get_archive_service)]
-ArchiveStatus: TypeAlias = Literal['READY', 'PARTIAL', 'FAILED']
+type ArchiveServiceDep = Annotated[ArchiveService, Depends(get_archive_service)]
+type ArchiveStatus = Literal['READY', 'PARTIAL', 'FAILED']
 
 
 @router.get('/archive', response_model=ApiSuccess[ArchiveListResponse])
