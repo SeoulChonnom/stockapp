@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
+from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
 from app.db.repositories.projections import AiSummaryRecord
+
+
+def _qualified_table(table_name: str) -> str:
+    return qualify_db_identifier(table_name)
 
 
 class AiSummaryRepository(PostgresRepository):
@@ -27,10 +32,10 @@ class AiSummaryRepository(PostgresRepository):
                 error_message,
                 metadata_json,
                 generated_at
-            FROM ai_summary
+            FROM {summary_table}
             WHERE batch_job_id = :job_id
             ORDER BY generated_at ASC, id ASC
-            """
+            """.format(summary_table=_qualified_table('ai_summary'))
         )
         result = await self.session.execute(statement, {'job_id': job_id})
         return self._models_from_mappings(AiSummaryRecord, result.mappings().all())
@@ -60,12 +65,12 @@ class AiSummaryRepository(PostgresRepository):
                 error_message,
                 metadata_json,
                 generated_at
-            FROM ai_summary
+            FROM {summary_table}
             WHERE cluster_id = :cluster_id
               AND summary_type = :summary_type
             ORDER BY generated_at DESC, id DESC
             LIMIT 1
-            """
+            """.format(summary_table=_qualified_table('ai_summary'))
         )
         result = await self.session.execute(
             statement, {'cluster_id': cluster_id, 'summary_type': summary_type}
