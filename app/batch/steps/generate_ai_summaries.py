@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
+from app.batch.ai_summary_targets import build_ai_summary_target_key
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
 from app.batch.steps.base import BatchStep, require_repository_session
@@ -222,6 +223,11 @@ class GenerateAiSummariesStep(BatchStep):
                     fallback_used=payload['fallback_used'],
                     error_message=payload.get('error_message'),
                     metadata_json=payload.get('metadata_json', {}),
+                    target_key=build_ai_summary_target_key(
+                        summary_job['summary_type'],
+                        market_type=summary_job['market_type'],
+                        cluster_id=summary_job['cluster_id'],
+                    ),
                 )
             )
             context.generated_summary_count += 1
@@ -238,9 +244,7 @@ class GenerateAiSummariesStep(BatchStep):
                 )
                 summary_label = summary_job['summary_type']
                 if summary_job['market_type']:
-                    summary_label = (
-                        f"{summary_label}/{summary_job['market_type']}"
-                    )
+                    summary_label = f'{summary_label}/{summary_job["market_type"]}'
                 partial_reason = (
                     f'AI summary fallback for {summary_label}: {diagnostic}'
                 )

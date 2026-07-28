@@ -162,6 +162,12 @@ class BatchJobRecord:
     heartbeat_at: datetime | None = None
     current_step: str | None = None
     checkpoint_json: Any = None
+    ai_target_count: int = 0
+    ai_attempted_count: int = 0
+    ai_success_count: int = 0
+    ai_fallback_count: int = 0
+    ai_failed_count: int = 0
+    ai_recovered_count: int = 0
 
 
 @dataclass(slots=True)
@@ -408,6 +414,9 @@ class AiSummaryCreateParams:
     fallback_used: bool
     error_message: str | None
     metadata_json: Any
+    target_key: str | None = None
+    source_summary_id: int | None = None
+    attempt_no: int = 1
 
 
 @dataclass(slots=True)
@@ -476,3 +485,6 @@ class AiSummaryRecord:
     error_message: str | None
     metadata_json: Any
     generated_at: datetime
+    target_key: str | None = None
+    source_summary_id: int | None = None
+    attempt_no: int = 1

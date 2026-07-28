@@ -32,6 +32,12 @@ class BatchTriggerType(StrEnum):
     ADMIN_REBUILD = 'ADMIN_REBUILD'
 
 
+class BatchRunMode(StrEnum):
+    FULL = 'FULL'
+    PAGE_REBUILD = 'PAGE_REBUILD'
+    AI_RETRY = 'AI_RETRY'
+
+
 class AiSummaryStatus(StrEnum):
     SUCCESS = 'SUCCESS'
     FAILED = 'FAILED'
@@ -56,6 +62,7 @@ __all__ = [
     'AiSummaryType',
     'BatchRunMode',
     'BatchJobStatus',
+    'BatchRunMode',
     'BatchTriggerType',
     'EventLevel',
     'MarketType',

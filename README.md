@@ -73,10 +73,17 @@ FastAPI service for market daily brief collection, clustering, summarization, an
 - Run exactly one durable worker replica while using the free Gemini tier. The
   Gemini RPM limiter is process-local, so multiple worker replicas multiply the
   effective request rate.
+- Enqueue unresolved AI summary retry (ADMIN):
+  `POST /stock/api/batch/jobs/{jobId}/retry-ai`
 - Run tests locally: `uv run pytest`
 - Run a focused test module: `uv run pytest tests/api/test_pages.py`
 
 The current automated coverage used for remediation evidence is offline and static. It uses pytest, dependency overrides, fake sessions, and mocked providers rather than live Naver, Gemini, or production database calls unless explicitly running integration tests.
+
+AI retry requests are durable `PENDING` jobs and are not run in FastAPI
+`BackgroundTasks`. A durable worker must dispatch `runMode=AI_RETRY` to
+`AiRetryOrchestrator`. See `docs/ai_summary_retry.md` for idempotency, recovery,
+and page-version rules.
 
 ## Schema and deployment policy
 

@@ -31,6 +31,9 @@ class AiSummaryRepository(PostgresRepository):
                 fallback_used,
                 error_message,
                 metadata_json,
+                target_key,
+                source_summary_id,
+                attempt_no,
                 generated_at
             FROM {summary_table}
             WHERE batch_job_id = :job_id
@@ -38,6 +41,52 @@ class AiSummaryRepository(PostgresRepository):
             """.format(summary_table=_qualified_table('ai_summary'))
         )
         result = await self.session.execute(statement, {'job_id': job_id})
+        return self._models_from_mappings(AiSummaryRecord, result.mappings().all())
+
+    async def list_retry_lineage_summaries(
+        self, source_job_id: int
+    ) -> list[AiSummaryRecord]:
+        """List immutable source summaries and every retry descendant."""
+        statement = text(
+            """
+            SELECT
+                summary.id AS summary_id,
+                summary.batch_job_id,
+                summary.summary_type,
+                summary.business_date,
+                summary.market_type,
+                summary.cluster_id,
+                summary.title,
+                summary.body,
+                summary.paragraphs_json,
+                summary.model_name,
+                summary.prompt_version,
+                summary.status,
+                summary.fallback_used,
+                summary.error_message,
+                summary.metadata_json,
+                summary.target_key,
+                summary.source_summary_id,
+                summary.attempt_no,
+                summary.generated_at
+            FROM {summary_table} AS summary
+            JOIN {batch_job_table} AS job
+              ON job.id = summary.batch_job_id
+            WHERE summary.batch_job_id = :source_job_id
+               OR (
+                    job.source_job_id = :source_job_id
+                    AND job.run_mode = 'AI_RETRY'
+               )
+            ORDER BY
+                summary.attempt_no ASC,
+                summary.generated_at ASC,
+                summary.id ASC
+            """.format(
+                summary_table=_qualified_table('ai_summary'),
+                batch_job_table=_qualified_table('batch_job'),
+            )
+        )
+        result = await self.session.execute(statement, {'source_job_id': source_job_id})
         return self._models_from_mappings(AiSummaryRecord, result.mappings().all())
 
     async def get_latest_cluster_summary(
@@ -64,11 +113,21 @@ class AiSummaryRepository(PostgresRepository):
                 fallback_used,
                 error_message,
                 metadata_json,
+                target_key,
+                source_summary_id,
+                attempt_no,
                 generated_at
             FROM {summary_table}
             WHERE cluster_id = :cluster_id
               AND summary_type = :summary_type
-            ORDER BY generated_at DESC, id DESC
+            ORDER BY
+                CASE
+                    WHEN status = 'SUCCESS' AND NOT fallback_used THEN 0
+                    ELSE 1
+                END,
+                attempt_no DESC,
+                generated_at DESC,
+                id DESC
             LIMIT 1
             """.format(summary_table=_qualified_table('ai_summary'))
         )

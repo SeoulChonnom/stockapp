@@ -17,6 +17,7 @@ from app.core.response import ApiSuccess
 from app.core.settings import get_settings
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.domains.batches.assembler import (
+    assemble_ai_retry_run_response,
     assemble_batch_job_detail_response,
     assemble_batch_job_list_response,
     assemble_batch_run_response,
@@ -25,6 +26,7 @@ from app.domains.batches.service import (
     BatchesService,
 )
 from app.schemas.batch import (
+    AiRetryRunResponse,
     BatchJobDetailResponse,
     BatchJobListResponse,
     BatchRunRequest,
@@ -101,6 +103,33 @@ async def get_batch_job_detail(
 ) -> ApiSuccess[BatchJobDetailResponse]:
     result = await service.get_job_detail(jobId)
     return ApiSuccess(data=assemble_batch_job_detail_response(result))
+
+
+@router.post(
+    '/jobs/{jobId}/retry-ai',
+    response_model=ApiSuccess[AiRetryRunResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def retry_ai_summaries(
+    current_user: AdminDep,
+    service: BatchesServiceDep,
+    jobId: Annotated[int, Path(alias='jobId', ge=1)],
+    idempotency_key: Annotated[
+        str | None,
+        Header(
+            alias='Idempotency-Key',
+            min_length=1,
+            max_length=200,
+            pattern=r'.*\S.*',
+        ),
+    ] = None,
+) -> ApiSuccess[AiRetryRunResponse]:
+    result = await service.retry_ai_summaries(
+        requested_job_id=jobId,
+        user_id=current_user.user_id,
+        idempotency_key=idempotency_key,
+    )
+    return ApiSuccess(data=assemble_ai_retry_run_response(result))
 
 
 __all__ = ['get_batches_service', 'router']

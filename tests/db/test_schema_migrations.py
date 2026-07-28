@@ -124,3 +124,39 @@ def test_durable_queue_migration_is_idempotent_and_uses_partial_indexes():
     )
     assert 'WHERE idempotency_key IS NOT NULL' in migration_sql
     assert 'CREATE INDEX IF NOT EXISTS idx_batch_job_pending_claim' in migration_sql
+
+
+def test_ai_retry_schema_has_target_lineage_and_typed_counts():
+    schema_sql = _read_sql(SCHEMA_SQL)
+
+    assert 'target_key TEXT NOT NULL' in schema_sql
+    assert 'source_summary_id BIGINT NULL' in schema_sql
+    assert 'attempt_no INTEGER NOT NULL DEFAULT 1' in schema_sql
+    assert (
+        'CONSTRAINT uq_ai_summary_job_target '
+        'UNIQUE (batch_job_id, target_key)' in schema_sql
+    )
+    for column in (
+        'ai_target_count',
+        'ai_attempted_count',
+        'ai_success_count',
+        'ai_fallback_count',
+        'ai_failed_count',
+        'ai_recovered_count',
+    ):
+        assert f'{column} INTEGER NOT NULL DEFAULT 0' in schema_sql
+
+
+def test_ai_retry_lineage_migration_is_transactional_and_idempotent():
+    migration_sql = _read_sql(
+        MIGRATIONS_DIRECTORY / '20260729_06_ai_summary_retry_lineage.sql'
+    )
+
+    assert migration_sql.startswith('BEGIN;')
+    assert migration_sql.endswith('COMMIT;')
+    assert 'ADD COLUMN IF NOT EXISTS target_key TEXT NULL' in migration_sql
+    assert "'MARKET_SUMMARY:' || market_type::TEXT" in migration_sql
+    assert 'ADD CONSTRAINT uq_ai_summary_job_target' in migration_sql
+    assert 'UNIQUE (batch_job_id, target_key)' in migration_sql
+    assert 'FOREIGN KEY (source_summary_id)' in migration_sql
+    assert 'CREATE INDEX IF NOT EXISTS idx_ai_summary_target_effective' in migration_sql

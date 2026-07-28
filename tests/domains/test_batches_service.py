@@ -9,12 +9,16 @@ from tests.support import jsonable, load_module
 
 batches_service_module = load_module('app.domains.batches.service')
 projections_module = load_module('app.db.repositories.projections')
+ai_retry_repo_module = load_module('app.db.repositories.ai_retry_repo')
 
 BatchesService = batches_service_module.BatchesService
 BatchJobListResult = projections_module.BatchJobListResult
 BatchJobRecord = projections_module.BatchJobRecord
 BatchJobSummary = projections_module.BatchJobSummary
 BatchPageSource = projections_module.BatchPageSource
+AiRetrySource = ai_retry_repo_module.AiRetrySource
+AiRetryJob = ai_retry_repo_module.AiRetryJob
+AiRetryEnqueueResult = ai_retry_repo_module.AiRetryEnqueueResult
 
 
 class FakeBatchJobRepository:
@@ -74,6 +78,28 @@ class FakeBatchJobRepository:
     async def get_job_by_id(self, job_id):
         _ = job_id
         return self.detailed_job
+
+
+class FakeAiRetryEnqueuer:
+    def __init__(self, *, source=None, result=None, error=None):
+        self.source = source
+        self.result = result
+        self.error = error
+        self.enqueue_kwargs = None
+        self.commits = 0
+
+    async def resolve_source(self, requested_job_id):
+        assert requested_job_id == 1001
+        return self.source
+
+    async def enqueue(self, **kwargs):
+        self.enqueue_kwargs = kwargs
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+    async def commit(self):
+        self.commits += 1
 
 
 @pytest.mark.anyio
@@ -385,3 +411,68 @@ async def test_get_job_detail_returns_json_payload(sample_batch_job_detail_paylo
 
     assert isinstance(result, dict)
     assert result == sample_batch_job_detail_payload
+
+
+@pytest.mark.anyio
+async def test_retry_ai_enqueues_pending_job_with_idempotency_key():
+    source = AiRetrySource(
+        requested_job_id=1001,
+        source_job_id=1001,
+        source_page_id=501,
+        business_date=date(2026, 3, 17),
+        source_status='PARTIAL',
+    )
+    retry_job = AiRetryJob(
+        job_id=2001,
+        job_name='market_daily_batch',
+        business_date=source.business_date,
+        status='PENDING',
+        run_mode='AI_RETRY',
+        source_job_id=source.source_job_id,
+        source_page_id=source.source_page_id,
+        idempotency_key='retry-key',
+        started_at=datetime(2026, 3, 18, 6, 20, tzinfo=UTC),
+    )
+    enqueuer = FakeAiRetryEnqueuer(
+        source=source,
+        result=AiRetryEnqueueResult(retry_job, created=True),
+    )
+    repository = FakeBatchJobRepository()
+    service = BatchesService(repository, ai_retry_enqueuer=enqueuer)
+
+    result = await service.retry_ai_summaries(
+        requested_job_id=1001,
+        user_id='ADMIN-1',
+        idempotency_key='retry-key',
+    )
+
+    assert result['jobId'] == 2001
+    assert result['runMode'] == 'AI_RETRY'
+    assert enqueuer.enqueue_kwargs['idempotency_key'] == 'retry-key'
+    assert repository.events[0]['step_code'] == 'AI_RETRY_ENQUEUE'
+    assert enqueuer.commits == 1
+
+
+@pytest.mark.anyio
+async def test_retry_ai_maps_idempotency_mismatch_to_conflict():
+    source = AiRetrySource(
+        requested_job_id=1001,
+        source_job_id=1001,
+        source_page_id=501,
+        business_date=date(2026, 3, 17),
+        source_status='PARTIAL',
+    )
+    enqueuer = FakeAiRetryEnqueuer(
+        source=source,
+        error=ai_retry_repo_module.AiRetryIdempotencyConflictError(),
+    )
+    service = BatchesService(FakeBatchJobRepository(), ai_retry_enqueuer=enqueuer)
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.retry_ai_summaries(
+            requested_job_id=1001,
+            user_id='ADMIN-1',
+            idempotency_key='reused-key',
+        )
+
+    assert exc_info.value.code == 'IDEMPOTENCY_KEY_REUSED'

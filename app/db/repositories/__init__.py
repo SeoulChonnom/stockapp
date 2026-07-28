@@ -1,3 +1,4 @@
+from app.db.repositories.ai_retry_repo import PostgresAiRetryRepository
 from app.db.repositories.ai_summary_write_repo import AiSummaryWriteRepository
 from app.db.repositories.cluster_repo import ClusterRepository
 from app.db.repositories.market_context_repo import MarketContextRepository
@@ -22,4 +23,5 @@ __all__ = [
     'NewsSearchKeywordRepository',
     'PageSnapshotRepository',
     'PageSnapshotWriteRepository',
+    'PostgresAiRetryRepository',
 ]

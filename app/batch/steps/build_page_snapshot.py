@@ -29,6 +29,30 @@ def _metadata_optional_string(metadata: dict[str, Any], key: str) -> str | None:
     return None
 
 
+def _structured_page_issues(
+    context: BatchExecutionContext,
+) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    for reason in context.partial_reasons:
+        is_ai_issue = reason.startswith('AI summary fallback')
+        issues.append(
+            {
+                'category': 'AI_SUMMARY' if is_ai_issue else 'BATCH_PARTIAL',
+                'code': 'AI_SUMMARY_FALLBACK' if is_ai_issue else 'BATCH_PARTIAL',
+                'message': reason,
+            }
+        )
+    issues.extend(
+        {
+            'category': 'BATCH_WARNING',
+            'code': 'BATCH_WARNING',
+            'message': warning,
+        }
+        for warning in context.warning_messages
+    )
+    return issues
+
+
 class BuildPageSnapshotStep(BatchStep):
     step_code = 'BUILD_PAGE_SNAPSHOT'
     started_message = 'Build page snapshot step started.'
@@ -160,7 +184,10 @@ class BuildPageSnapshotStep(BatchStep):
             processed_news_count=context.processed_news_count,
             cluster_count=context.cluster_count,
             batch_job_id=context.job_id,
-            metadata_json={'warnings': context.warning_messages},
+            metadata_json={
+                'warnings': context.warning_messages,
+                'issues': _structured_page_issues(context),
+            },
         )
         by_market: dict[str, list[dict]] = {'US': [], 'KR': []}
         for cluster in clusters:

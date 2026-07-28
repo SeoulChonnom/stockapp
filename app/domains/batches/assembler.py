@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from app.schemas.batch import (
+    AiRetryRunResponse,
     BatchJobDetailResponse,
     BatchJobListItemResponse,
     BatchJobListResponse,
@@ -27,12 +28,18 @@ def assemble_batch_run_response(payload: dict[str, Any]) -> BatchRunResponse:
     return BatchRunResponse.model_validate(payload)
 
 
+def assemble_ai_retry_run_response(
+    payload: dict[str, Any],
+) -> AiRetryRunResponse:
+    return AiRetryRunResponse.model_validate(payload)
+
+
 def assemble_batch_job_list_response(payload: dict[str, Any]) -> BatchJobListResponse:
     return BatchJobListResponse.model_validate(payload)
 
 
 def assemble_batch_job_detail_response(
-    payload: dict[str, Any]
+    payload: dict[str, Any],
 ) -> BatchJobDetailResponse:
     return BatchJobDetailResponse.model_validate(payload)
 
@@ -64,6 +71,12 @@ def build_batch_job_list_payload(result: Any) -> dict[str, Any]:
             pageId=item.page_id,
             pageVersionNo=item.page_version_no,
             partialMessage=item.partial_message,
+            aiTargetCount=item.ai_target_count,
+            aiAttemptedCount=item.ai_attempted_count,
+            aiSuccessCount=item.ai_success_count,
+            aiFallbackCount=item.ai_fallback_count,
+            aiFailedCount=item.ai_failed_count,
+            aiRecoveredCount=item.ai_recovered_count,
         ).model_dump(mode='json')
         for item in result.items
     ]
@@ -105,11 +118,18 @@ def build_batch_job_detail_payload(job: Any) -> dict[str, Any]:
         errorCode=job.error_code,
         errorMessage=job.error_message,
         logSummary=job.log_summary,
+        aiTargetCount=job.ai_target_count,
+        aiAttemptedCount=job.ai_attempted_count,
+        aiSuccessCount=job.ai_success_count,
+        aiFallbackCount=job.ai_fallback_count,
+        aiFailedCount=job.ai_failed_count,
+        aiRecoveredCount=job.ai_recovered_count,
     )
     return payload.model_dump(mode='json')
 
 
 __all__ = [
+    'assemble_ai_retry_run_response',
     'assemble_batch_job_detail_response',
     'assemble_batch_job_list_response',
     'assemble_batch_run_response',

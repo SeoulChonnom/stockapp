@@ -17,6 +17,7 @@ class FakeBatchesService:
         self.list_payload = list_payload
         self.detail_payload = detail_payload
         self.start_kwargs: dict | None = None
+        self.retry_kwargs: dict | None = None
 
     async def start_market_daily_batch(self, **kwargs):
         self.start_kwargs = kwargs
@@ -32,6 +33,20 @@ class FakeBatchesService:
             'BATCH_JOB_NOT_FOUND',
             '요청한 배치 작업을 찾을 수 없습니다.',
         )
+
+    async def retry_ai_summaries(self, **kwargs):
+        self.retry_kwargs = kwargs
+        return {
+            'jobId': 2001,
+            'jobName': 'market_daily_batch',
+            'businessDate': '2026-03-17',
+            'status': 'PENDING',
+            'runMode': 'AI_RETRY',
+            'sourceJobId': kwargs['requested_job_id'],
+            'sourcePageId': 501,
+            'idempotencyKey': kwargs['idempotency_key'],
+            'startedAt': '2026-03-18T06:20:00+00:00',
+        }
 
 
 @pytest.fixture
@@ -165,6 +180,12 @@ def test_list_batch_jobs_allows_admin(client, sample_batch_job_list_payload):
         'pageId',
         'pageVersionNo',
         'partialMessage',
+        'aiTargetCount',
+        'aiAttemptedCount',
+        'aiSuccessCount',
+        'aiFallbackCount',
+        'aiFailedCount',
+        'aiRecoveredCount',
     } <= set(payload['items'][0])
     assert (
         payload['items'][0]['jobId']
@@ -233,6 +254,12 @@ def test_get_batch_job_detail_allows_admin(client, sample_batch_job_detail_paylo
         'errorCode',
         'errorMessage',
         'logSummary',
+        'aiTargetCount',
+        'aiAttemptedCount',
+        'aiSuccessCount',
+        'aiFallbackCount',
+        'aiFailedCount',
+        'aiRecoveredCount',
     } <= set(payload)
     assert payload['jobId'] == sample_batch_job_detail_payload['jobId']
     assert payload['logSummary'] == sample_batch_job_detail_payload['logSummary']
@@ -246,3 +273,41 @@ def test_get_batch_job_detail_returns_404_when_missing(client):
     )
 
     assert response.status_code == 404
+
+
+def test_retry_ai_enqueues_idempotent_job_without_background_task(client):
+    test_client, scheduler, service = client
+
+    response = test_client.post(
+        '/stock/api/batch/jobs/1001/retry-ai',
+        headers={
+            **build_test_bearer_headers('ADMIN'),
+            'Idempotency-Key': 'ai-retry-1001-request-1',
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()['data']
+    assert payload['status'] == 'PENDING'
+    assert payload['runMode'] == 'AI_RETRY'
+    assert payload['sourceJobId'] == 1001
+    assert payload['idempotencyKey'] == 'ai-retry-1001-request-1'
+    assert service.retry_kwargs == {
+        'requested_job_id': 1001,
+        'user_id': 'ADMIN-0001',
+        'idempotency_key': 'ai-retry-1001-request-1',
+    }
+    assert scheduler.job_ids == []
+
+
+def test_retry_ai_requires_admin(client):
+    test_client, scheduler, service = client
+
+    response = test_client.post(
+        '/stock/api/batch/jobs/1001/retry-ai',
+        headers=build_test_bearer_headers('USER'),
+    )
+
+    assert response.status_code == 403
+    assert service.retry_kwargs is None
+    assert scheduler.job_ids == []

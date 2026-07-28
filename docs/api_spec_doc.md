@@ -85,9 +85,10 @@ Authorization: Bearer {TOKEN}
 
 | 구분  | Method | Path                         | 설명                         |
 | ----- | ------ | ---------------------------- | ---------------------------- |
-| Batch | GET    | `/batch/market-daily`        | 통합 일간 배치 실행          |
+| Batch | POST   | `/batch/market-daily`        | 통합 일간 배치 실행          |
 | Batch | GET    | `/batch/jobs`                | 배치 목록 조회               |
 | Batch | GET    | `/batch/jobs/{jobId}`        | 배치 상세 조회               |
+| Batch | POST   | `/batch/jobs/{jobId}/retry-ai` | 실패/Fallback AI 요약 재처리 |
 | Page  | GET    | `/pages/daily/latest`        | 최신 통합 일간 페이지 조회   |
 | Page  | GET    | `/pages/daily`               | 날짜별 통합 일간 페이지 조회 |
 | Page  | GET    | `/pages/archive`             | 아카이브 목록 조회           |
@@ -193,6 +194,12 @@ Authorization: Bearer {TOKEN}
     "rawNewsCount": 174,
     "processedNewsCount": 114,
     "clusterCount": 21,
+    "aiTargetCount": 45,
+    "aiAttemptedCount": 3,
+    "aiSuccessCount": 45,
+    "aiFallbackCount": 0,
+    "aiFailedCount": 0,
+    "aiRecoveredCount": 3,
     "lastUpdatedAt": "2026-03-18T06:12:10"
   }
 }
@@ -379,7 +386,40 @@ Authorization: Bearer {TOKEN}
 
 ---
 
-## 5-4. 최신 통합 일간 페이지 조회
+## 5-4. AI 요약 재처리
+
+### `POST /batch/jobs/{jobId}/retry-ai`
+
+ADMIN 전용이다. 선택적 `Idempotency-Key` 헤더를 권장하며 동일 키의 동일
+요청은 기존 `PENDING`/실행/완료 job을 반환한다. 동일 키를 다른 source
+job에 재사용하면 `409 IDEMPOTENCY_KEY_REUSED`를 반환한다.
+
+### Response 202
+
+```json
+{
+  "success": true,
+  "data": {
+    "jobId": 2001,
+    "jobName": "market_daily_batch",
+    "businessDate": "2026-03-17",
+    "status": "PENDING",
+    "runMode": "AI_RETRY",
+    "sourceJobId": 1001,
+    "sourcePageId": 501,
+    "idempotencyKey": "ai-retry-1001-request-1",
+    "startedAt": "2026-03-18T06:20:00+00:00"
+  }
+}
+```
+
+요청은 provider를 동기 호출하지 않는다. durable worker가 job을 claim한 뒤
+원본 target 중 `FAILED`, `FALLBACK`, 또는 `fallbackUsed=true`인 항목만
+재처리한다.
+
+---
+
+## 5-5. 최신 통합 일간 페이지 조회
 
 ### `GET /pages/daily/latest`
 

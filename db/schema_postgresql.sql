@@ -52,6 +52,12 @@ CREATE TABLE batch_job (
     raw_news_count INTEGER NOT NULL DEFAULT 0,
     processed_news_count INTEGER NOT NULL DEFAULT 0,
     cluster_count INTEGER NOT NULL DEFAULT 0,
+    ai_target_count INTEGER NOT NULL DEFAULT 0,
+    ai_attempted_count INTEGER NOT NULL DEFAULT 0,
+    ai_success_count INTEGER NOT NULL DEFAULT 0,
+    ai_fallback_count INTEGER NOT NULL DEFAULT 0,
+    ai_failed_count INTEGER NOT NULL DEFAULT 0,
+    ai_recovered_count INTEGER NOT NULL DEFAULT 0,
     page_id BIGINT NULL,
     page_version_no INTEGER NULL,
     partial_message TEXT NULL,
@@ -67,6 +73,15 @@ CREATE TABLE batch_job (
             raw_news_count >= 0
             AND processed_news_count >= 0
             AND cluster_count >= 0
+        ),
+    CONSTRAINT chk_batch_job_ai_counts_non_negative
+        CHECK (
+            ai_target_count >= 0
+            AND ai_attempted_count >= 0
+            AND ai_success_count >= 0
+            AND ai_fallback_count >= 0
+            AND ai_failed_count >= 0
+            AND ai_recovered_count >= 0
         ),
     CONSTRAINT chk_batch_job_ended_after_started
         CHECK (ended_at IS NULL OR ended_at >= started_at),
@@ -335,7 +350,16 @@ CREATE TABLE ai_summary (
     fallback_used BOOLEAN NOT NULL DEFAULT FALSE,
     error_message TEXT NULL,
     metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-    generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    target_key TEXT NOT NULL,
+    source_summary_id BIGINT NULL
+        CONSTRAINT fk_ai_summary_source_summary
+        REFERENCES ai_summary(id) ON DELETE SET NULL,
+    attempt_no INTEGER NOT NULL DEFAULT 1,
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_ai_summary_job_target UNIQUE (batch_job_id, target_key),
+    CONSTRAINT chk_ai_summary_attempt_positive CHECK (attempt_no > 0),
+    CONSTRAINT chk_ai_summary_target_key_not_blank
+        CHECK (length(btrim(target_key)) > 0)
 );
 
 CREATE INDEX idx_ai_summary_lookup
@@ -346,6 +370,12 @@ CREATE INDEX idx_ai_summary_cluster
 
 CREATE INDEX idx_ai_summary_batch_job
     ON ai_summary (batch_job_id);
+
+CREATE INDEX idx_ai_summary_source_summary
+    ON ai_summary (source_summary_id);
+
+CREATE INDEX idx_ai_summary_target_effective
+    ON ai_summary (target_key, attempt_no DESC, generated_at DESC);
 
 CREATE TABLE market_daily_page (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

@@ -19,6 +19,18 @@ class BatchRunResponse(BaseModel):
     startedAt: datetime | str
 
 
+class AiRetryRunResponse(BaseModel):
+    jobId: int
+    jobName: str
+    businessDate: date
+    status: str
+    runMode: str
+    sourceJobId: int
+    sourcePageId: int | None = None
+    idempotencyKey: str | None = None
+    startedAt: datetime | str
+
+
 class BatchJobListItemResponse(BaseModel):
     jobId: int
     jobName: str
@@ -34,6 +46,12 @@ class BatchJobListItemResponse(BaseModel):
     pageId: int | None = None
     pageVersionNo: int | None = None
     partialMessage: str | None = None
+    aiTargetCount: int = 0
+    aiAttemptedCount: int = 0
+    aiSuccessCount: int = 0
+    aiFallbackCount: int = 0
+    aiFailedCount: int = 0
+    aiRecoveredCount: int = 0
 
 
 class BatchJobsPaginationResponse(BaseModel):
@@ -74,9 +92,16 @@ class BatchJobDetailResponse(BaseModel):
     errorCode: str | None = None
     errorMessage: str | None = None
     logSummary: str | None = None
+    aiTargetCount: int = 0
+    aiAttemptedCount: int = 0
+    aiSuccessCount: int = 0
+    aiFallbackCount: int = 0
+    aiFailedCount: int = 0
+    aiRecoveredCount: int = 0
 
 
 __all__ = [
+    'AiRetryRunResponse',
     'BatchJobDetailResponse',
     'BatchJobListItemResponse',
     'BatchJobListResponse',

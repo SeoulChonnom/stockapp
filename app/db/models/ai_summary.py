@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, Integer, Text
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,6 +34,11 @@ class AiSummary(Base):
     fallback_used: Mapped[bool]
     error_message: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    target_key: Mapped[str] = mapped_column(Text)
+    source_summary_id: Mapped[int | None] = mapped_column(
+        ForeignKey('stock.ai_summary.id', ondelete='SET NULL')
+    )
+    attempt_no: Mapped[int] = mapped_column(Integer, default=1)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
