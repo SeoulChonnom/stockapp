@@ -148,11 +148,12 @@ if settings.is_development and settings.cors_allowed_origins_list:
 - 단순 `MAX(version_no)+1` 조회다. 현재는 배치 중복 실행이 DB 제약으로 막혀 실위험이 낮지만, 수동 개입이나 동시성 정책 변경 시 `version_no` 충돌 가능.
 - **개선**: `pg_advisory_xact_lock` 적용 또는 유니크 제약 충돌 시 재시도.
 
-### 3-10. `ai_summary.model_name` 하드코딩 — 감사 정보 왜곡
+### 3-10. `ai_summary.model_name` 하드코딩 — 해결됨
 
-- 위치: `app/batch/steps/generate_ai_summaries.py:231,297,342,385`
-- 4곳 모두 `'gemini-3.1-flash-lite'` 문자열을 직접 기록한다. `STOCKAPP_LLM_MODEL`로 모델을 바꿔도 DB에는 옛 모델명이 기록되어 요약 품질 추적·감사가 왜곡된다. (참고: 서비스 소개상 "Gemini Flash 2.5"와 코드 기본값 `gemini-3.1-flash-lite`도 서로 다르다 — 실제 사용 모델을 한 곳에서 관리할 필요.)
-- **개선**: LLM 클라이언트에서 실제 모델명을 노출해 참조.
+- LLM 클라이언트가 실제 설정 모델명을 노출하고 배치가 이를 저장한다.
+- 기본 모델과 `.env.example`은 현재 키로 live 호출이 확인된 `gemini-3.1-flash-lite`로 통일했다. 이 모델은 [공식 가격표](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-lite)에서 Standard Free Tier의 입·출력 토큰을 무료로 제공한다.
+- 운영에서 `STOCKAPP_LLM_MODEL`을 재정의하면 호출과 감사 정보에 같은 모델명이 사용된다.
+- `gemini-2.5-flash`도 [공식 가격표](https://ai.google.dev/gemini-api/docs/pricing#gemini-2.5-flash)와 현재 프로젝트의 `models.list`에서는 Free Tier·`generateContent` 지원 모델로 표시됐다. 그러나 2026-07-28 최소 live 검증에서 LangChain과 Google Gen AI SDK 직접 호출이 모두 `404 NOT_FOUND`를 반환했다. Google 측 모델 목록과 실행 endpoint의 불일치가 해소되기 전에는 운영 기본값으로 사용하지 않는다.
 
 ### 3-11. 헬스체크/레디니스 엔드포인트 부재
 

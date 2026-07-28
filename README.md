@@ -41,6 +41,7 @@ FastAPI service for market daily brief collection, clustering, summarization, an
 - Naver and Gemini keys are optional at settings load time, but batch collection and LLM calls need valid provider credentials to produce live results.
 - Request IDs use `X-Request-Id` by default. Unsafe incoming values are replaced with generated `req-...` IDs.
 - LLM and article crawling timeouts and concurrency limits are configured with `STOCKAPP_LLM_TIMEOUT_SECONDS`, `STOCKAPP_LLM_CONCURRENCY_LIMIT`, `STOCKAPP_ARTICLE_CRAWL_TIMEOUT_SECONDS`, and `STOCKAPP_ARTICLE_CRAWL_CONCURRENCY_LIMIT`.
+- Gemini calls are limited by `STOCKAPP_LLM_REQUESTS_PER_MINUTE` (default `12`). Clients on the same event loop share one limiter; each application worker or server process normally has its own event loop and therefore enforces an independent limit.
 
 ## Operations
 

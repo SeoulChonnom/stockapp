@@ -46,6 +46,39 @@ def test_settings_loads_env_from_stockapp_directory_independent_of_cwd(
     ]
 
 
+def test_settings_defaults_to_gemini_3_1_flash_lite(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv('STOCKAPP_LLM_MODEL', raising=False)
+    monkeypatch.delenv('llm_model', raising=False)
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.llm_model == 'gemini-3.1-flash-lite'
+
+
+@pytest.mark.parametrize(
+    'key_name',
+    [
+        'gemini_api_key',
+        'stockapp_gemini_api_key',
+    ],
+)
+def test_settings_accepts_lowercase_gemini_key_names_from_env_file(
+    key_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    monkeypatch.delenv('STOCKAPP_GEMINI_API_KEY', raising=False)
+    monkeypatch.delenv('gemini_api_key', raising=False)
+    env_file = tmp_path / '.env'
+    env_file.write_text(f'{key_name}=test-gemini-key\n', encoding='utf-8')
+
+    settings = settings_module.Settings(_env_file=env_file)
+
+    assert settings.gemini_api_key == 'test-gemini-key'
+
+
 @pytest.mark.parametrize(
     'schema',
     [
@@ -115,7 +148,43 @@ def test_settings_accepts_batch_concurrency_limits():
         app_env='development',
         article_crawl_concurrency_limit=3,
         llm_concurrency_limit=2,
+        llm_requests_per_minute=7,
     )
 
     assert settings.article_crawl_concurrency_limit == 3
     assert settings.llm_concurrency_limit == 2
+    assert settings.llm_requests_per_minute == 7
+
+
+def test_settings_defaults_to_twelve_llm_requests_per_minute(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv('STOCKAPP_LLM_REQUESTS_PER_MINUTE', raising=False)
+    monkeypatch.delenv('llm_requests_per_minute', raising=False)
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.llm_requests_per_minute == 12
+
+
+def test_settings_loads_llm_requests_per_minute_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv('STOCKAPP_LLM_REQUESTS_PER_MINUTE', '8')
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.llm_requests_per_minute == 8
+
+
+@pytest.mark.parametrize('requests_per_minute', [0, -1])
+def test_settings_rejects_non_positive_llm_requests_per_minute(
+    requests_per_minute: int,
+):
+    with pytest.raises(ValidationError, match='llm_requests_per_minute'):
+        settings_module.Settings(llm_requests_per_minute=requests_per_minute)
+
+
+def test_settings_rejects_negative_llm_max_retries():
+    with pytest.raises(ValidationError, match='llm_max_retries'):
+        settings_module.Settings(llm_max_retries=-1)

@@ -149,6 +149,7 @@ class Settings(BaseSettings):
     )
     llm_max_retries: int = Field(
         default=2,
+        ge=0,
         validation_alias=AliasChoices('STOCKAPP_LLM_MAX_RETRIES', 'llm_max_retries'),
     )
     llm_timeout_seconds: float = Field(
@@ -163,6 +164,14 @@ class Settings(BaseSettings):
         ge=1,
         validation_alias=AliasChoices(
             'STOCKAPP_LLM_CONCURRENCY_LIMIT', 'llm_concurrency_limit'
+        ),
+    )
+    llm_requests_per_minute: int = Field(
+        default=12,
+        ge=1,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_REQUESTS_PER_MINUTE',
+            'llm_requests_per_minute',
         ),
     )
     gemini_api_key: str | None = Field(
