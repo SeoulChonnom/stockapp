@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from uuid import uuid4
 
 import pytest
 
@@ -252,3 +253,86 @@ async def test_market_daily_orchestrator_commits_failure_state_after_step_rollba
         if isinstance(params, dict) and params.get('status') == 'FAILED'
     ]
     assert failed_status_payloads[-1]['error_code'] == 'INTERNAL_BATCH_ERROR'
+
+
+@pytest.mark.anyio
+async def test_market_daily_orchestrator_resumes_after_last_checkpoint(monkeypatch):
+    lease_token = uuid4()
+
+    class ResumeRepository:
+        def __init__(self):
+            self.session = RecordingAsyncSession()
+            self.begun_steps: list[str] = []
+            self.saved_checkpoints: list[dict] = []
+
+        async def get_job_by_id(self, job_id):
+            return BatchJobRecord(
+                job_id=job_id,
+                job_name='market_daily_batch',
+                business_date=date(2026, 3, 17),
+                status='RUNNING',
+                started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+                ended_at=None,
+                duration_seconds=None,
+                market_scope='GLOBAL',
+                raw_news_count=0,
+                processed_news_count=0,
+                cluster_count=0,
+                page_id=None,
+                page_version_no=None,
+                force_run=False,
+                rebuild_page_only=False,
+                checkpoint_json={
+                    'completedSteps': ['CREATE_JOB'],
+                    'context': {'rawNewsCount': 7},
+                },
+            )
+
+        async def add_event(self, **_kwargs):
+            return None
+
+        async def begin_step(self, *, step_code, **_kwargs):
+            self.begun_steps.append(step_code)
+            return True
+
+        async def save_checkpoint(self, *, checkpoint_json, **_kwargs):
+            self.saved_checkpoints.append(checkpoint_json)
+            return True
+
+        async def commit(self):
+            await self.session.commit()
+
+        async def rollback(self):
+            await self.session.rollback()
+
+    repository = ResumeRepository()
+
+    class NeverRepeatStep:
+        step_code = 'CREATE_JOB'
+
+        async def execute(self, repository, context):
+            _ = (repository, context)
+            raise AssertionError('completed step must not run again')
+
+    class ResumeStep:
+        step_code = 'COLLECT_NEWS'
+
+        async def execute(self, repository, context):
+            _ = repository
+            context.raw_news_count += 5
+            return context
+
+    monkeypatch.setattr(
+        orchestrator_module,
+        'BatchJobRepository',
+        lambda session, lease_token=None: repository,
+    )
+    orchestrator = MarketDailyBatchOrchestrator(session_maker=FakeSessionMaker())
+    orchestrator._steps = [NeverRepeatStep(), ResumeStep()]
+
+    await orchestrator.run(1001, lease_token=lease_token)
+
+    assert repository.begun_steps == ['COLLECT_NEWS']
+    checkpoint = repository.saved_checkpoints[-1]
+    assert checkpoint['completedSteps'] == ['CREATE_JOB', 'COLLECT_NEWS']
+    assert checkpoint['context']['rawNewsCount'] == 12

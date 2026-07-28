@@ -89,3 +89,38 @@ def test_processed_article_migration_replaces_global_unique_constraint():
         in migration_sql
     )
     assert 'Duplicate processed articles prevent date-scoped dedupe' in migration_sql
+
+
+def test_durable_queue_schema_has_claim_and_fencing_contract():
+    schema_sql = _read_sql(SCHEMA_SQL)
+
+    assert (
+        "CREATE TYPE batch_run_mode_enum AS ENUM ('FULL', 'PAGE_REBUILD', 'AI_RETRY')"
+        in schema_sql
+    )
+    for column in (
+        'idempotency_key TEXT NULL',
+        'queued_at TIMESTAMPTZ NOT NULL DEFAULT now()',
+        'available_at TIMESTAMPTZ NOT NULL DEFAULT now()',
+        'lease_token UUID NULL',
+        "checkpoint_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+    ):
+        assert column in schema_sql
+    assert "WHERE status = 'PENDING'" in schema_sql
+    assert "WHERE status = 'RUNNING'" in schema_sql
+
+
+def test_durable_queue_migration_is_idempotent_and_uses_partial_indexes():
+    migration_sql = _read_sql(
+        MIGRATIONS_DIRECTORY / '20260729_04_batch_job_durable_queue.sql'
+    )
+
+    assert migration_sql.startswith('BEGIN;')
+    assert migration_sql.endswith('COMMIT;')
+    assert 'ADD COLUMN IF NOT EXISTS run_mode' in migration_sql
+    assert (
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_batch_job_idempotency_key'
+        in migration_sql
+    )
+    assert 'WHERE idempotency_key IS NOT NULL' in migration_sql
+    assert 'CREATE INDEX IF NOT EXISTS idx_batch_job_pending_claim' in migration_sql

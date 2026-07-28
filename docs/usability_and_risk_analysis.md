@@ -10,7 +10,7 @@
 
 ### 배치 파이프라인 (일일 수집)
 
-`POST /stock/api/batch/market-daily` (ADMIN 권한) → `batch_job` 행 생성(RUNNING) → FastAPI `BackgroundTasks`로 같은 프로세스 안에서 8개 스텝을 순차 실행:
+`POST /stock/api/batch/market-daily` (ADMIN 권한) → `batch_job` 행 생성(PENDING) 및 HTTP 202 반환 → 별도 durable worker가 PostgreSQL queue에서 claim(RUNNING) → 8개 스텝을 순차 실행:
 
 1. `CreateJobStep` — 컨텍스트 초기화
 2. `CollectNewsStep` — 네이버 뉴스 검색 API 수집
@@ -21,7 +21,9 @@
 7. `BuildPageSnapshotStep` — 페이지 스냅샷 작성
 8. `FinalizeJobStep` — SUCCESS / PARTIAL / FAILED 확정
 
-스텝마다 커밋하며, 예외 발생 시 롤백 후 잡을 FAILED로 마킹.
+스텝마다 결과와 checkpoint를 함께 커밋한다. worker는 heartbeat/lease를 갱신하고,
+프로세스 중단으로 만료된 lease는 마지막 checkpoint부터 재시도한다. 최대 시도 횟수를
+소진한 잡은 FAILED로 확정한다.
 
 ### 읽기 API
 
@@ -40,13 +42,16 @@
 
 ## 2. 잠재 오류 가능성 — 심각도: 높음
 
-### 2-1. 배치 도중 프로세스 재시작 시 `RUNNING` 고착 — 복구 수단 없음
+### 2-1. 배치 도중 프로세스 재시작 시 `RUNNING` 고착 — 해결됨
 
-- 위치: `app/domains/batches/router.py:48-63`, `app/domains/batches/service.py:58-101`
-- 배치가 별도 워커 큐 없이 FastAPI `BackgroundTasks`(요청을 받은 ASGI 워커 프로세스 내부)로 실행된다. 배포·크래시로 프로세스가 죽으면 해당 `batch_job`은 영원히 `RUNNING`으로 남는다.
-- `uq_batch_job_one_active_per_day` 부분 유니크 인덱스와 `has_active_job_for_business_date` 체크 때문에 **같은 날짜 재트리거도 차단**되어, 운영자가 DB를 직접 수정해야만 복구된다. 취소/강제 리셋/재시도 API가 없다.
-- 정황 증거: `tests/integration/test_collect_news_live.py:85-111`이 테스트 셋업에서 stale RUNNING job을 SQL로 직접 정리한다 — 이미 실무에서 겪고 있는 문제로 보인다.
-- **개선**: (a) `started_at` 기준 임계치 초과 RUNNING 잡을 FAILED로 마킹하는 워치독 또는 기동 시 정리 로직, (b) 관리자용 강제 리셋 엔드포인트, (c) 장기적으로 전용 작업 큐(arq/Celery) 도입.
+- 위치: `app/batch/worker.py`, `app/db/repositories/batch_job_repo.py`
+- API는 작업을 PENDING으로 저장할 뿐 직접 실행하지 않는다. 별도 worker가
+  `FOR UPDATE SKIP LOCKED`로 작업을 원자적으로 claim한다.
+- RUNNING 작업에는 worker owner, fencing token, heartbeat, 만료 시간이 저장된다.
+  만료된 lease는 재시도 가능하면 PENDING으로 되돌리고, 최대 시도 횟수를 소진하면
+  FAILED로 확정한다.
+- 각 단계의 도메인 변경과 checkpoint는 같은 트랜잭션으로 커밋되므로 프로세스가
+  중단되더라도 마지막 완료 단계 다음부터 재개한다.
 
 ### 2-2. LLM 응답 파싱이 try 블록 밖 — 클러스터 1개의 이상 응답이 배치 전체를 FAILED로
 
@@ -235,7 +240,7 @@ if settings.is_development and settings.cors_allowed_origins_list:
 
 | 원문 항목 | 최종 상태 | 반영 내용 | 검증 근거 |
 |---|---|---|---|
-| 2-1 RUNNING 고착 | 완화됨 | 새 배치 시작 전에 6시간 초과 PENDING/RUNNING 잡을 FAILED로 전환하고 커밋한다. 전용 워커 큐와 관리자 강제 리셋 API는 아직 전략 과제다. | `app/domains/batches/service.py`의 `STALE_ACTIVE_JOB_AFTER`, `terminalize_stale_active_jobs`; `tests/domains/test_batches_service.py`, `tests/repositories/test_batch_job_repo.py` |
+| 2-1 RUNNING 고착 | 구현됨 | API는 PENDING job만 저장하고, PostgreSQL durable worker가 `SKIP LOCKED` claim, 30초 heartbeat/2분 lease, 만료 lease requeue, 최대 시도 초과 실패, step checkpoint resume를 수행한다. 기존 6시간 stale 처리는 queue lease 복구로 대체했다. | `app/batch/worker.py`, `app/db/repositories/batch_job_repo.py`, `db/migrations/20260729_04_batch_job_durable_queue.sql`; worker/repository/orchestrator tests |
 | 2-2 LLM 응답 파싱 예외 | 구현됨 | 클러스터 enrich 결과와 AI summary 응답이 유효한 dict인지 확인하고, `tags`, `analysis_paragraphs`, 대표 기사 인덱스 등 malformed 값은 폴백과 WARN/오류 메타데이터로 처리한다. | `app/batch/steps/build_clusters.py`, `app/batch/steps/generate_ai_summaries.py`; `tests/batch/test_build_clusters_step.py`; 최종 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` 통과(147 passed, 1 skipped, 2 warnings) |
 | 2-3 공통 예외 핸들러 부재 | 구현됨 | `AppError`, 요청 검증 오류, 최후 `Exception` 핸들러가 모두 `ApiError` 봉투를 반환한다. 아카이브 `status`도 `Literal['READY','PARTIAL','FAILED']`로 제한한다. | `app/core/exceptions.py`, `app/domains/archive/router.py`; `tests/api/test_pages.py` |
 | 2-4 시크릿과 기본 DB 설정 | 완화됨 | strict production 설정 검증은 유지하면서, 오프라인 테스트는 명시적 테스트 설정으로 실행되도록 정리했다. Naver와 Gemini 키의 운영 fail-fast 범위는 별도 정책 판단이 필요하다. | `app/core/settings.py`; `tests/core/test_settings.py`; 최종 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` 통과(147 passed, 1 skipped, 2 warnings) |

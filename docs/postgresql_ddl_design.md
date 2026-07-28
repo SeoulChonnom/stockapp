@@ -202,6 +202,10 @@ DB 설계는 기사 링크가 본질적으로 `market_type` 문맥을 갖는다�
 - `triggered_by_user_id`
 - `force_run`
 - `rebuild_page_only`
+- `run_mode`, `source_job_id`, `source_page_id`, `idempotency_key`
+- `queued_at`, `available_at`, `attempt_count`, `max_attempts`
+- `lease_owner`, `lease_token`, `lease_expires_at`, `heartbeat_at`
+- `current_step`, `checkpoint_json`
 - `raw_news_count`, `processed_news_count`, `cluster_count`
 - `page_id`, `page_version_no`
 - `partial_message`, `error_code`, `error_message`, `log_summary`
@@ -211,6 +215,10 @@ DB 설계는 기사 링크가 본질적으로 `market_type` 문맥을 갖는다�
 - 같은 `business_date`에 `PENDING`, `RUNNING` 상태는 동시에 1건만 허용
 - `ended_at >= started_at`
 - `duration_seconds >= 0`
+- `idempotency_key`는 NULL이 아닌 값에 한해 유일
+- worker claim은 `status=PENDING`, `available_at` 부분 인덱스와
+  `FOR UPDATE SKIP LOCKED`를 사용
+- lease token을 모든 checkpoint/완료 갱신의 fencing token으로 사용
 
 ### 6-2. `batch_job_event`
 

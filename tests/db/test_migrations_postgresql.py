@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.db.repositories.batch_job_repo import BatchJobRepository
 
 psycopg = pytest.importorskip('psycopg')
 
@@ -68,6 +73,154 @@ def test_migration_files_execute_whole_and_are_idempotent(postgres_connection):
         ('KR', '코스피', True),
         ('US', '미국 증시', True),
     ]
+
+
+def test_durable_queue_claims_do_not_block_competing_workers(
+    postgres_connection,
+):
+    worker_dsn = os.environ['STOCKAPP_MIGRATION_TEST_DSN']
+    postgres_connection.execute(
+        """
+        INSERT INTO stock.batch_job (
+            business_date,
+            status,
+            trigger_type,
+            run_mode
+        )
+        VALUES
+            (DATE '2026-08-01', 'PENDING', 'MANUAL', 'FULL'),
+            (DATE '2026-08-02', 'PENDING', 'MANUAL', 'FULL')
+        """
+    )
+
+    with (
+        psycopg.connect(worker_dsn) as first_worker,
+        psycopg.connect(worker_dsn) as second_worker,
+    ):
+        first_job_id = first_worker.execute(
+            """
+            SELECT id
+            FROM stock.batch_job
+            WHERE status = 'PENDING'
+            ORDER BY available_at, queued_at, id
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+            """
+        ).fetchone()[0]
+        second_job_id = second_worker.execute(
+            """
+            SELECT id
+            FROM stock.batch_job
+            WHERE status = 'PENDING'
+            ORDER BY available_at, queued_at, id
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+            """
+        ).fetchone()[0]
+
+        assert second_job_id != first_job_id
+        first_worker.rollback()
+        second_worker.rollback()
+
+
+@pytest.mark.anyio
+async def test_durable_queue_repository_recovers_and_fences_expired_lease(
+    postgres_connection,
+):
+    postgres_connection.execute(
+        """
+        INSERT INTO stock.batch_job (
+            business_date,
+            status,
+            trigger_type,
+            run_mode
+        )
+        VALUES (DATE '2026-08-03', 'PENDING', 'MANUAL', 'FULL')
+        """
+    )
+    database_url = os.environ['STOCKAPP_MIGRATION_TEST_DSN']
+    async_database_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_async_engine(async_database_url)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
+    first_lease_token = uuid4()
+    second_lease_token = uuid4()
+
+    try:
+        async with session_maker() as session:
+            repository = BatchJobRepository(session)
+            first_claim = await repository.claim_next_job(
+                worker_id='worker-a',
+                lease_token=first_lease_token,
+                lease_seconds=120,
+            )
+            assert first_claim is not None
+            assert first_claim.attempt_count == 1
+            await repository.commit()
+
+            stale_heartbeat = await repository.heartbeat_claim(
+                job_id=first_claim.job_id,
+                worker_id='worker-a',
+                lease_token=uuid4(),
+                lease_seconds=120,
+            )
+            valid_heartbeat = await repository.heartbeat_claim(
+                job_id=first_claim.job_id,
+                worker_id='worker-a',
+                lease_token=first_lease_token,
+                lease_seconds=120,
+            )
+            assert stale_heartbeat is False
+            assert valid_heartbeat is True
+            await repository.commit()
+
+            await session.execute(
+                text(
+                    """
+                    UPDATE stock.batch_job
+                    SET lease_expires_at = now() - interval '1 second'
+                    WHERE id = :job_id
+                    """
+                ),
+                {'job_id': first_claim.job_id},
+            )
+            await repository.commit()
+
+            recovery = await repository.recover_expired_claims()
+            assert recovery.requeued_count == 1
+            assert recovery.failed_count == 0
+            await repository.commit()
+
+            second_claim = await repository.claim_next_job(
+                worker_id='worker-b',
+                lease_token=second_lease_token,
+                lease_seconds=120,
+            )
+            assert second_claim is not None
+            assert second_claim.job_id == first_claim.job_id
+            assert second_claim.attempt_count == 2
+            await repository.commit()
+
+            old_lease_heartbeat = await repository.heartbeat_claim(
+                job_id=second_claim.job_id,
+                worker_id='worker-a',
+                lease_token=first_lease_token,
+                lease_seconds=120,
+            )
+            new_lease_heartbeat = await repository.heartbeat_claim(
+                job_id=second_claim.job_id,
+                worker_id='worker-b',
+                lease_token=second_lease_token,
+                lease_seconds=120,
+            )
+            assert old_lease_heartbeat is False
+            assert new_lease_heartbeat is True
+            await repository.commit()
+    finally:
+        await engine.dispose()
 
 
 def test_migration_files_upgrade_legacy_contracts_as_whole_files(

@@ -14,6 +14,7 @@ BatchesService = batches_service_module.BatchesService
 BatchJobListResult = projections_module.BatchJobListResult
 BatchJobRecord = projections_module.BatchJobRecord
 BatchJobSummary = projections_module.BatchJobSummary
+BatchPageSource = projections_module.BatchPageSource
 
 
 class FakeBatchJobRepository:
@@ -35,18 +36,22 @@ class FakeBatchJobRepository:
         self.events: list[dict] = []
         self.commits = 0
         self.rollbacks = 0
-        self.terminalized_cutoffs: list[tuple[date, datetime]] = []
         self.create_error: Exception | None = None
+        self.idempotent_job = None
 
-    async def terminalize_stale_active_jobs(self, business_date, *, stale_before):
-        self.terminalized_cutoffs.append((business_date, stale_before))
+    async def get_job_by_idempotency_key(self, idempotency_key):
+        _ = idempotency_key
+        return self.idempotent_job
 
     async def has_active_job_for_business_date(self, business_date):
-        assert self.terminalized_cutoffs
+        _ = business_date
         return self.active_exists
 
-    async def has_completed_page_for_business_date(self, business_date):
-        return self.page_exists
+    async def get_latest_page_source(self, business_date):
+        _ = business_date
+        if not self.page_exists:
+            return None
+        return BatchPageSource(page_id=501, batch_job_id=900)
 
     async def create_job(self, params):
         self.created_params = params
@@ -72,13 +77,13 @@ class FakeBatchJobRepository:
 
 
 @pytest.mark.anyio
-async def test_start_market_daily_batch_creates_running_job():
+async def test_start_market_daily_batch_enqueues_pending_job():
     repository = FakeBatchJobRepository(
         created_job=BatchJobRecord(
             job_id=1001,
             job_name='market_daily_batch',
             business_date=date(2026, 3, 17),
-            status='RUNNING',
+            status='PENDING',
             started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
             ended_at=None,
             duration_seconds=None,
@@ -92,10 +97,7 @@ async def test_start_market_daily_batch_creates_running_job():
             rebuild_page_only=False,
         )
     )
-    service = BatchesService(
-        repository,
-        now_factory=lambda: datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
-    )
+    service = BatchesService(repository)
 
     result = await service.start_market_daily_batch(
         business_date=date(2026, 3, 17),
@@ -108,12 +110,10 @@ async def test_start_market_daily_batch_creates_running_job():
     payload = jsonable(result)
     assert payload['jobId'] == 1001
     assert repository.created_params is not None
-    assert repository.created_params.status == 'RUNNING'
-    assert repository.terminalized_cutoffs == [
-        (date(2026, 3, 17), datetime(2026, 3, 18, 0, 10, tzinfo=UTC))
-    ]
+    assert repository.created_params.status == 'PENDING'
+    assert repository.created_params.run_mode == 'FULL'
     assert repository.events[0]['step_code'] == 'CREATE_JOB'
-    assert repository.commits == 2
+    assert repository.commits == 1
 
 
 @pytest.mark.anyio
@@ -134,11 +134,10 @@ async def test_start_market_daily_batch_rejects_duplicate_running_job():
 @pytest.mark.anyio
 async def test_start_market_daily_batch_converts_create_race_to_conflict():
     repository = FakeBatchJobRepository()
-    repository.create_error = IntegrityError('insert batch job', {}, Exception('duplicate'))
-    service = BatchesService(
-        repository,
-        now_factory=lambda: datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+    repository.create_error = IntegrityError(
+        'insert batch job', {}, Exception('duplicate')
     )
+    service = BatchesService(repository)
 
     with pytest.raises(batches_service_module.ConflictError) as exc_info:
         await service.start_market_daily_batch(
@@ -146,11 +145,11 @@ async def test_start_market_daily_batch_converts_create_race_to_conflict():
             user_id='test-user',
             force=False,
             rebuild_page_only=False,
-    )
+        )
 
     assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
     assert repository.events == []
-    assert repository.commits == 1
+    assert repository.commits == 0
 
 
 @pytest.mark.anyio
@@ -176,7 +175,7 @@ async def test_start_market_daily_batch_allows_existing_page_for_rebuild_without
             job_id=1002,
             job_name='market_daily_batch',
             business_date=date(2026, 3, 17),
-            status='RUNNING',
+            status='PENDING',
             started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
             ended_at=None,
             duration_seconds=None,
@@ -203,6 +202,9 @@ async def test_start_market_daily_batch_allows_existing_page_for_rebuild_without
     assert repository.created_params.rebuild_page_only is True
     assert repository.created_params.force_run is False
     assert repository.created_params.trigger_type == 'ADMIN_REBUILD'
+    assert repository.created_params.run_mode == 'PAGE_REBUILD'
+    assert repository.created_params.source_job_id == 900
+    assert repository.created_params.source_page_id == 501
 
 
 @pytest.mark.anyio
@@ -218,6 +220,77 @@ async def test_start_market_daily_batch_rejects_rebuild_without_existing_page():
         )
 
     assert exc_info.value.code == 'PAGE_NOT_FOUND'
+
+
+@pytest.mark.anyio
+async def test_start_market_daily_batch_replays_same_idempotency_key():
+    existing_job = BatchJobRecord(
+        job_id=1001,
+        job_name='market_daily_batch',
+        business_date=date(2026, 3, 17),
+        status='PENDING',
+        started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+        ended_at=None,
+        duration_seconds=None,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+        run_mode='FULL',
+        idempotency_key='daily-2026-03-17',
+    )
+    repository = FakeBatchJobRepository()
+    repository.idempotent_job = existing_job
+    service = BatchesService(repository)
+
+    result = await service.start_market_daily_batch(
+        business_date=date(2026, 3, 17),
+        user_id='test-user',
+        force=False,
+        rebuild_page_only=False,
+        idempotency_key='daily-2026-03-17',
+    )
+
+    assert result['jobId'] == 1001
+    assert repository.created_params is None
+    assert repository.commits == 0
+
+
+@pytest.mark.anyio
+async def test_start_market_daily_batch_rejects_idempotency_key_reuse():
+    existing_job = BatchJobRecord(
+        job_id=1001,
+        job_name='market_daily_batch',
+        business_date=date(2026, 3, 16),
+        status='SUCCESS',
+        started_at=datetime(2026, 3, 17, 6, 10, tzinfo=UTC),
+        ended_at=datetime(2026, 3, 17, 6, 20, tzinfo=UTC),
+        duration_seconds=600,
+        market_scope='GLOBAL',
+        raw_news_count=1,
+        processed_news_count=1,
+        cluster_count=1,
+        page_id=500,
+        page_version_no=1,
+        run_mode='FULL',
+        idempotency_key='daily-key',
+    )
+    repository = FakeBatchJobRepository()
+    repository.idempotent_job = existing_job
+    service = BatchesService(repository)
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='test-user',
+            force=False,
+            rebuild_page_only=False,
+            idempotency_key='daily-key',
+        )
+
+    assert exc_info.value.code == 'IDEMPOTENCY_KEY_REUSED'
 
 
 @pytest.mark.anyio
@@ -279,14 +352,22 @@ async def test_get_job_detail_returns_json_payload(sample_batch_job_detail_paylo
             detailed_job=BatchJobRecord(
                 job_id=sample_batch_job_detail_payload['jobId'],
                 job_name=sample_batch_job_detail_payload['jobName'],
-                business_date=date.fromisoformat(sample_batch_job_detail_payload['businessDate']),
+                business_date=date.fromisoformat(
+                    sample_batch_job_detail_payload['businessDate']
+                ),
                 status=sample_batch_job_detail_payload['status'],
-                started_at=datetime.fromisoformat(sample_batch_job_detail_payload['startedAt']),
-                ended_at=datetime.fromisoformat(sample_batch_job_detail_payload['endedAt']),
+                started_at=datetime.fromisoformat(
+                    sample_batch_job_detail_payload['startedAt']
+                ),
+                ended_at=datetime.fromisoformat(
+                    sample_batch_job_detail_payload['endedAt']
+                ),
                 duration_seconds=sample_batch_job_detail_payload['durationSeconds'],
                 market_scope='GLOBAL',
                 raw_news_count=sample_batch_job_detail_payload['rawNewsCount'],
-                processed_news_count=sample_batch_job_detail_payload['processedNewsCount'],
+                processed_news_count=sample_batch_job_detail_payload[
+                    'processedNewsCount'
+                ],
                 cluster_count=sample_batch_job_detail_payload['clusterCount'],
                 page_id=sample_batch_job_detail_payload['pageId'],
                 page_version_no=sample_batch_job_detail_payload['pageVersionNo'],

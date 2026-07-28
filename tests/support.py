@@ -523,7 +523,7 @@ def build_batch_run_payload() -> dict[str, Any]:
         'jobId': 1001,
         'jobName': 'market_daily_batch',
         'businessDate': '2026-03-17',
-        'status': 'RUNNING',
+        'status': 'PENDING',
         'startedAt': '2026-03-18T06:10:00+00:00',
     }
 

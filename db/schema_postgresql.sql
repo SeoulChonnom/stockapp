@@ -8,6 +8,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TYPE market_type_enum AS ENUM ('US', 'KR');
 CREATE TYPE page_status_enum AS ENUM ('READY', 'PARTIAL', 'FAILED');
 CREATE TYPE batch_job_status_enum AS ENUM ('PENDING', 'RUNNING', 'SUCCESS', 'PARTIAL', 'FAILED');
+CREATE TYPE batch_run_mode_enum AS ENUM ('FULL', 'PAGE_REBUILD', 'AI_RETRY');
 CREATE TYPE batch_trigger_type_enum AS ENUM ('SCHEDULED', 'MANUAL', 'ADMIN_REBUILD');
 CREATE TYPE ai_summary_status_enum AS ENUM ('SUCCESS', 'FAILED', 'FALLBACK');
 CREATE TYPE ai_summary_type_enum AS ENUM (
@@ -27,7 +28,24 @@ CREATE TABLE batch_job (
     triggered_by_user_id TEXT NULL,
     force_run BOOLEAN NOT NULL DEFAULT FALSE,
     rebuild_page_only BOOLEAN NOT NULL DEFAULT FALSE,
+    run_mode batch_run_mode_enum NOT NULL DEFAULT 'FULL',
+    source_job_id BIGINT NULL
+        CONSTRAINT fk_batch_job_source_job
+        REFERENCES batch_job(id)
+        ON DELETE SET NULL,
+    source_page_id BIGINT NULL,
+    idempotency_key TEXT NULL,
     market_scope VARCHAR(20) NOT NULL DEFAULT 'GLOBAL',
+    queued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    lease_owner TEXT NULL,
+    lease_token UUID NULL,
+    lease_expires_at TIMESTAMPTZ NULL,
+    heartbeat_at TIMESTAMPTZ NULL,
+    current_step TEXT NULL,
+    checkpoint_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     ended_at TIMESTAMPTZ NULL,
     duration_seconds INTEGER NULL,
@@ -53,7 +71,20 @@ CREATE TABLE batch_job (
     CONSTRAINT chk_batch_job_ended_after_started
         CHECK (ended_at IS NULL OR ended_at >= started_at),
     CONSTRAINT chk_batch_job_market_scope
-        CHECK (market_scope = 'GLOBAL')
+        CHECK (market_scope = 'GLOBAL'),
+    CONSTRAINT chk_batch_job_attempts
+        CHECK (
+            attempt_count >= 0
+            AND max_attempts > 0
+            AND attempt_count <= max_attempts
+        ),
+    CONSTRAINT chk_batch_job_idempotency_key
+        CHECK (
+            idempotency_key IS NULL
+            OR length(btrim(idempotency_key)) BETWEEN 1 AND 200
+        ),
+    CONSTRAINT chk_batch_job_checkpoint_object
+        CHECK (jsonb_typeof(checkpoint_json) = 'object')
 );
 
 CREATE UNIQUE INDEX uq_batch_job_one_active_per_day
@@ -68,6 +99,24 @@ CREATE INDEX idx_batch_job_status_started_at
 
 CREATE INDEX idx_batch_job_page_id
     ON batch_job (page_id);
+
+CREATE INDEX idx_batch_job_source_job_id
+    ON batch_job (source_job_id);
+
+CREATE INDEX idx_batch_job_source_page_id
+    ON batch_job (source_page_id);
+
+CREATE UNIQUE INDEX uq_batch_job_idempotency_key
+    ON batch_job (idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+
+CREATE INDEX idx_batch_job_pending_claim
+    ON batch_job (available_at, queued_at, id)
+    WHERE status = 'PENDING';
+
+CREATE INDEX idx_batch_job_expired_lease
+    ON batch_job (lease_expires_at, id)
+    WHERE status = 'RUNNING';
 
 CREATE TABLE batch_job_event (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -427,6 +476,10 @@ CREATE INDEX idx_market_daily_page_article_link_cluster
 ALTER TABLE batch_job
     ADD CONSTRAINT fk_batch_job_page
     FOREIGN KEY (page_id) REFERENCES market_daily_page(id) ON DELETE SET NULL;
+
+ALTER TABLE batch_job
+    ADD CONSTRAINT fk_batch_job_source_page
+    FOREIGN KEY (source_page_id) REFERENCES market_daily_page(id) ON DELETE SET NULL;
 
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$

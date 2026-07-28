@@ -188,3 +188,25 @@ def test_settings_rejects_non_positive_llm_requests_per_minute(
 def test_settings_rejects_negative_llm_max_retries():
     with pytest.raises(ValidationError, match='llm_max_retries'):
         settings_module.Settings(llm_max_retries=-1)
+
+
+def test_settings_loads_durable_worker_timing_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv('STOCKAPP_BATCH_WORKER_HEARTBEAT_SECONDS', '20')
+    monkeypatch.setenv('STOCKAPP_BATCH_WORKER_LEASE_SECONDS', '90')
+    monkeypatch.setenv('STOCKAPP_BATCH_WORKER_MAX_ATTEMPTS', '4')
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.batch_worker_heartbeat_seconds == 20
+    assert settings.batch_worker_lease_seconds == 90
+    assert settings.batch_worker_max_attempts == 4
+
+
+def test_settings_rejects_lease_not_longer_than_heartbeat():
+    with pytest.raises(ValidationError, match='batch_worker_lease_seconds'):
+        settings_module.Settings(
+            batch_worker_heartbeat_seconds=30,
+            batch_worker_lease_seconds=30,
+        )

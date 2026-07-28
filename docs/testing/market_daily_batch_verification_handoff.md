@@ -293,9 +293,11 @@ fallback도 수정했다. 다만 열린 파일 한도 문제로 후속 수정 �
 
 ### 5.6 구조적 운영 리스크
 
-현재 배치는 FastAPI in-process `BackgroundTasks`로 실행된다. 프로세스가 종료되면
-작업이 유실되어 RUNNING 상태가 남을 수 있다. durable worker/queue 또는 startup
-recovery는 별도 아키텍처 작업이며 이번 수정에는 포함하지 않았다.
+이 문서 작성 당시에는 FastAPI in-process `BackgroundTasks`로 실행되어 프로세스
+종료 시 RUNNING 상태가 남는 리스크가 있었다. 이후 PostgreSQL durable queue와
+별도 worker가 추가되어 `SKIP LOCKED` claim, heartbeat/lease, 만료 lease 복구,
+step checkpoint 재개를 수행한다. 현재 검증은 API 프로세스와
+`python -m app.batch.worker` 프로세스를 함께 실행하는 구성을 기준으로 한다.
 
 ## 6. 개인 PC 검증 절차
 

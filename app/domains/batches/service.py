@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import date
 
 from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
 
-from app.batch.orchestrators.market_daily import MarketDailyBatchOrchestrator
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.timezone import get_business_date
-from app.db.enums import BatchJobStatus, BatchTriggerType
+from app.db.enums import BatchJobStatus, BatchRunMode, BatchTriggerType
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.projections import BatchJobCreateParams
 from app.domains.batches.assembler import (
@@ -17,28 +15,16 @@ from app.domains.batches.assembler import (
     build_batch_run_payload,
 )
 
-STALE_ACTIVE_JOB_AFTER = timedelta(hours=6)
-
-
-class BatchJobScheduler:
-    def __init__(
-        self, orchestrator: MarketDailyBatchOrchestrator | None = None
-    ) -> None:
-        self._orchestrator = orchestrator or MarketDailyBatchOrchestrator()
-
-    async def run_market_daily(self, job_id: int) -> None:
-        await self._orchestrator.run(job_id)
-
 
 class BatchesService:
     def __init__(
         self,
         repository: BatchJobRepository,
         *,
-        now_factory: Callable[[], datetime] | None = None,
+        max_attempts: int = 3,
     ) -> None:
         self._repo = repository
-        self._now_factory = now_factory or (lambda: datetime.now(UTC))
+        self._max_attempts = max_attempts
 
     async def list_jobs(
         self,
@@ -73,28 +59,44 @@ class BatchesService:
         user_id: str | None,
         force: bool,
         rebuild_page_only: bool,
+        idempotency_key: str | None = None,
     ) -> dict[str, object]:
         resolved_business_date = business_date or get_business_date()
-        now = self._now_factory()
-        await self._repo.terminalize_stale_active_jobs(
-            resolved_business_date,
-            stale_before=now - STALE_ACTIVE_JOB_AFTER,
+        normalized_idempotency_key = (
+            idempotency_key.strip() if idempotency_key is not None else None
         )
-        await self._repo.commit()
+        if normalized_idempotency_key == '':
+            normalized_idempotency_key = None
+        run_mode = (
+            BatchRunMode.PAGE_REBUILD.value
+            if rebuild_page_only
+            else BatchRunMode.FULL.value
+        )
+        if normalized_idempotency_key is not None:
+            existing_job = await self._repo.get_job_by_idempotency_key(
+                normalized_idempotency_key
+            )
+            if existing_job is not None:
+                _validate_idempotent_replay(
+                    existing_job,
+                    business_date=resolved_business_date,
+                    run_mode=run_mode,
+                    force=force,
+                )
+                return build_batch_run_payload(existing_job)
+
         if await self._repo.has_active_job_for_business_date(resolved_business_date):
             raise ConflictError(
                 'BATCH_ALREADY_RUNNING',
                 '동일 날짜의 배치가 이미 실행 중입니다.',
             )
-        page_exists = await self._repo.has_completed_page_for_business_date(
-            resolved_business_date
-        )
-        if rebuild_page_only and not page_exists:
+        page_source = await self._repo.get_latest_page_source(resolved_business_date)
+        if rebuild_page_only and page_source is None:
             raise NotFoundError(
                 'PAGE_NOT_FOUND',
                 '재생성할 기존 페이지를 찾을 수 없습니다.',
             )
-        if not rebuild_page_only and not force and page_exists:
+        if not rebuild_page_only and not force and page_source is not None:
             raise ConflictError(
                 'PAGE_ALREADY_EXISTS',
                 '이미 생성된 페이지가 있어 배치를 시작할 수 없습니다.',
@@ -104,7 +106,7 @@ class BatchesService:
             job = await self._repo.create_job(
                 BatchJobCreateParams(
                     business_date=resolved_business_date,
-                    status=BatchJobStatus.RUNNING.value,
+                    status=BatchJobStatus.PENDING.value,
                     trigger_type=(
                         BatchTriggerType.ADMIN_REBUILD.value
                         if rebuild_page_only
@@ -113,9 +115,30 @@ class BatchesService:
                     triggered_by_user_id=user_id,
                     force_run=force,
                     rebuild_page_only=rebuild_page_only,
+                    run_mode=run_mode,
+                    source_job_id=(
+                        page_source.batch_job_id if page_source is not None else None
+                    ),
+                    source_page_id=(
+                        page_source.page_id if page_source is not None else None
+                    ),
+                    idempotency_key=normalized_idempotency_key,
+                    max_attempts=self._max_attempts,
                 )
             )
         except IntegrityError as exc:
+            if normalized_idempotency_key is not None:
+                existing_job = await self._repo.get_job_by_idempotency_key(
+                    normalized_idempotency_key
+                )
+                if existing_job is not None:
+                    _validate_idempotent_replay(
+                        existing_job,
+                        business_date=resolved_business_date,
+                        run_mode=run_mode,
+                        force=force,
+                    )
+                    return build_batch_run_payload(existing_job)
             raise ConflictError(
                 'BATCH_ALREADY_RUNNING',
                 '동일 날짜의 배치가 이미 실행 중입니다.',
@@ -128,14 +151,31 @@ class BatchesService:
             context_json={
                 'force': force,
                 'rebuildPageOnly': rebuild_page_only,
+                'runMode': run_mode,
             },
         )
         await self._repo.commit()
         return build_batch_run_payload(job)
 
 
+def _validate_idempotent_replay(
+    job: object,
+    *,
+    business_date: date,
+    run_mode: str,
+    force: bool,
+) -> None:
+    if (
+        getattr(job, 'business_date', None) != business_date
+        or getattr(job, 'run_mode', None) != run_mode
+        or bool(getattr(job, 'force_run', False)) != force
+    ):
+        raise ConflictError(
+            'IDEMPOTENCY_KEY_REUSED',
+            'Idempotency-Key가 다른 배치 요청에 이미 사용되었습니다.',
+        )
+
+
 __all__ = [
-    'BatchJobScheduler',
     'BatchesService',
-    'STALE_ACTIVE_JOB_AFTER',
 ]

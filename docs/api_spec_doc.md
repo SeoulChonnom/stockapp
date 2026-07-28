@@ -225,12 +225,14 @@ Authorization: Bearer {TOKEN}
 
 ### 처리 규칙
 
-- 동일 `businessDate` 배치가 `RUNNING`이면 409 반환
+- 요청은 `batch_job.status=PENDING`으로 영속화한 뒤 HTTP 202를 반환한다
+- 동일 `businessDate` 배치가 `PENDING` 또는 `RUNNING`이면 409 반환
+- 선택적 `Idempotency-Key` 헤더를 재사용하면 같은 요청의 기존 job을 반환한다
 - `businessDate`는 한국 시간(UTC+9) 기준 날짜를 사용한다
 - `force=false`이고 생성 완료된 페이지가 존재하면 409를 반환한다
 - `force=true`이면 기존 페이지를 덮어쓰지 않고 새 `versionNo`를 생성한다
 
-### Response 200
+### Response 202
 
 ```json
 {
@@ -239,7 +241,7 @@ Authorization: Bearer {TOKEN}
     "jobId": 1001,
     "jobName": "market_daily_batch",
     "businessDate": "2026-03-17",
-    "status": "RUNNING",
+    "status": "PENDING",
     "startedAt": "2026-03-18T06:10:00"
   },
   "meta": {

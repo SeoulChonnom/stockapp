@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Any
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.batch.exceptions import BatchPipelineError
+from app.batch.exceptions import BatchLeaseLostError, BatchPipelineError
 from app.batch.models import BatchExecutionContext
 from app.batch.steps import (
     BuildClustersStep,
@@ -35,21 +37,33 @@ class MarketDailyBatchOrchestrator:
             FinalizeJobStep(),
         ]
 
-    async def run(self, job_id: int) -> None:
+    async def run(self, job_id: int, lease_token: UUID | None = None) -> None:
         async with self._session_maker() as session:
-            repository = BatchJobRepository(session)
+            repository = (
+                BatchJobRepository(session)
+                if lease_token is None
+                else BatchJobRepository(session, lease_token=lease_token)
+            )
             context: BatchExecutionContext | None = None
             last_committed_context: BatchExecutionContext | None = None
             try:
                 job = await repository.get_job_by_id(job_id)
                 if job is None:
                     raise RuntimeError(f'Batch job {job_id} was not found.')
-                context = BatchExecutionContext(
+                persisted_checkpoint = getattr(job, 'checkpoint_json', None)
+                checkpoint = (
+                    persisted_checkpoint
+                    if isinstance(persisted_checkpoint, dict)
+                    else {}
+                )
+                context = BatchExecutionContext.from_checkpoint(
+                    checkpoint.get('context'),
                     job_id=job.job_id,
                     business_date=job.business_date,
                     force_run=bool(job.force_run),
                     rebuild_page_only=bool(job.rebuild_page_only),
                 )
+                completed_steps = _completed_steps(checkpoint)
                 await repository.add_event(
                     job_id=job_id,
                     step_code='ORCHESTRATE',
@@ -59,11 +73,48 @@ class MarketDailyBatchOrchestrator:
                 await repository.commit()
                 last_committed_context = deepcopy(context)
                 for step in self._steps:
+                    step_code = getattr(
+                        step,
+                        'step_code',
+                        type(step).__name__.upper(),
+                    )
+                    if step_code in completed_steps:
+                        continue
+                    if lease_token is not None:
+                        step_started = await repository.begin_step(
+                            job_id=job_id,
+                            lease_token=lease_token,
+                            step_code=step_code,
+                        )
+                        if not step_started:
+                            await repository.rollback()
+                            raise BatchLeaseLostError(
+                                f'Lease was lost before step {step_code}.'
+                            )
+                        await repository.commit()
                     context = await step.execute(repository, context)
+                    if lease_token is not None and step_code != 'FINALIZE_JOB':
+                        completed_steps.append(step_code)
+                        checkpoint_saved = await repository.save_checkpoint(
+                            job_id=job_id,
+                            lease_token=lease_token,
+                            current_step=step_code,
+                            checkpoint_json={
+                                'completedSteps': completed_steps,
+                                'context': context.to_checkpoint(),
+                            },
+                        )
+                        if not checkpoint_saved:
+                            await repository.rollback()
+                            raise BatchLeaseLostError(
+                                f'Lease was lost after step {step_code}.'
+                            )
                     await repository.commit()
                     last_committed_context = deepcopy(context)
             except Exception as exc:
                 await _rollback_active_transaction(repository)
+                if lease_token is not None:
+                    raise
                 error_code = (
                     exc.error_code
                     if isinstance(exc, BatchPipelineError)
@@ -156,6 +207,13 @@ async def _rollback_active_transaction(repository: BatchJobRepository) -> None:
     pending_domain_writes = getattr(session, 'pending_domain_writes', None)
     if pending_domain_writes:
         await repository.rollback()
+
+
+def _completed_steps(checkpoint: dict[str, Any]) -> list[str]:
+    value = checkpoint.get('completedSteps')
+    if not isinstance(value, list):
+        return []
+    return list(dict.fromkeys(item for item in value if isinstance(item, str)))
 
 
 __all__ = ['MarketDailyBatchOrchestrator']

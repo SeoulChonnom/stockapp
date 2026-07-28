@@ -425,13 +425,13 @@ tests/
 
 대상 API:
 
-- `GET /stock/api/batch/market-daily`
+- `POST /stock/api/batch/market-daily`
 - `GET /stock/api/batch/jobs`
 - `GET /stock/api/batch/jobs/{jobId}`
 
 책임:
 
-- 배치 실행 요청 수락
+- 배치 실행 요청을 `PENDING`으로 영속화하고 HTTP 202 반환
 - 배치 목록 조회
 - 배치 상세 조회
 - 실행 중 중복 방지 처리
@@ -440,6 +440,8 @@ tests/
 
 - `uq_batch_job_one_active_per_day` 제약과 애플리케이션 예외 처리를 함께 가져가야 한다.
 - 목록 응답은 통계 요약까지 포함해야 한다.
+- API 프로세스는 배치를 직접 실행하지 않는다. `python -m app.batch.worker`
+  프로세스가 `SKIP LOCKED`로 claim하고 lease/heartbeat/checkpoint를 관리한다.
 
 ### 6-5. `domains/admin`
 

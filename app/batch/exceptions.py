@@ -8,4 +8,8 @@ class BatchPipelineError(RuntimeError):
         self.error_message = error_message
 
 
-__all__ = ['BatchPipelineError']
+class BatchLeaseLostError(RuntimeError):
+    """Raised when a worker tries to mutate a job after losing its lease."""
+
+
+__all__ = ['BatchLeaseLostError', 'BatchPipelineError']

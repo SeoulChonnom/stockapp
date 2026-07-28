@@ -43,6 +43,46 @@ class Settings(BaseSettings):
             'database_pool_timeout_seconds',
         ),
     )
+    batch_worker_poll_interval_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_BATCH_WORKER_POLL_INTERVAL_SECONDS',
+            'batch_worker_poll_interval_seconds',
+        ),
+    )
+    batch_worker_heartbeat_seconds: int = Field(
+        default=30,
+        ge=1,
+        validation_alias=AliasChoices(
+            'STOCKAPP_BATCH_WORKER_HEARTBEAT_SECONDS',
+            'batch_worker_heartbeat_seconds',
+        ),
+    )
+    batch_worker_lease_seconds: int = Field(
+        default=120,
+        ge=2,
+        validation_alias=AliasChoices(
+            'STOCKAPP_BATCH_WORKER_LEASE_SECONDS',
+            'batch_worker_lease_seconds',
+        ),
+    )
+    batch_worker_max_attempts: int = Field(
+        default=3,
+        ge=1,
+        validation_alias=AliasChoices(
+            'STOCKAPP_BATCH_WORKER_MAX_ATTEMPTS',
+            'batch_worker_max_attempts',
+        ),
+    )
+    batch_worker_retry_delay_seconds: int = Field(
+        default=30,
+        ge=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_BATCH_WORKER_RETRY_DELAY_SECONDS',
+            'batch_worker_retry_delay_seconds',
+        ),
+    )
     auth_stub_token: str = 'dev-token'
     jwt_secret: str | None = Field(
         default=None,
@@ -197,6 +237,16 @@ class Settings(BaseSettings):
     def normalize_database_schema(cls, value: object) -> object:
         if isinstance(value, str):
             return validate_postgres_identifier(value, kind='schema')
+        return value
+
+    @field_validator('batch_worker_lease_seconds')
+    @classmethod
+    def validate_batch_worker_lease(cls, value: int, info) -> int:
+        heartbeat = info.data.get('batch_worker_heartbeat_seconds', 30)
+        if value <= heartbeat:
+            raise ValueError(
+                'batch_worker_lease_seconds must exceed batch_worker_heartbeat_seconds'
+            )
         return value
 
     @field_validator('cors_allowed_origins', mode='before')

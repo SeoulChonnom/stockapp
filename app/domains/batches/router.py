@@ -5,14 +5,16 @@ from typing import Annotated
 
 from fastapi import (  # pyright: ignore[reportMissingImports]
     APIRouter,
-    BackgroundTasks,
     Depends,
+    Header,
     Path,
     Query,
+    status,
 )
 
 from app.api.deps import AdminDep, DbSession
 from app.core.response import ApiSuccess
+from app.core.settings import get_settings
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.domains.batches.assembler import (
     assemble_batch_job_detail_response,
@@ -21,7 +23,6 @@ from app.domains.batches.assembler import (
 )
 from app.domains.batches.service import (
     BatchesService,
-    BatchJobScheduler,
 )
 from app.schemas.batch import (
     BatchJobDetailResponse,
@@ -34,32 +35,41 @@ router = APIRouter(prefix='/batch', tags=['batch'])
 
 
 def get_batches_service(session: DbSession) -> BatchesService:
-    return BatchesService(BatchJobRepository(session))
-
-
-def get_batch_job_scheduler() -> BatchJobScheduler:
-    return BatchJobScheduler()
+    return BatchesService(
+        BatchJobRepository(session),
+        max_attempts=get_settings().batch_worker_max_attempts,
+    )
 
 
 BatchesServiceDep = Annotated[BatchesService, Depends(get_batches_service)]
-BatchSchedulerDep = Annotated[BatchJobScheduler, Depends(get_batch_job_scheduler)]
 
 
-@router.post('/market-daily', response_model=ApiSuccess[BatchRunResponse])
+@router.post(
+    '/market-daily',
+    response_model=ApiSuccess[BatchRunResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def start_market_daily_batch(
     payload: BatchRunRequest,
-    background_tasks: BackgroundTasks,
     current_user: AdminDep,
     service: BatchesServiceDep,
-    scheduler: BatchSchedulerDep,
+    idempotency_key: Annotated[
+        str | None,
+        Header(
+            alias='Idempotency-Key',
+            min_length=1,
+            max_length=200,
+            pattern=r'.*\S.*',
+        ),
+    ] = None,
 ) -> ApiSuccess[BatchRunResponse]:
     result = await service.start_market_daily_batch(
         business_date=payload.businessDate,
         user_id=current_user.user_id,
         force=payload.force,
         rebuild_page_only=payload.rebuildPageOnly,
+        idempotency_key=idempotency_key,
     )
-    background_tasks.add_task(scheduler.run_market_daily, result['jobId'])
     return ApiSuccess(data=assemble_batch_run_response(result))
 
 
@@ -93,4 +103,4 @@ async def get_batch_job_detail(
     return ApiSuccess(data=assemble_batch_job_detail_response(result))
 
 
-__all__ = ['get_batch_job_scheduler', 'get_batches_service', 'router']
+__all__ = ['get_batches_service', 'router']

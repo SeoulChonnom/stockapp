@@ -139,6 +139,20 @@ class BatchJobRecord:
     log_summary: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    run_mode: str = 'FULL'
+    source_job_id: int | None = None
+    source_page_id: int | None = None
+    idempotency_key: str | None = None
+    queued_at: datetime | None = None
+    available_at: datetime | None = None
+    attempt_count: int = 0
+    max_attempts: int = 3
+    lease_owner: str | None = None
+    lease_token: UUID | None = None
+    lease_expires_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+    current_step: str | None = None
+    checkpoint_json: Any = None
 
 
 @dataclass(slots=True)
@@ -149,6 +163,23 @@ class BatchJobCreateParams:
     triggered_by_user_id: str | None
     force_run: bool
     rebuild_page_only: bool
+    run_mode: str = 'FULL'
+    source_job_id: int | None = None
+    source_page_id: int | None = None
+    idempotency_key: str | None = None
+    max_attempts: int = 3
+
+
+@dataclass(slots=True)
+class BatchPageSource:
+    page_id: int
+    batch_job_id: int
+
+
+@dataclass(slots=True)
+class BatchLeaseRecoveryResult:
+    requeued_count: int
+    failed_count: int
 
 
 @dataclass(slots=True)

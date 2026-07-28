@@ -20,6 +20,12 @@ class BatchJobStatus(StrEnum):
     FAILED = 'FAILED'
 
 
+class BatchRunMode(StrEnum):
+    FULL = 'FULL'
+    PAGE_REBUILD = 'PAGE_REBUILD'
+    AI_RETRY = 'AI_RETRY'
+
+
 class BatchTriggerType(StrEnum):
     SCHEDULED = 'SCHEDULED'
     MANUAL = 'MANUAL'
@@ -48,6 +54,7 @@ class EventLevel(StrEnum):
 __all__ = [
     'AiSummaryStatus',
     'AiSummaryType',
+    'BatchRunMode',
     'BatchJobStatus',
     'BatchTriggerType',
     'EventLevel',
