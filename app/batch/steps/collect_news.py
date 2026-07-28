@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import httpx
+
+from app.batch.exceptions import BatchPipelineError
 from app.batch.models import BatchExecutionContext
 from app.batch.providers import NAVER_NEWS_PROVIDER_NAME, NaverNewsProvider
 from app.batch.steps.base import BatchStep
@@ -27,23 +30,22 @@ class CollectNewsStep(BatchStep):
 
         keyword_repo = NewsSearchKeywordRepository(repository.session)
         raw_repo = NewsArticleRawRepository(repository.session)
-        provider = NaverNewsProvider()
 
         keywords = await keyword_repo.list_active_keywords(
             provider_name=NAVER_NEWS_PROVIDER_NAME
         )
         if not keywords:
-            await repository.add_event(
-                job_id=context.job_id,
-                step_code=self.step_code,
-                level=EventLevel.WARN.value,
-                message='No active Naver news search keywords are configured.',
+            raise BatchPipelineError(
+                error_code='NEWS_KEYWORDS_NOT_CONFIGURED',
+                error_message='Naver news keywords are not configured.',
             )
-            context.log_messages.append('No active Naver news keywords configured.')
-            return context
 
+        provider = NaverNewsProvider()
         if not provider.is_configured():
-            raise RuntimeError('Naver news API credentials are not configured.')
+            raise BatchPipelineError(
+                error_code='NAVER_NOT_CONFIGURED',
+                error_message='Naver news API credentials are not configured.',
+            )
 
         total_fetched = 0
         total_candidates = 0
@@ -56,10 +58,25 @@ class CollectNewsStep(BatchStep):
                     business_date=context.business_date,
                 )
             except Exception as exc:
+                if _is_naver_auth_failure(exc):
+                    status_code = exc.response.status_code
+                    raise BatchPipelineError(
+                        error_code='NAVER_AUTH_FAILED',
+                        error_message=(
+                            'Naver news API authentication failed '
+                            f'(HTTP {status_code}).'
+                        ),
+                    ) from exc
                 warning_message = (
                     f'Failed to collect Naver news for keyword: {keyword.keyword}'
                 )
                 context.warning_messages.append(warning_message)
+                partial_reason = (
+                    f'Naver news collection failed for keyword '
+                    f"'{keyword.keyword}': {exc}"
+                )
+                if partial_reason not in context.partial_reasons:
+                    context.partial_reasons.append(partial_reason)
                 await repository.add_event(
                     job_id=context.job_id,
                     step_code=self.step_code,
@@ -96,13 +113,22 @@ class CollectNewsStep(BatchStep):
                 },
             )
 
-        context.raw_news_count += total_inserted
+        context.raw_news_count = await raw_repo.count_articles_by_business_date(
+            context.business_date
+        )
         context.log_messages.append(
             'Collected raw news from Naver '
             f'(fetched={total_fetched}, matched={total_candidates}, '
             f'inserted={total_inserted}).'
         )
         return context
+
+
+def _is_naver_auth_failure(exc: Exception) -> bool:
+    return (
+        isinstance(exc, httpx.HTTPStatusError)
+        and exc.response.status_code in {401, 403}
+    )
 
 
 __all__ = ['CollectNewsStep']

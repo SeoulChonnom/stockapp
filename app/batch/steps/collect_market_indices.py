@@ -44,6 +44,34 @@ class CollectMarketIndicesStep(BatchStep):
         provider = self._provider_factory()
         index_repo = self._index_repo_factory(session)
         results = await provider.fetch_for_business_date(context.business_date)
+        failures = list(getattr(provider, 'last_failures', []))
+        for failure in failures:
+            ticker = _failure_value(failure, 'ticker')
+            error_class = _failure_value(failure, 'error_class')
+            error_message = _failure_value(failure, 'error_message')
+            partial_reason = (
+                f'Market index collection failed for {ticker}: '
+                f'{error_class}: {error_message}'
+            )
+            if partial_reason not in context.partial_reasons:
+                context.partial_reasons.append(partial_reason)
+            await repository.add_event(
+                job_id=context.job_id,
+                step_code=self.step_code,
+                level=EventLevel.WARN.value,
+                message='Failed to collect a market index ticker.',
+                context_json={
+                    'provider': _failure_value(failure, 'provider'),
+                    'marketType': _failure_value(failure, 'market_type'),
+                    'ticker': ticker,
+                    'indexCode': _failure_value(failure, 'index_code'),
+                    'indexName': _failure_value(failure, 'index_name'),
+                    'error': {
+                        'errorClass': error_class,
+                        'errorMessage': error_message,
+                    },
+                },
+            )
         if not results:
             context.partial_reasons.append('시장 지수 데이터를 수집하지 못했습니다.')
             await repository.add_event(
@@ -81,6 +109,12 @@ class CollectMarketIndicesStep(BatchStep):
         context.collected_index_count += inserted_count
         context.log_messages.append(f'Collected {inserted_count} market index row(s).')
         return context
+
+
+def _failure_value(failure: object, name: str) -> str:
+    if isinstance(failure, dict):
+        return str(failure.get(name, ''))
+    return str(getattr(failure, name, ''))
 
 
 __all__ = ['CollectMarketIndicesStep']

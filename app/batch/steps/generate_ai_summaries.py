@@ -203,6 +203,8 @@ class GenerateAiSummariesStep(BatchStep):
         payloads = await asyncio.gather(
             *(summary_job['payload'] for summary_job in summary_jobs)
         )
+        step_fallback_count = 0
+        fallback_details: list[dict[str, Any]] = []
         for summary_job, payload in zip(summary_jobs, payloads, strict=True):
             await summary_repo.insert_summary(
                 AiSummaryCreateParams(
@@ -224,14 +226,49 @@ class GenerateAiSummariesStep(BatchStep):
             )
             context.generated_summary_count += 1
             context.fallback_count += int(payload['fallback_used'])
+            if payload['fallback_used']:
+                step_fallback_count += 1
+                metadata = payload.get('metadata_json', {})
+                error = metadata.get('error') if isinstance(metadata, dict) else None
+                diagnostic = (
+                    error.get('errorMessage')
+                    if isinstance(error, dict)
+                    else payload.get('error_message')
+                    or 'LLM provider is not configured.'
+                )
+                summary_label = summary_job['summary_type']
+                if summary_job['market_type']:
+                    summary_label = (
+                        f"{summary_label}/{summary_job['market_type']}"
+                    )
+                partial_reason = (
+                    f'AI summary fallback for {summary_label}: {diagnostic}'
+                )
+                if partial_reason not in context.partial_reasons:
+                    context.partial_reasons.append(partial_reason)
+                fallback_details.append(
+                    {
+                        'summaryType': summary_job['summary_type'],
+                        'marketType': summary_job['market_type'],
+                        'clusterId': summary_job['cluster_id'],
+                        'reason': metadata.get('reason')
+                        if isinstance(metadata, dict)
+                        else None,
+                        'error': error,
+                        'errorMessage': payload.get('error_message'),
+                    }
+                )
 
-        if context.fallback_count:
+        if step_fallback_count:
             await repository.add_event(
                 job_id=context.job_id,
                 step_code=self.step_code,
                 level=EventLevel.WARN.value,
                 message='AI summaries generated with fallback responses.',
-                context_json={'fallbackCount': context.fallback_count},
+                context_json={
+                    'fallbackCount': step_fallback_count,
+                    'fallbackDetails': fallback_details,
+                },
             )
 
         context.log_messages.append(

@@ -105,6 +105,18 @@ CREATE UNIQUE INDEX uq_news_search_keyword_provider_market_keyword_norm
 CREATE INDEX idx_news_search_keyword_active_priority
     ON news_search_keyword (provider_name, market_type, is_active, priority, id);
 
+INSERT INTO news_search_keyword (
+    provider_name,
+    market_type,
+    keyword,
+    is_active,
+    priority
+)
+VALUES
+    ('NAVER_NEWS', 'US', '미국 증시', TRUE, 10),
+    ('NAVER_NEWS', 'KR', '코스피', TRUE, 10)
+ON CONFLICT DO NOTHING;
+
 CREATE TABLE news_article_raw (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     provider_name TEXT NOT NULL,
@@ -142,8 +154,8 @@ CREATE TABLE news_article_processed (
     content_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uq_news_article_processed_dedupe_hash
-        UNIQUE (dedupe_hash)
+    CONSTRAINT uq_news_article_processed_business_date_dedupe_hash
+        UNIQUE (business_date, dedupe_hash)
 );
 
 CREATE INDEX idx_news_article_processed_business_market

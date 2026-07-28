@@ -7,6 +7,8 @@ from decimal import Decimal
 
 import yfinance as yf
 
+from app.core.settings import Settings, get_settings
+
 YFINANCE_PROVIDER_NAME = 'YFINANCE'
 
 MARKET_INDEX_TICKERS: dict[str, list[tuple[str, str, str, str]]] = {
@@ -48,7 +50,8 @@ class MarketIndexFailureDetail:
 
 
 class MarketIndexProvider:
-    def __init__(self) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings or get_settings()
         self.last_failures: list[MarketIndexFailureDetail] = []
 
     async def fetch_for_business_date(
@@ -104,11 +107,14 @@ class MarketIndexProvider:
         currency_code: str,
         index_code: str,
     ) -> MarketIndexFetchResult | None:
-        history = await asyncio.to_thread(
-            self._download_history,
-            ticker,
-            business_date - timedelta(days=7),
-            business_date + timedelta(days=1),
+        history = await asyncio.wait_for(
+            asyncio.to_thread(
+                self._download_history,
+                ticker,
+                business_date - timedelta(days=7),
+                business_date + timedelta(days=1),
+            ),
+            timeout=self._settings.yfinance_timeout_seconds,
         )
         if history.empty:
             return None
@@ -118,26 +124,24 @@ class MarketIndexProvider:
             return None
 
         row = selected.iloc[-1]
-        current_close = row.get('Close')
+        current_close = self._to_finite_decimal(row.get('Close'))
         if current_close is None:
             return None
         previous_close = None
         if len(selected.index) >= 2:
-            previous_close = selected.iloc[-2].get('Close')
+            previous_close = self._to_finite_decimal(selected.iloc[-2].get('Close'))
         if previous_close is None:
-            previous_close = row.get('Open')
+            previous_close = self._to_finite_decimal(row.get('Open'))
         if previous_close is None:
             return None
 
-        close_price = Decimal(str(current_close))
-        previous_close_decimal = Decimal(str(previous_close))
-        change_value = close_price - previous_close_decimal
+        change_value = current_close - previous_close
         change_percent = Decimal('0')
-        if previous_close_decimal != 0:
-            change_percent = (change_value / previous_close_decimal) * Decimal('100')
+        if previous_close != 0:
+            change_percent = (change_value / previous_close) * Decimal('100')
 
-        high_price = row.get('High')
-        low_price = row.get('Low')
+        high_price = self._to_finite_decimal(row.get('High'))
+        low_price = self._to_finite_decimal(row.get('Low'))
         source_date = selected.index[-1].date()
         return MarketIndexFetchResult(
             market_type=market_type,
@@ -145,16 +149,26 @@ class MarketIndexProvider:
             index_name=index_name,
             currency_code=currency_code,
             source_date=source_date,
-            close_price=close_price.quantize(Decimal('0.0001')),
+            close_price=current_close.quantize(Decimal('0.0001')),
             change_value=change_value.quantize(Decimal('0.0001')),
             change_percent=change_percent.quantize(Decimal('0.0001')),
-            high_price=Decimal(str(high_price)).quantize(Decimal('0.0001'))
+            high_price=high_price.quantize(Decimal('0.0001'))
             if high_price is not None
             else None,
-            low_price=Decimal(str(low_price)).quantize(Decimal('0.0001'))
+            low_price=low_price.quantize(Decimal('0.0001'))
             if low_price is not None
             else None,
         )
+
+    @staticmethod
+    def _to_finite_decimal(value: object) -> Decimal | None:
+        if value is None:
+            return None
+        try:
+            decimal_value = Decimal(str(value))
+        except (ArithmeticError, ValueError):
+            return None
+        return decimal_value if decimal_value.is_finite() else None
 
     @staticmethod
     def _download_history(ticker: str, start_date: date, end_date: date):

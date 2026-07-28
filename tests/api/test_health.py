@@ -28,7 +28,11 @@ def configure_safe_app_startup(monkeypatch: pytest.MonkeyPatch, tmp_path):
 
 
 class HealthyDbSession:
+    def __init__(self):
+        self.executed = False
+
     async def execute(self, statement):
+        self.executed = True
         return statement
 
 
@@ -37,18 +41,29 @@ class FailingDbSession:
         raise SQLAlchemyError('database unavailable')
 
 
-def test_health_is_liveness_only_and_does_not_require_auth():
+def test_health_checks_database_without_auth():
+    db_session = HealthyDbSession()
+
+    async def override_db_session():
+        yield db_session
+
     app = main_module.create_app()
+    app.dependency_overrides[health_module.get_db_session] = override_db_session
 
     with TestClient(app) as client:
         response = client.get('/stock/api/health')
 
     assert response.status_code == 200
     assert response.json() == {'status': 'ok'}
+    assert db_session.executed is True
 
 
 def test_request_id_header_rejects_unsafe_reflection():
+    async def override_db_session():
+        yield HealthyDbSession()
+
     app = main_module.create_app()
+    app.dependency_overrides[health_module.get_db_session] = override_db_session
 
     with TestClient(app) as client:
         response = client.get(
@@ -61,7 +76,11 @@ def test_request_id_header_rejects_unsafe_reflection():
 
 
 def test_request_id_header_preserves_safe_values():
+    async def override_db_session():
+        yield HealthyDbSession()
+
     app = main_module.create_app()
+    app.dependency_overrides[health_module.get_db_session] = override_db_session
 
     with TestClient(app) as client:
         response = client.get(
@@ -72,21 +91,7 @@ def test_request_id_header_preserves_safe_values():
     assert response.headers['X-Request-Id'] == 'req.safe-123:abc'
 
 
-def test_readiness_checks_database_without_auth():
-    async def override_db_session():
-        yield HealthyDbSession()
-
-    app = main_module.create_app()
-    app.dependency_overrides[health_module.get_db_session] = override_db_session
-
-    with TestClient(app) as client:
-        response = client.get('/stock/api/ready')
-
-    assert response.status_code == 200
-    assert response.json() == {'status': 'ready'}
-
-
-def test_readiness_returns_error_envelope_when_database_unavailable():
+def test_health_returns_error_envelope_when_database_unavailable():
     async def override_db_session():
         yield FailingDbSession()
 
@@ -94,13 +99,22 @@ def test_readiness_returns_error_envelope_when_database_unavailable():
     app.dependency_overrides[health_module.get_db_session] = override_db_session
 
     with TestClient(app) as client:
-        response = client.get('/stock/api/ready')
+        response = client.get('/stock/api/health')
 
     assert response.status_code == 503
     payload = response.json()
     assert payload['success'] is False
     assert payload['error'] == {
-        'code': 'READINESS_DATABASE_UNAVAILABLE',
+        'code': 'HEALTH_DATABASE_UNAVAILABLE',
         'message': 'Database is unavailable.',
     }
     assert payload['meta']['requestId'].startswith('req-')
+
+
+def test_ready_endpoint_is_removed():
+    app = main_module.create_app()
+
+    with TestClient(app) as client:
+        response = client.get('/stock/api/ready')
+
+    assert response.status_code == 404

@@ -85,6 +85,8 @@ async def test_create_job_inserts_running_batch_row():
     sql = normalize_sql(session.statements[0])
     assert 'insert into stock.batch_job' in sql.lower()
     assert 'batch_job_status_enum' in sql
+    statement_sql = ' '.join(str(session.statements[0]).split()).lower()
+    assert 'cast(:triggered_by_user_id as text)' in statement_sql
 
 
 @pytest.mark.anyio

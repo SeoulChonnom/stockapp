@@ -169,6 +169,58 @@ async def test_start_market_daily_batch_rejects_existing_page_without_force():
 
 
 @pytest.mark.anyio
+async def test_start_market_daily_batch_allows_existing_page_for_rebuild_without_force():
+    repository = FakeBatchJobRepository(
+        page_exists=True,
+        created_job=BatchJobRecord(
+            job_id=1002,
+            job_name='market_daily_batch',
+            business_date=date(2026, 3, 17),
+            status='RUNNING',
+            started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+            ended_at=None,
+            duration_seconds=None,
+            market_scope='GLOBAL',
+            raw_news_count=0,
+            processed_news_count=0,
+            cluster_count=0,
+            page_id=None,
+            page_version_no=None,
+            force_run=False,
+            rebuild_page_only=True,
+        ),
+    )
+    service = BatchesService(repository)
+
+    result = await service.start_market_daily_batch(
+        business_date=date(2026, 3, 17),
+        user_id='test-user',
+        force=False,
+        rebuild_page_only=True,
+    )
+
+    assert result['jobId'] == 1002
+    assert repository.created_params.rebuild_page_only is True
+    assert repository.created_params.force_run is False
+    assert repository.created_params.trigger_type == 'ADMIN_REBUILD'
+
+
+@pytest.mark.anyio
+async def test_start_market_daily_batch_rejects_rebuild_without_existing_page():
+    service = BatchesService(FakeBatchJobRepository(page_exists=False))
+
+    with pytest.raises(batches_service_module.NotFoundError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='test-user',
+            force=False,
+            rebuild_page_only=True,
+        )
+
+    assert exc_info.value.code == 'PAGE_NOT_FOUND'
+
+
+@pytest.mark.anyio
 async def test_list_jobs_returns_json_payload(sample_batch_job_list_payload):
     listed_jobs = BatchJobListResult(
         items=[

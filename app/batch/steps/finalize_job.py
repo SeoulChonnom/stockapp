@@ -17,8 +17,18 @@ class FinalizeJobStep(BatchStep):
         repository: BatchJobRepository,
         context: BatchExecutionContext,
     ) -> BatchExecutionContext:
-        if not context.partial_message and context.partial_reasons:
-            context.partial_message = '; '.join(context.partial_reasons[:3])
+        if not context.partial_message:
+            diagnostics = list(
+                dict.fromkeys(
+                    [*context.partial_reasons, *context.warning_messages]
+                )
+            )
+            if diagnostics:
+                context.partial_message = '; '.join(diagnostics[:3])
+            elif context.fallback_count:
+                context.partial_message = (
+                    f'Fallback processing was used {context.fallback_count} time(s).'
+                )
         status = determine_batch_status(context)
         log_summary = ' '.join(context.log_messages) if context.log_messages else None
         await repository.mark_job_completed(

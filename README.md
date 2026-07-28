@@ -44,8 +44,7 @@ FastAPI service for market daily brief collection, clustering, summarization, an
 
 ## Operations
 
-- Liveness: `GET /stock/api/health`
-- Readiness with database check: `GET /stock/api/ready`
+- Health with database check: `GET /stock/api/health`
 - Run tests locally: `uv run pytest`
 - Run a focused test module: `uv run pytest tests/api/test_pages.py`
 

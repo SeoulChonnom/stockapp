@@ -59,6 +59,18 @@ async def test_get_page_header_by_business_date_uses_explicit_version_when_provi
 
 
 @pytest.mark.anyio
+async def test_get_page_indices_includes_source_daily_index_id():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.get_page_indices([901])
+
+    assert result == []
+    sql = normalize_sql(session.statements[0])
+    assert 'market_index_daily_id' in sql
+
+
+@pytest.mark.anyio
 async def test_exists_page_for_business_date_checks_date_boundary(sample_business_date):
     session = RecordingAsyncSession(results=[DummyResult([1])])
     repo = PageSnapshotRepository(session)

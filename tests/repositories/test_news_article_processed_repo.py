@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 pytest.importorskip('sqlalchemy')
@@ -69,7 +71,63 @@ async def test_get_or_create_processed_article_inserts_when_missing():
     assert jsonable(result)['processed_article_id'] == 4001
     sql = normalize_sql(session.statements[0])
     assert 'news_article_processed' in sql
-    assert 'dedupe_hash' in sql
+    assert 'on conflict (business_date, dedupe_hash) do nothing' in sql.lower()
+
+
+@pytest.mark.anyio
+async def test_get_or_create_processed_article_reuses_hash_only_within_date():
+    business_date = date(2026, 3, 18)
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult([]),
+            DummyResult(
+                [
+                    {
+                        'processed_article_id': 4002,
+                        'business_date': business_date,
+                        'market_type': 'US',
+                        'dedupe_hash': 'a' * 64,
+                        'canonical_title': '엔비디아 급등에 반도체 강세',
+                        'publisher_name': '매일경제',
+                        'published_at': None,
+                        'origin_link': 'https://example.com/article1',
+                        'naver_link': 'https://search.naver.com/article1',
+                        'source_summary': None,
+                        'article_body_excerpt': None,
+                        'content_json': {},
+                        'created_at': '2026-03-18T06:12:10+00:00',
+                        'updated_at': '2026-03-18T06:12:10+00:00',
+                    }
+                ]
+            ),
+        ]
+    )
+    repo = NewsArticleProcessedRepository(session)
+
+    result = await repo.get_or_create_processed_article(
+        NewsArticleProcessedCreateParams(
+            business_date=business_date,
+            market_type='US',
+            dedupe_hash='a' * 64,
+            canonical_title='엔비디아 급등에 반도체 강세',
+            publisher_name='매일경제',
+            published_at=None,
+            origin_link='https://example.com/article1',
+            naver_link='https://search.naver.com/article1',
+            source_summary=None,
+            article_body_excerpt=None,
+            content_json={},
+        )
+    )
+
+    assert result.processed_article_id == 4002
+    fallback_sql = ' '.join(str(session.statements[1]).split()).lower()
+    assert 'business_date = :business_date' in fallback_sql
+    assert 'dedupe_hash = :dedupe_hash' in fallback_sql
+    assert session.parameters[1] == {
+        'business_date': business_date,
+        'dedupe_hash': 'a' * 64,
+    }
 
 
 @pytest.mark.anyio

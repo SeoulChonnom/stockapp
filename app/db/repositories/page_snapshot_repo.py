@@ -241,6 +241,7 @@ class PageSnapshotRepository:
             SELECT
                 id,
                 page_market_id,
+                market_index_daily_id,
                 display_order,
                 index_code,
                 index_name,

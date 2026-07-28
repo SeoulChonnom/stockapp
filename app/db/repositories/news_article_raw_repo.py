@@ -18,6 +18,20 @@ def _qualified_table(table_name: str) -> str:
 
 
 class NewsArticleRawRepository(PostgresRepository):
+    async def count_articles_by_business_date(self, business_date: date) -> int:
+        statement = text(
+            """
+            SELECT COUNT(*)
+            FROM {raw_table}
+            WHERE business_date = :business_date
+            """.format(raw_table=_qualified_table('news_article_raw'))
+        )
+        result = await self.session.execute(
+            statement,
+            {'business_date': business_date},
+        )
+        return int(result.scalar_one())
+
     async def list_articles_by_business_date(
         self,
         business_date: date,

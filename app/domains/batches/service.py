@@ -86,9 +86,15 @@ class BatchesService:
                 'BATCH_ALREADY_RUNNING',
                 '동일 날짜의 배치가 이미 실행 중입니다.',
             )
-        if not force and await self._repo.has_completed_page_for_business_date(
+        page_exists = await self._repo.has_completed_page_for_business_date(
             resolved_business_date
-        ):
+        )
+        if rebuild_page_only and not page_exists:
+            raise NotFoundError(
+                'PAGE_NOT_FOUND',
+                '재생성할 기존 페이지를 찾을 수 없습니다.',
+            )
+        if not rebuild_page_only and not force and page_exists:
             raise ConflictError(
                 'PAGE_ALREADY_EXISTS',
                 '이미 생성된 페이지가 있어 배치를 시작할 수 없습니다.',
@@ -99,7 +105,11 @@ class BatchesService:
                 BatchJobCreateParams(
                     business_date=resolved_business_date,
                     status=BatchJobStatus.RUNNING.value,
-                    trigger_type=BatchTriggerType.MANUAL.value,
+                    trigger_type=(
+                        BatchTriggerType.ADMIN_REBUILD.value
+                        if rebuild_page_only
+                        else BatchTriggerType.MANUAL.value
+                    ),
                     triggered_by_user_id=user_id,
                     force_run=force,
                     rebuild_page_only=rebuild_page_only,

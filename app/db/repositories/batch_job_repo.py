@@ -142,7 +142,7 @@ class BatchJobRepository(PostgresRepository):
                 :business_date,
                 CAST(:status AS {status_enum}),
                 CAST(:trigger_type AS {trigger_enum}),
-                :triggered_by_user_id,
+                CAST(:triggered_by_user_id AS TEXT),
                 :force_run,
                 :rebuild_page_only
             )

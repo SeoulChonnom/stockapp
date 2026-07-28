@@ -115,6 +115,10 @@ async def test_collect_news_step_preserves_successful_keyword_when_one_fails(
             self.inserted.extend(articles)
             return len(articles)
 
+        async def count_articles_by_business_date(self, business_date):
+            _ = business_date
+            return len(self.inserted)
+
     class FakeProvider:
         def is_configured(self):
             return True
@@ -927,13 +931,24 @@ async def test_build_page_snapshot_step_sets_page_identity_and_writes_snapshot(
 
 @pytest.mark.anyio
 async def test_build_page_snapshot_drops_malformed_market_metadata_fields():
-    class EmptyClusterRepo:
+    class MinimalClusterRepo:
         def __init__(self, session):
             _ = session
 
         async def list_clusters_by_business_date(self, business_date):
             _ = business_date
-            return []
+            return [
+                {
+                    'id': 7001,
+                    'cluster_uid': UUID('51f0d9a0-9fc5-4f15-a4f9-62856f128683'),
+                    'market_type': 'US',
+                    'title': '엔비디아 강세',
+                    'summary_short': '반도체 강세가 지수를 견인했다.',
+                    'tags_json': [],
+                    'representative_article_id': 4001,
+                    'article_count': 1,
+                }
+            ]
 
         async def list_cluster_article_links_by_business_date(self, business_date):
             _ = business_date
@@ -995,13 +1010,15 @@ async def test_build_page_snapshot_drops_malformed_market_metadata_fields():
             self.market_calls.append(kwargs)
             return 1001
 
+        async def insert_page_market_cluster(self, params):
+            _ = params
+
     snapshot_repo = RecordingSnapshotRepo(RecordingAsyncSession())
     repository = EventRepository(session=RecordingAsyncSession(), events=[])
     context = build_context()
-    context.rebuild_page_only = True
 
     await BuildPageSnapshotStep(
-        cluster_repo_factory=EmptyClusterRepo,
+        cluster_repo_factory=MinimalClusterRepo,
         summary_repo_factory=MalformedSummaryRepo,
         index_repo_factory=EmptyIndexRepo,
         snapshot_repo_factory=lambda session: snapshot_repo,

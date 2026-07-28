@@ -10,6 +10,7 @@ from app.db.repositories.ai_summary_repo import AiSummaryRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.cluster_repo import ClusterRepository
 from app.db.repositories.market_index_repo import MarketIndexRepository
+from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.db.repositories.page_snapshot_write_repo import PageSnapshotWriteRepository
 
 
@@ -38,11 +39,15 @@ class BuildPageSnapshotStep(BatchStep):
         cluster_repo_factory: Callable[[object], Any] | None = None,
         summary_repo_factory: Callable[[object], Any] | None = None,
         index_repo_factory: Callable[[object], Any] | None = None,
+        source_page_repo_factory: Callable[[object], Any] | None = None,
         snapshot_repo_factory: Callable[[object], Any] | None = None,
     ) -> None:
         self._cluster_repo_factory = cluster_repo_factory or ClusterRepository
         self._summary_repo_factory = summary_repo_factory or AiSummaryRepository
         self._index_repo_factory = index_repo_factory or MarketIndexRepository
+        self._source_page_repo_factory = (
+            source_page_repo_factory or PageSnapshotRepository
+        )
         self._snapshot_repo_factory = (
             snapshot_repo_factory or PageSnapshotWriteRepository
         )
@@ -54,10 +59,18 @@ class BuildPageSnapshotStep(BatchStep):
     ) -> BatchExecutionContext:
         session = require_repository_session(repository, step_code=self.step_code)
 
+        snapshot_repo = self._snapshot_repo_factory(session)
+        if context.rebuild_page_only:
+            return await self._rebuild_from_persisted_page(
+                repository=repository,
+                context=context,
+                source_page_repo=self._source_page_repo_factory(session),
+                snapshot_repo=snapshot_repo,
+            )
+
         cluster_repo = self._cluster_repo_factory(session)
         summary_repo = self._summary_repo_factory(session)
         index_repo = self._index_repo_factory(session)
-        snapshot_repo = self._snapshot_repo_factory(session)
 
         clusters = await cluster_repo.list_clusters_by_business_date(
             context.business_date
@@ -70,7 +83,7 @@ class BuildPageSnapshotStep(BatchStep):
         indices = await index_repo.list_indices_by_business_date(context.business_date)
         summaries = await summary_repo.list_summaries_for_job(context.job_id)
 
-        if not clusters and not context.rebuild_page_only:
+        if not clusters:
             context.error_code = 'SNAPSHOT_SOURCE_MISSING'
             context.error_message = '스냅샷 생성에 필요한 클러스터 데이터가 없습니다.'
             await repository.add_event(
@@ -82,6 +95,14 @@ class BuildPageSnapshotStep(BatchStep):
             )
             return context
 
+        if not context.partial_message:
+            partial_messages = [
+                *context.partial_reasons,
+                *context.warning_messages,
+            ]
+            if partial_messages:
+                context.partial_message = '; '.join(partial_messages[:3])
+
         summary_by_type: dict[tuple[str, str | None, int | None], object] = {}
         for summary in summaries:
             summary_by_type[
@@ -91,7 +112,12 @@ class BuildPageSnapshotStep(BatchStep):
         version_no = await snapshot_repo.get_next_version_no(context.business_date)
         page_status = (
             PageStatus.PARTIAL.value
-            if context.partial_reasons or context.warning_messages
+            if (
+                context.partial_message
+                or context.partial_reasons
+                or context.warning_messages
+                or context.fallback_count
+            )
             else PageStatus.READY.value
         )
         global_headline_summary = summary_by_type.get(
@@ -240,6 +266,180 @@ class BuildPageSnapshotStep(BatchStep):
             )
         context.log_messages.append(
             f'Built page snapshot pageId={page_id}, versionNo={version_no}.'
+        )
+        return context
+
+    async def _rebuild_from_persisted_page(
+        self,
+        *,
+        repository: BatchJobRepository,
+        context: BatchExecutionContext,
+        source_page_repo: Any,
+        snapshot_repo: Any,
+    ) -> BatchExecutionContext:
+        source_page = await source_page_repo.get_page_header_by_business_date(
+            context.business_date
+        )
+        if source_page is None:
+            return await self._mark_rebuild_source_missing(repository, context)
+
+        source_page_id = source_page['id']
+        source_markets = await source_page_repo.get_page_markets(source_page_id)
+        if not source_markets:
+            return await self._mark_rebuild_source_missing(repository, context)
+
+        source_market_ids = [market['id'] for market in source_markets]
+        source_indices = await source_page_repo.get_page_indices(source_market_ids)
+        source_clusters = await source_page_repo.get_page_clusters(source_market_ids)
+        source_article_links = await source_page_repo.get_page_article_links(
+            source_market_ids
+        )
+
+        version_no = await snapshot_repo.get_next_version_no(context.business_date)
+        page_id = await snapshot_repo.create_page(
+            business_date=context.business_date,
+            version_no=version_no,
+            page_title=source_page['page_title'],
+            status=source_page['status'],
+            global_headline=source_page.get('global_headline'),
+            partial_message=source_page.get('partial_message'),
+            raw_news_count=source_page['raw_news_count'],
+            processed_news_count=source_page['processed_news_count'],
+            cluster_count=source_page['cluster_count'],
+            batch_job_id=context.job_id,
+            metadata_json=source_page.get('metadata_json') or {},
+        )
+
+        new_market_ids: dict[int, int] = {}
+        for source_market in source_markets:
+            new_market_ids[source_market['id']] = (
+                await snapshot_repo.create_page_market(
+                    page_id=page_id,
+                    market_type=source_market['market_type'],
+                    display_order=source_market['display_order'],
+                    market_label=source_market['market_label'],
+                    summary_title=source_market.get('summary_title'),
+                    summary_body=source_market.get('summary_body'),
+                    analysis_background_json=source_market.get(
+                        'analysis_background_json'
+                    )
+                    or [],
+                    analysis_key_themes_json=source_market.get(
+                        'analysis_key_themes_json'
+                    )
+                    or [],
+                    analysis_outlook=source_market.get('analysis_outlook'),
+                    raw_news_count=source_market['raw_news_count'],
+                    processed_news_count=source_market['processed_news_count'],
+                    cluster_count=source_market['cluster_count'],
+                    partial_message=source_market.get('partial_message'),
+                    metadata_json=source_market.get('metadata_json') or {},
+                )
+            )
+
+        for source_index in source_indices:
+            await snapshot_repo.insert_page_market_index(
+                {
+                    'page_market_id': new_market_ids[
+                        source_index['page_market_id']
+                    ],
+                    'market_index_daily_id': source_index[
+                        'market_index_daily_id'
+                    ],
+                    'display_order': source_index['display_order'],
+                    'index_code': source_index['index_code'],
+                    'index_name': source_index['index_name'],
+                    'close_price': source_index['close_price'],
+                    'change_value': source_index['change_value'],
+                    'change_percent': source_index['change_percent'],
+                    'high_price': source_index['high_price'],
+                    'low_price': source_index['low_price'],
+                    'currency_code': source_index['currency_code'],
+                }
+            )
+
+        for source_cluster in source_clusters:
+            await snapshot_repo.insert_page_market_cluster(
+                {
+                    'page_market_id': new_market_ids[
+                        source_cluster['page_market_id']
+                    ],
+                    'cluster_id': source_cluster['cluster_id'],
+                    'cluster_uid': source_cluster['cluster_uid'],
+                    'display_order': source_cluster['display_order'],
+                    'title': source_cluster['title'],
+                    'summary': source_cluster.get('summary'),
+                    'article_count': source_cluster['article_count'],
+                    'tags_json': source_cluster.get('tags_json') or [],
+                    'representative_article_id': source_cluster.get(
+                        'representative_article_id'
+                    ),
+                    'representative_title': source_cluster.get(
+                        'representative_title'
+                    ),
+                    'representative_publisher_name': source_cluster.get(
+                        'representative_publisher_name'
+                    ),
+                    'representative_published_at': source_cluster.get(
+                        'representative_published_at'
+                    ),
+                    'representative_origin_link': source_cluster.get(
+                        'representative_origin_link'
+                    ),
+                    'representative_naver_link': source_cluster.get(
+                        'representative_naver_link'
+                    ),
+                }
+            )
+
+        for source_link in source_article_links:
+            await snapshot_repo.insert_page_article_link(
+                {
+                    'page_market_id': new_market_ids[source_link['page_market_id']],
+                    'display_order': source_link['display_order'],
+                    'processed_article_id': source_link['processed_article_id'],
+                    'cluster_id': source_link['cluster_id'],
+                    'cluster_uid': source_link['cluster_uid'],
+                    'cluster_title': source_link['cluster_title'],
+                    'title': source_link['title'],
+                    'publisher_name': source_link.get('publisher_name'),
+                    'published_at': source_link.get('published_at'),
+                    'origin_link': source_link['origin_link'],
+                    'naver_link': source_link.get('naver_link'),
+                }
+            )
+
+        context.raw_news_count = int(source_page['raw_news_count'])
+        context.processed_news_count = int(source_page['processed_news_count'])
+        context.cluster_count = int(source_page['cluster_count'])
+        context.partial_message = source_page.get('partial_message')
+        context.page_id = page_id
+        context.page_version_no = version_no
+        source_metadata = source_page.get('metadata_json') or {}
+        context.warning_messages.extend(
+            warning
+            for warning in _metadata_string_list(source_metadata, 'warnings')
+            if warning not in context.warning_messages
+        )
+        context.log_messages.append(
+            f'Rebuilt page snapshot pageId={page_id}, versionNo={version_no}, '
+            f'sourcePageId={source_page_id}.'
+        )
+        return context
+
+    async def _mark_rebuild_source_missing(
+        self,
+        repository: BatchJobRepository,
+        context: BatchExecutionContext,
+    ) -> BatchExecutionContext:
+        context.error_code = 'SNAPSHOT_SOURCE_MISSING'
+        context.error_message = '재생성할 기존 페이지 스냅샷 데이터가 없습니다.'
+        await repository.add_event(
+            job_id=context.job_id,
+            step_code=self.step_code,
+            level=EventLevel.WARN.value,
+            message='Skipped page rebuild because persisted snapshot data is missing.',
+            context_json={'businessDate': context.business_date.isoformat()},
         )
         return context
 

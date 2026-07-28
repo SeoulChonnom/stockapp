@@ -21,6 +21,7 @@ def _qualified_table(table_name: str) -> str:
 class NewsArticleProcessedRepository(PostgresRepository):
     async def get_processed_by_dedupe_hash(
         self,
+        business_date: date,
         dedupe_hash: str,
     ) -> NewsArticleProcessedRecord | None:
         statement = text(
@@ -41,10 +42,17 @@ class NewsArticleProcessedRepository(PostgresRepository):
                 created_at,
                 updated_at
             FROM {processed_table}
-            WHERE dedupe_hash = :dedupe_hash
+            WHERE business_date = :business_date
+              AND dedupe_hash = :dedupe_hash
             """.format(processed_table=_qualified_table('news_article_processed'))
         )
-        result = await self.session.execute(statement, {'dedupe_hash': dedupe_hash})
+        result = await self.session.execute(
+            statement,
+            {
+                'business_date': business_date,
+                'dedupe_hash': dedupe_hash,
+            },
+        )
         row = result.mappings().one_or_none()
         return (
             self._model_from_mapping(NewsArticleProcessedRecord, row) if row else None
@@ -137,7 +145,7 @@ class NewsArticleProcessedRepository(PostgresRepository):
                 :article_body_excerpt,
                 CAST(:content_json AS JSONB)
             )
-            ON CONFLICT (dedupe_hash) DO NOTHING
+            ON CONFLICT (business_date, dedupe_hash) DO NOTHING
             RETURNING
                 id AS processed_article_id,
                 business_date,
@@ -178,7 +186,10 @@ class NewsArticleProcessedRepository(PostgresRepository):
         if inserted is not None:
             return self._model_from_mapping(NewsArticleProcessedRecord, inserted)
 
-        existing = await self.get_processed_by_dedupe_hash(params.dedupe_hash)
+        existing = await self.get_processed_by_dedupe_hash(
+            params.business_date,
+            params.dedupe_hash,
+        )
         if existing is None:
             raise RuntimeError('Processed article upsert failed unexpectedly.')
         return existing

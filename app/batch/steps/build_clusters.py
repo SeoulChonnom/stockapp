@@ -125,7 +125,20 @@ class BuildClustersStep(BatchStep):
             for cluster_rank, (ordered_articles, enrichment) in enumerate(
                 zip(ordered_cluster_articles, enrichments, strict=True), start=1
             ):
-                if enrichment.get('fallback_used') and enrichment.get('error_context'):
+                if enrichment.get('fallback_used'):
+                    context.fallback_count += 1
+                    error_context = enrichment.get('error_context')
+                    diagnostic = (
+                        error_context.get('errorMessage')
+                        if isinstance(error_context, dict)
+                        else 'LLM provider is not configured.'
+                    )
+                    partial_reason = (
+                        f'Cluster enrichment fallback for {market_type} '
+                        f'cluster {cluster_rank}: {diagnostic}'
+                    )
+                    if partial_reason not in context.partial_reasons:
+                        context.partial_reasons.append(partial_reason)
                     await repository.add_event(
                         job_id=context.job_id,
                         step_code=self.step_code,
@@ -138,7 +151,7 @@ class BuildClustersStep(BatchStep):
                                 'representative_article_id'
                             ],
                             'fallbackReason': enrichment.get('fallback_reason'),
-                            'error': enrichment['error_context'],
+                            'error': error_context,
                         },
                     )
                 cluster = await cluster_repo.create_cluster_bundle(
