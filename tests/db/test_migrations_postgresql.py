@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -8,7 +9,12 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.batch.ai_retry.resolver import resolve_effective_summaries
+from app.db.repositories.ai_retry_repo import PostgresAiRetryRepository
+from app.db.repositories.ai_summary_repo import AiSummaryRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
+from app.db.repositories.market_context_repo import MarketContextRepository
+from app.db.repositories.projections import BatchJobMarketContextCreateParams
 
 psycopg = pytest.importorskip('psycopg')
 
@@ -226,6 +232,321 @@ async def test_durable_queue_repository_recovers_and_fences_expired_lease(
         await engine.dispose()
 
 
+@pytest.mark.anyio
+async def test_real_repositories_preserve_context_and_multi_hop_ai_lineage(
+    postgres_connection,
+):
+    root_job_id = postgres_connection.execute(
+        """
+        INSERT INTO stock.batch_job (
+            business_date,
+            status,
+            trigger_type,
+            run_mode
+        )
+        VALUES (DATE '2026-08-04', 'PARTIAL', 'MANUAL', 'FULL')
+        RETURNING id
+        """
+    ).fetchone()[0]
+    root_page_id = postgres_connection.execute(
+        """
+        INSERT INTO stock.market_daily_page (
+            business_date,
+            version_no,
+            page_title,
+            status,
+            batch_job_id
+        )
+        VALUES (
+            DATE '2026-08-04',
+            1,
+            'root page',
+            'PARTIAL',
+            %s
+        )
+        RETURNING id
+        """,
+        (root_job_id,),
+    ).fetchone()[0]
+    first_retry_job_id = postgres_connection.execute(
+        """
+        INSERT INTO stock.batch_job (
+            business_date,
+            status,
+            trigger_type,
+            run_mode,
+            source_job_id,
+            source_page_id
+        )
+        VALUES (
+            DATE '2026-08-04',
+            'PARTIAL',
+            'ADMIN_REBUILD',
+            'AI_RETRY',
+            %s,
+            %s
+        )
+        RETURNING id
+        """,
+        (root_job_id, root_page_id),
+    ).fetchone()[0]
+    first_retry_page_id = postgres_connection.execute(
+        """
+        INSERT INTO stock.market_daily_page (
+            business_date,
+            version_no,
+            page_title,
+            status,
+            batch_job_id
+        )
+        VALUES (
+            DATE '2026-08-04',
+            2,
+            'first retry page',
+            'PARTIAL',
+            %s
+        )
+        RETURNING id
+        """,
+        (first_retry_job_id,),
+    ).fetchone()[0]
+    rebuild_job_id = postgres_connection.execute(
+        """
+        INSERT INTO stock.batch_job (
+            business_date,
+            status,
+            trigger_type,
+            run_mode,
+            source_job_id,
+            source_page_id
+        )
+        VALUES (
+            DATE '2026-08-04',
+            'SUCCESS',
+            'ADMIN_REBUILD',
+            'PAGE_REBUILD',
+            %s,
+            %s
+        )
+        RETURNING id
+        """,
+        (first_retry_job_id, first_retry_page_id),
+    ).fetchone()[0]
+    unrelated_full_job_id = postgres_connection.execute(
+        """
+        INSERT INTO stock.batch_job (
+            business_date,
+            status,
+            trigger_type,
+            run_mode,
+            source_job_id
+        )
+        VALUES (
+            DATE '2026-08-04',
+            'SUCCESS',
+            'MANUAL',
+            'FULL',
+            %s
+        )
+        RETURNING id
+        """,
+        (root_job_id,),
+    ).fetchone()[0]
+
+    root_summary_id = postgres_connection.execute(
+        """
+        INSERT INTO stock.ai_summary (
+            batch_job_id,
+            summary_type,
+            business_date,
+            title,
+            body,
+            status,
+            fallback_used,
+            target_key,
+            attempt_no
+        )
+        VALUES (
+            %s,
+            'GLOBAL_HEADLINE',
+            DATE '2026-08-04',
+            'fallback',
+            'provider fallback',
+            'FALLBACK',
+            TRUE,
+            'GLOBAL_HEADLINE',
+            1
+        )
+        RETURNING id
+        """,
+        (root_job_id,),
+    ).fetchone()[0]
+    first_retry_summary_id = postgres_connection.execute(
+        """
+        INSERT INTO stock.ai_summary (
+            batch_job_id,
+            summary_type,
+            business_date,
+            title,
+            body,
+            status,
+            fallback_used,
+            target_key,
+            source_summary_id,
+            attempt_no
+        )
+        VALUES (
+            %s,
+            'GLOBAL_HEADLINE',
+            DATE '2026-08-04',
+            'retry failed',
+            'retry failed',
+            'FAILED',
+            FALSE,
+            'GLOBAL_HEADLINE',
+            %s,
+            2
+        )
+        RETURNING id
+        """,
+        (first_retry_job_id, root_summary_id),
+    ).fetchone()[0]
+    postgres_connection.execute(
+        """
+        INSERT INTO stock.ai_summary (
+            batch_job_id,
+            summary_type,
+            business_date,
+            title,
+            body,
+            status,
+            fallback_used,
+            target_key,
+            source_summary_id,
+            attempt_no
+        )
+        VALUES (
+            %s,
+            'GLOBAL_HEADLINE',
+            DATE '2026-08-04',
+            'retry recovered',
+            'usable provider summary',
+            'SUCCESS',
+            FALSE,
+            'GLOBAL_HEADLINE',
+            %s,
+            3
+        )
+        """,
+        (rebuild_job_id, first_retry_summary_id),
+    )
+    postgres_connection.execute(
+        """
+        INSERT INTO stock.ai_summary (
+            batch_job_id,
+            summary_type,
+            business_date,
+            title,
+            body,
+            status,
+            fallback_used,
+            target_key,
+            attempt_no
+        )
+        VALUES (
+            %s,
+            'GLOBAL_HEADLINE',
+            DATE '2026-08-04',
+            'unrelated full',
+            'must not enter retry lineage',
+            'SUCCESS',
+            FALSE,
+            'GLOBAL_HEADLINE',
+            99
+        )
+        """,
+        (unrelated_full_job_id,),
+    )
+
+    database_url = os.environ['STOCKAPP_MIGRATION_TEST_DSN']
+    async_database_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_async_engine(async_database_url)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with session_maker() as session:
+            context_repository = MarketContextRepository(session)
+            context_params = BatchJobMarketContextCreateParams(
+                batch_job_id=root_job_id,
+                market_type='US',
+                expected_session_date=date(2026, 8, 3),
+                session_close_at=datetime(2026, 8, 3, 20, tzinfo=UTC),
+                news_window_start_at=datetime(2026, 8, 2, 20, tzinfo=UTC),
+                news_window_end_at=datetime(2026, 8, 3, 20, tzinfo=UTC),
+            )
+            await context_repository.insert_if_absent(context_params)
+            await context_repository.insert_if_absent(context_params)
+            await context_repository.set_actual_index_source_date(
+                job_id=root_job_id,
+                market_type='US',
+                source_date=date(2026, 8, 3),
+            )
+            await context_repository.set_news_coverage_complete(
+                job_id=root_job_id,
+                market_type='US',
+                coverage_complete=True,
+            )
+            await session.commit()
+
+            contexts = await context_repository.list_for_job(root_job_id)
+            assert len(contexts) == 1
+            assert contexts[0].actual_index_source_date == date(2026, 8, 3)
+            assert contexts[0].news_coverage_complete is True
+
+            retry_repository = PostgresAiRetryRepository(session, max_attempts=5)
+            source = await retry_repository.resolve_source(rebuild_job_id)
+            assert source is not None
+            assert source.source_job_id == root_job_id
+            assert source.source_page_id == first_retry_page_id
+            assert source.source_status == 'SUCCESS'
+            enqueued = await retry_repository.enqueue(
+                source=source,
+                triggered_by_user_id='ADMIN-1',
+                idempotency_key='real-lineage-retry',
+            )
+            assert enqueued.created is True
+            assert enqueued.job.status == 'PENDING'
+            await retry_repository.commit()
+            retry_max_attempts = await session.scalar(
+                text(
+                    """
+                    SELECT max_attempts
+                    FROM stock.batch_job
+                    WHERE id = :job_id
+                    """
+                ),
+                {'job_id': enqueued.job.job_id},
+            )
+            assert retry_max_attempts == 5
+
+            lineage = await AiSummaryRepository(session).list_retry_lineage_summaries(
+                root_job_id
+            )
+            assert {row.batch_job_id for row in lineage} == {
+                root_job_id,
+                first_retry_job_id,
+                rebuild_job_id,
+            }
+            effective = resolve_effective_summaries(lineage)
+            assert effective['GLOBAL_HEADLINE'].body == 'usable provider summary'
+            assert effective['GLOBAL_HEADLINE'].attempt_no == 3
+    finally:
+        await engine.dispose()
+
+
 def test_market_session_migration_upgrades_legacy_contract_idempotently(
     postgres_connection,
 ):
@@ -260,6 +581,29 @@ def test_market_session_migration_upgrades_legacy_contract_idempotently(
             DROP CONSTRAINT uq_news_article_raw_business_provider_key,
             ADD CONSTRAINT uq_news_article_raw_provider_key
                 UNIQUE (provider_name, provider_article_key);
+
+        INSERT INTO stock.market_index_daily (
+            business_date,
+            market_type,
+            index_code,
+            index_name,
+            close_price,
+            change_value,
+            change_percent,
+            currency_code,
+            provider_name
+        )
+        VALUES (
+            DATE '2026-07-24',
+            'US',
+            'LEGACY_INDEX',
+            'Legacy index row',
+            100,
+            1,
+            1,
+            'USD',
+            'LEGACY'
+        );
         """
     )
 
@@ -296,6 +640,60 @@ def test_market_session_migration_upgrades_legacy_contract_idempotently(
         ORDER BY column_name
         """
     ).fetchall()
+    required_value_constraints = postgres_connection.execute(
+        """
+        SELECT conname, convalidated
+        FROM pg_constraint
+        WHERE conrelid = 'stock.market_index_daily'::regclass
+          AND conname IN (
+              'chk_market_index_daily_source_date_present',
+              'chk_market_index_daily_expected_session_date_present',
+              'chk_market_index_daily_session_close_at_present'
+          )
+        ORDER BY conname
+        """
+    ).fetchall()
+    legacy_market_dates = postgres_connection.execute(
+        """
+        SELECT source_date, expected_session_date, session_close_at
+        FROM stock.market_index_daily
+        WHERE index_code = 'LEGACY_INDEX'
+        """
+    ).fetchone()
+
+    with pytest.raises(psycopg.errors.CheckViolation):
+        postgres_connection.execute(
+            """
+            INSERT INTO stock.market_index_daily (
+                business_date,
+                market_type,
+                source_date,
+                expected_session_date,
+                session_close_at,
+                index_code,
+                index_name,
+                close_price,
+                change_value,
+                change_percent,
+                currency_code,
+                provider_name
+            )
+            VALUES (
+                DATE '2026-07-25',
+                'US',
+                NULL,
+                DATE '2026-07-24',
+                TIMESTAMPTZ '2026-07-24 20:00:00+00',
+                'INVALID_NEW_INDEX',
+                'Invalid new index row',
+                100,
+                1,
+                1,
+                'USD',
+                'TEST'
+            )
+            """
+        )
 
     postgres_connection.execute(
         """
@@ -344,6 +742,12 @@ def test_market_session_migration_upgrades_legacy_contract_idempotently(
         ('session_close_at', 'YES'),
         ('source_date', 'YES'),
     ]
+    assert required_value_constraints == [
+        ('chk_market_index_daily_expected_session_date_present', False),
+        ('chk_market_index_daily_session_close_at_present', False),
+        ('chk_market_index_daily_source_date_present', False),
+    ]
+    assert legacy_market_dates == (None, None, None)
     assert repeated_provider_key_count == (2,)
 
 

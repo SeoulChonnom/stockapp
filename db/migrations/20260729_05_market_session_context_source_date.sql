@@ -36,6 +36,44 @@ ALTER TABLE stock.market_index_daily
     ADD COLUMN IF NOT EXISTS expected_session_date DATE NULL,
     ADD COLUMN IF NOT EXISTS session_close_at TIMESTAMPTZ NULL;
 
+DO $migration$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'stock.market_index_daily'::regclass
+          AND conname = 'chk_market_index_daily_source_date_present'
+    ) THEN
+        ALTER TABLE stock.market_index_daily
+            ADD CONSTRAINT chk_market_index_daily_source_date_present
+            CHECK (source_date IS NOT NULL) NOT VALID;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'stock.market_index_daily'::regclass
+          AND conname = 'chk_market_index_daily_expected_session_date_present'
+    ) THEN
+        ALTER TABLE stock.market_index_daily
+            ADD CONSTRAINT
+                chk_market_index_daily_expected_session_date_present
+            CHECK (expected_session_date IS NOT NULL) NOT VALID;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'stock.market_index_daily'::regclass
+          AND conname = 'chk_market_index_daily_session_close_at_present'
+    ) THEN
+        ALTER TABLE stock.market_index_daily
+            ADD CONSTRAINT chk_market_index_daily_session_close_at_present
+            CHECK (session_close_at IS NOT NULL) NOT VALID;
+    END IF;
+END;
+$migration$;
+
 ALTER TABLE stock.market_daily_page_market
     ADD COLUMN IF NOT EXISTS expected_session_date DATE NULL,
     ADD COLUMN IF NOT EXISTS actual_index_source_date DATE NULL,

@@ -234,6 +234,42 @@ async def test_start_market_daily_batch_allows_existing_page_for_rebuild_without
 
 
 @pytest.mark.anyio
+async def test_force_full_does_not_inherit_existing_page_lineage():
+    repository = FakeBatchJobRepository(
+        page_exists=True,
+        created_job=BatchJobRecord(
+            job_id=1003,
+            job_name='market_daily_batch',
+            business_date=date(2026, 3, 17),
+            status='PENDING',
+            started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+            ended_at=None,
+            duration_seconds=None,
+            market_scope='GLOBAL',
+            raw_news_count=0,
+            processed_news_count=0,
+            cluster_count=0,
+            page_id=None,
+            page_version_no=None,
+            force_run=True,
+            rebuild_page_only=False,
+        ),
+    )
+    service = BatchesService(repository)
+
+    await service.start_market_daily_batch(
+        business_date=date(2026, 3, 17),
+        user_id='test-user',
+        force=True,
+        rebuild_page_only=False,
+    )
+
+    assert repository.created_params.run_mode == 'FULL'
+    assert repository.created_params.source_job_id is None
+    assert repository.created_params.source_page_id is None
+
+
+@pytest.mark.anyio
 async def test_start_market_daily_batch_rejects_rebuild_without_existing_page():
     service = BatchesService(FakeBatchJobRepository(page_exists=False))
 
@@ -339,6 +375,13 @@ async def test_list_jobs_returns_json_payload(sample_batch_job_list_payload):
                 raw_news_count=item['rawNewsCount'],
                 processed_news_count=item['processedNewsCount'],
                 cluster_count=item['clusterCount'],
+                run_mode=item['runMode'],
+                source_job_id=item['sourceJobId'],
+                source_page_id=item['sourcePageId'],
+                queued_at=datetime.fromisoformat(item['queuedAt']),
+                attempt_count=item['attemptCount'],
+                max_attempts=item['maxAttempts'],
+                current_step=item['currentStep'],
                 page_id=item['pageId'],
                 page_version_no=item['pageVersionNo'],
                 partial_message=item['partialMessage'],
@@ -395,6 +438,15 @@ async def test_get_job_detail_returns_json_payload(sample_batch_job_detail_paylo
                     'processedNewsCount'
                 ],
                 cluster_count=sample_batch_job_detail_payload['clusterCount'],
+                run_mode=sample_batch_job_detail_payload['runMode'],
+                source_job_id=sample_batch_job_detail_payload['sourceJobId'],
+                source_page_id=sample_batch_job_detail_payload['sourcePageId'],
+                queued_at=datetime.fromisoformat(
+                    sample_batch_job_detail_payload['queuedAt']
+                ),
+                attempt_count=sample_batch_job_detail_payload['attemptCount'],
+                max_attempts=sample_batch_job_detail_payload['maxAttempts'],
+                current_step=sample_batch_job_detail_payload['currentStep'],
                 page_id=sample_batch_job_detail_payload['pageId'],
                 page_version_no=sample_batch_job_detail_payload['pageVersionNo'],
                 force_run=sample_batch_job_detail_payload['forceRun'],

@@ -91,8 +91,7 @@ async def test_create_job_inserts_pending_queue_row():
     assert 'batch_job_status_enum' in sql
     assert 'batch_run_mode_enum' in sql
     assert (
-        session.statements[0].compile().params['idempotency_key']
-        == 'daily-2026-03-17'
+        session.statements[0].compile().params['idempotency_key'] == 'daily-2026-03-17'
     )
     statement_sql = ' '.join(str(session.statements[0]).split()).lower()
     assert 'cast(:triggered_by_user_id as text)' in statement_sql
@@ -379,6 +378,34 @@ async def test_fenced_completion_rejects_stale_lease_token():
     sql = ' '.join(str(session.statements[0]).split()).lower()
     assert 'lease_token = :lease_token' in sql
     assert 'lease_expires_at > now()' in sql
+
+
+@pytest.mark.anyio
+async def test_mark_job_completed_persists_full_ai_counts():
+    session = RecordingAsyncSession(results=[DummyResult([1001])])
+    repo = BatchJobRepository(session)
+
+    await repo.mark_job_completed(
+        job_id=1001,
+        status='PARTIAL',
+        ai_target_count=6,
+        ai_attempted_count=6,
+        ai_success_count=4,
+        ai_fallback_count=1,
+        ai_failed_count=1,
+    )
+
+    sql = ' '.join(str(session.statements[0]).split()).lower()
+    assert 'ai_target_count = :ai_target_count' in sql
+    assert 'ai_attempted_count = :ai_attempted_count' in sql
+    assert 'ai_success_count = :ai_success_count' in sql
+    assert 'ai_fallback_count = :ai_fallback_count' in sql
+    assert 'ai_failed_count = :ai_failed_count' in sql
+    assert session.parameters[0]['ai_target_count'] == 6
+    assert session.parameters[0]['ai_attempted_count'] == 6
+    assert session.parameters[0]['ai_success_count'] == 4
+    assert session.parameters[0]['ai_fallback_count'] == 1
+    assert session.parameters[0]['ai_failed_count'] == 1
 
 
 @pytest.mark.anyio

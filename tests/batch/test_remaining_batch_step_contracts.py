@@ -310,6 +310,12 @@ async def test_generate_ai_summaries_step_records_ai_summary_outputs(monkeypatch
         def is_configured(self):
             return False
 
+    original_global_headline = generate_module._generate_global_headline
+
+    async def success_marked_fallback(*args, **kwargs):
+        result = await original_global_headline(*args, **kwargs)
+        return {**result, 'status': 'SUCCESS', 'fallback_used': True}
+
     fake_summary_repo = FakeSummaryRepo(RecordingAsyncSession())
     monkeypatch.setattr(generate_module, 'ClusterRepository', FakeClusterRepo)
     monkeypatch.setattr(generate_module, 'MarketIndexRepository', FakeIndexRepo)
@@ -317,6 +323,9 @@ async def test_generate_ai_summaries_step_records_ai_summary_outputs(monkeypatch
         generate_module, 'AiSummaryWriteRepository', lambda session: fake_summary_repo
     )
     monkeypatch.setattr(generate_module, 'BatchLlmProvider', FakeLlmProvider)
+    monkeypatch.setattr(
+        generate_module, '_generate_global_headline', success_marked_fallback
+    )
 
     repository = EventRepository(session=RecordingAsyncSession(), events=[])
     context = build_context()
@@ -325,8 +334,18 @@ async def test_generate_ai_summaries_step_records_ai_summary_outputs(monkeypatch
     updated_context = await GenerateAiSummariesStep().run(repository, context)
 
     assert updated_context.generated_summary_count == 4
+    assert updated_context.ai_target_count == 4
+    assert updated_context.ai_attempted_count == 4
+    assert updated_context.ai_success_count == 0
+    assert updated_context.ai_fallback_count == 4
+    assert updated_context.ai_failed_count == 0
     assert updated_context.log_messages[-1].startswith('Generated 4 AI summary')
     assert len(fake_summary_repo.rows) == 4
+    global_row = next(
+        row for row in fake_summary_repo.rows if row.summary_type == 'GLOBAL_HEADLINE'
+    )
+    assert global_row.status == 'SUCCESS'
+    assert global_row.fallback_used is True
 
 
 @pytest.mark.anyio
@@ -351,6 +370,8 @@ async def test_generate_ai_summaries_skips_provider_when_rebuild_page_only():
     ).run(repository, context)
 
     assert updated_context.generated_summary_count == 0
+    assert updated_context.ai_target_count == 0
+    assert updated_context.ai_attempted_count == 0
     assert updated_context.log_messages == [
         'Skipped AI summary generation because rebuild_page_only=true.'
     ]
@@ -472,6 +493,11 @@ async def test_generate_ai_summaries_bounds_llm_calls_and_persists_model_name():
     assert llm_provider.max_active == 2
     assert updated_context.generated_summary_count == 6
     assert updated_context.fallback_count == 0
+    assert updated_context.ai_target_count == 6
+    assert updated_context.ai_attempted_count == 6
+    assert updated_context.ai_success_count == 6
+    assert updated_context.ai_fallback_count == 0
+    assert updated_context.ai_failed_count == 0
     assert [row.summary_type for row in summary_repo.rows] == [
         'GLOBAL_HEADLINE',
         'MARKET_SUMMARY',
@@ -595,6 +621,11 @@ async def test_generate_ai_summaries_uses_fallback_for_malformed_market_metadata
         row for row in summary_repo.rows if row.summary_type == 'MARKET_SUMMARY'
     )
     assert updated_context.fallback_count == 1
+    assert updated_context.ai_target_count == 4
+    assert updated_context.ai_attempted_count == 4
+    assert updated_context.ai_success_count == 3
+    assert updated_context.ai_fallback_count == 1
+    assert updated_context.ai_failed_count == 0
     assert repository.events == [
         (
             GenerateAiSummariesStep.step_code,
@@ -709,6 +740,11 @@ async def test_generate_ai_summaries_step_records_fallback_error_metadata(monkey
 
     assert updated_context.generated_summary_count == 4
     assert updated_context.fallback_count == 4
+    assert updated_context.ai_target_count == 4
+    assert updated_context.ai_attempted_count == 4
+    assert updated_context.ai_success_count == 0
+    assert updated_context.ai_fallback_count == 4
+    assert updated_context.ai_failed_count == 0
     assert len(fake_summary_repo.rows) == 4
     for row in fake_summary_repo.rows:
         assert row.fallback_used is True

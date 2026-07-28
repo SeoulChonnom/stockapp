@@ -106,6 +106,12 @@ def _source_state(*, non_ai_issue: bool = False) -> dict:
                 'id': 601,
                 'page_id': 501,
                 'market_type': 'US',
+                'expected_session_date': date(2026, 7, 24),
+                'actual_index_source_date': date(2026, 7, 24),
+                'session_close_at': datetime(2026, 7, 24, 20, 0, tzinfo=UTC),
+                'news_window_start_at': datetime(2026, 7, 27, 22, 0, tzinfo=UTC),
+                'news_window_end_at': datetime(2026, 7, 28, 22, 0, tzinfo=UTC),
+                'news_coverage_complete': True,
                 'display_order': 1,
                 'market_label': 'US',
                 'summary_title': 'old market title',
@@ -263,6 +269,18 @@ async def test_all_recovery_creates_ready_vnext_with_ai_overlay_and_cloned_links
     assert writes.page is not None
     assert writes.page['global_headline'] == 'new title GLOBAL_HEADLINE'
     assert writes.markets[0]['summary_body'] == 'new body MARKET_SUMMARY:US'
+    assert writes.markets[0]['expected_session_date'] == date(2026, 7, 24)
+    assert writes.markets[0]['actual_index_source_date'] == date(2026, 7, 24)
+    assert writes.markets[0]['session_close_at'] == datetime(
+        2026, 7, 24, 20, 0, tzinfo=UTC
+    )
+    assert writes.markets[0]['news_window_start_at'] == datetime(
+        2026, 7, 27, 22, 0, tzinfo=UTC
+    )
+    assert writes.markets[0]['news_window_end_at'] == datetime(
+        2026, 7, 28, 22, 0, tzinfo=UTC
+    )
+    assert writes.markets[0]['news_coverage_complete'] is True
     assert writes.clusters[0]['summary'] == ('new body CLUSTER_CARD_SUMMARY:7')
     assert writes.indices[0]['index_code'] == 'IXIC'
     assert writes.links[0]['origin_link'] == 'https://example.com/a'

@@ -199,6 +199,17 @@ class EmptyStoredPageRepository(ExistingPageRepository):
         return []
 
 
+class QueuedStoredPageRepository(ExistingPageRepository):
+    async def get_page_header_by_id(self, page_id):
+        assert page_id == 501
+        return await super().get_page_header_by_business_date(date(2026, 3, 17))
+
+    async def get_page_header_by_business_date(self, business_date):
+        raise AssertionError(
+            f'queued rebuild must not reselect latest page for {business_date}'
+        )
+
+
 class RecordingSnapshotRepository:
     def __init__(self, session):
         _ = session
@@ -353,6 +364,35 @@ async def test_rebuild_uses_persisted_source_and_preserves_page_outcome():
         'origin_link': 'https://stored.example/article',
         'naver_link': None,
     }
+
+
+@pytest.mark.anyio
+async def test_queued_rebuild_uses_captured_source_page_id():
+    snapshot_repository = RecordingSnapshotRepository(RecordingAsyncSession())
+    step = BuildPageSnapshotStep(
+        cluster_repo_factory=FailingLiveRepository,
+        summary_repo_factory=FailingLiveRepository,
+        index_repo_factory=FailingLiveRepository,
+        source_page_repo_factory=QueuedStoredPageRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+    )
+    context = BatchExecutionContext(
+        job_id=2002,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=True,
+        source_job_id=1001,
+        source_page_id=501,
+    )
+
+    updated_context = await step.run(
+        EventRepository(session=RecordingAsyncSession(), events=[]),
+        context,
+    )
+
+    assert updated_context.page_id == 502
+    assert updated_context.source_job_id == 1001
+    assert updated_context.source_page_id == 501
 
 
 @pytest.mark.anyio

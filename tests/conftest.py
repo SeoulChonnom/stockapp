@@ -45,6 +45,7 @@ def configure_jwt_auth_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv('STOCKAPP_JWT_ACCESS_AUDIENCES', '["slcn-platform"]')
 
     settings_module = load_module('app.core.settings')
+    monkeypatch.setitem(settings_module.Settings.model_config, 'env_file', None)
     settings_module.get_settings.cache_clear()
     yield
     settings_module.get_settings.cache_clear()

@@ -82,7 +82,14 @@ def test_start_market_daily_batch_returns_job_handle(client, sample_batch_run_pa
 
     assert response.status_code == 202
     payload = response.json()['data']
-    assert set(payload) == {'jobId', 'jobName', 'businessDate', 'status', 'startedAt'}
+    assert set(payload) == {
+        'jobId',
+        'jobName',
+        'businessDate',
+        'status',
+        'startedAt',
+        'queuedAt',
+    }
     assert payload['jobId'] == sample_batch_run_payload['jobId']
     assert payload['status'] == 'PENDING'
     assert service.start_kwargs is not None
@@ -170,6 +177,13 @@ def test_list_batch_jobs_allows_admin(client, sample_batch_job_list_payload):
         'jobName',
         'businessDate',
         'status',
+        'runMode',
+        'sourceJobId',
+        'sourcePageId',
+        'queuedAt',
+        'attemptCount',
+        'maxAttempts',
+        'currentStep',
         'startedAt',
         'endedAt',
         'durationSeconds',
@@ -240,6 +254,13 @@ def test_get_batch_job_detail_allows_admin(client, sample_batch_job_detail_paylo
         'jobName',
         'businessDate',
         'status',
+        'runMode',
+        'sourceJobId',
+        'sourcePageId',
+        'queuedAt',
+        'attemptCount',
+        'maxAttempts',
+        'currentStep',
         'forceRun',
         'rebuildPageOnly',
         'startedAt',
@@ -276,7 +297,7 @@ def test_get_batch_job_detail_returns_404_when_missing(client):
 
 
 def test_retry_ai_enqueues_idempotent_job_without_background_task(client):
-    test_client, scheduler, service = client
+    test_client, service = client
 
     response = test_client.post(
         '/stock/api/batch/jobs/1001/retry-ai',
@@ -297,11 +318,10 @@ def test_retry_ai_enqueues_idempotent_job_without_background_task(client):
         'user_id': 'ADMIN-0001',
         'idempotency_key': 'ai-retry-1001-request-1',
     }
-    assert scheduler.job_ids == []
 
 
 def test_retry_ai_requires_admin(client):
-    test_client, scheduler, service = client
+    test_client, service = client
 
     response = test_client.post(
         '/stock/api/batch/jobs/1001/retry-ai',
@@ -310,4 +330,3 @@ def test_retry_ai_requires_admin(client):
 
     assert response.status_code == 403
     assert service.retry_kwargs is None
-    assert scheduler.job_ids == []

@@ -17,6 +17,7 @@ class BatchRunResponse(BaseModel):
     businessDate: date
     status: str
     startedAt: datetime | str
+    queuedAt: datetime | str | None = None
 
 
 class AiRetryRunResponse(BaseModel):
@@ -36,6 +37,13 @@ class BatchJobListItemResponse(BaseModel):
     jobName: str
     businessDate: date
     status: str
+    runMode: str
+    sourceJobId: int | None = None
+    sourcePageId: int | None = None
+    queuedAt: datetime | str | None = None
+    attemptCount: int
+    maxAttempts: int
+    currentStep: str | None = None
     startedAt: datetime | str
     endedAt: datetime | str | None = None
     durationSeconds: int | None = None
@@ -78,6 +86,13 @@ class BatchJobDetailResponse(BaseModel):
     jobName: str
     businessDate: date
     status: str
+    runMode: str
+    sourceJobId: int | None = None
+    sourcePageId: int | None = None
+    queuedAt: datetime | str | None = None
+    attemptCount: int
+    maxAttempts: int
+    currentStep: str | None = None
     forceRun: bool | None = None
     rebuildPageOnly: bool | None = None
     startedAt: datetime | str

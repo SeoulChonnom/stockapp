@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from sqlalchemy import text
@@ -77,6 +77,10 @@ class AiRetryEnqueuePort(Protocol):
 class PostgresAiRetryRepository(PostgresRepository):
     """Persistence adapter shared by the retry API and durable worker."""
 
+    def __init__(self, session: Any, *, max_attempts: int = 3) -> None:
+        super().__init__(session)
+        self._max_attempts = max_attempts
+
     async def commit(self) -> None:
         await self.session.commit()
 
@@ -86,8 +90,51 @@ class PostgresAiRetryRepository(PostgresRepository):
     async def resolve_source(self, requested_job_id: int) -> AiRetrySource | None:
         statement = text(
             """
+            WITH RECURSIVE lineage AS (
+                SELECT
+                    job.id,
+                    job.source_job_id,
+                    job.source_page_id,
+                    job.page_id,
+                    job.run_mode,
+                    job.business_date,
+                    job.status,
+                    ARRAY[job.id]::BIGINT[] AS path
+                FROM {batch_job_table} AS job
+                WHERE job.id = :requested_job_id
+
+                UNION ALL
+
+                SELECT
+                    parent.id,
+                    parent.source_job_id,
+                    parent.source_page_id,
+                    parent.page_id,
+                    parent.run_mode,
+                    parent.business_date,
+                    parent.status,
+                    lineage.path || parent.id
+                FROM lineage
+                JOIN {batch_job_table} AS parent
+                  ON parent.id = lineage.source_job_id
+                WHERE lineage.run_mode IN ('PAGE_REBUILD', 'AI_RETRY')
+                  AND lineage.source_job_id IS NOT NULL
+                  AND NOT parent.id = ANY(lineage.path)
+                  AND cardinality(lineage.path) < 64
+            ),
+            requested AS (
+                SELECT *
+                FROM lineage
+                WHERE id = :requested_job_id
+            ),
+            root AS (
+                SELECT *
+                FROM lineage
+                ORDER BY cardinality(path) DESC
+                LIMIT 1
+            )
             SELECT
-                requested.id AS requested_job_id,
+                :requested_job_id AS requested_job_id,
                 root.id AS source_job_id,
                 COALESCE(
                     requested.page_id,
@@ -95,11 +142,9 @@ class PostgresAiRetryRepository(PostgresRepository):
                     root.page_id
                 ) AS source_page_id,
                 root.business_date,
-                root.status AS source_status
-            FROM {batch_job_table} AS requested
-            JOIN {batch_job_table} AS root
-              ON root.id = COALESCE(requested.source_job_id, requested.id)
-            WHERE requested.id = :requested_job_id
+                requested.status AS source_status
+            FROM requested
+            CROSS JOIN root
             """.format(batch_job_table=_qualified_table('batch_job'))
         )
         result = await self.session.execute(
@@ -197,7 +242,8 @@ class PostgresAiRetryRepository(PostgresRepository):
                 run_mode,
                 source_job_id,
                 source_page_id,
-                idempotency_key
+                idempotency_key,
+                max_attempts
             )
             VALUES (
                 :business_date,
@@ -209,7 +255,8 @@ class PostgresAiRetryRepository(PostgresRepository):
                 'AI_RETRY',
                 :source_job_id,
                 :source_page_id,
-                :idempotency_key
+                :idempotency_key,
+                :max_attempts
             )
             RETURNING
                 id AS job_id,
@@ -238,6 +285,7 @@ class PostgresAiRetryRepository(PostgresRepository):
             'source_job_id': source.source_job_id,
             'source_page_id': source.source_page_id,
             'idempotency_key': idempotency_key,
+            'max_attempts': self._max_attempts,
         }
         try:
             result = await self.session.execute(statement, params)
@@ -331,6 +379,7 @@ class PostgresAiRetryRepository(PostgresRepository):
         if (
             existing.run_mode != 'AI_RETRY'
             or existing.source_job_id != source.source_job_id
+            or existing.source_page_id != source.source_page_id
             or existing.business_date != source.business_date
         ):
             raise AiRetryIdempotencyConflictError

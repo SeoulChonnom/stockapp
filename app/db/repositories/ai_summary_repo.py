@@ -49,6 +49,25 @@ class AiSummaryRepository(PostgresRepository):
         """List immutable source summaries and every retry descendant."""
         statement = text(
             """
+            WITH RECURSIVE lineage_jobs AS (
+                SELECT
+                    id,
+                    ARRAY[id]::BIGINT[] AS path
+                FROM {batch_job_table}
+                WHERE id = :source_job_id
+
+                UNION ALL
+
+                SELECT
+                    child.id,
+                    lineage_jobs.path || child.id
+                FROM lineage_jobs
+                JOIN {batch_job_table} AS child
+                  ON child.source_job_id = lineage_jobs.id
+                WHERE child.run_mode IN ('PAGE_REBUILD', 'AI_RETRY')
+                  AND NOT child.id = ANY(lineage_jobs.path)
+                  AND cardinality(lineage_jobs.path) < 64
+            )
             SELECT
                 summary.id AS summary_id,
                 summary.batch_job_id,
@@ -70,13 +89,8 @@ class AiSummaryRepository(PostgresRepository):
                 summary.attempt_no,
                 summary.generated_at
             FROM {summary_table} AS summary
-            JOIN {batch_job_table} AS job
-              ON job.id = summary.batch_job_id
-            WHERE summary.batch_job_id = :source_job_id
-               OR (
-                    job.source_job_id = :source_job_id
-                    AND job.run_mode = 'AI_RETRY'
-               )
+            JOIN lineage_jobs
+              ON lineage_jobs.id = summary.batch_job_id
             ORDER BY
                 summary.attempt_no ASC,
                 summary.generated_at ASC,

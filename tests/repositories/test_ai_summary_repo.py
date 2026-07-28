@@ -30,7 +30,24 @@ async def test_list_summaries_for_job_uses_qualified_summary_table():
     assert result == []
     sql = normalize_sql(session.statements[0])
     assert 'from stock.ai_summary' in sql.lower()
+    assert 'with recursive' not in sql.lower()
     assert session.parameters[0] == {'job_id': 4}
+
+
+@pytest.mark.anyio
+async def test_list_retry_lineage_summaries_walks_retry_descendants():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repository = AiSummaryRepository(session)
+
+    result = await repository.list_retry_lineage_summaries(4)
+
+    assert result == []
+    sql = normalize_sql(session.statements[0]).lower()
+    assert 'with recursive lineage_jobs as' in sql
+    assert "child.run_mode in ('page_rebuild', 'ai_retry')" in sql
+    assert 'cardinality(lineage_jobs.path) < 64' in sql
+    assert 'join lineage_jobs' in sql
+    assert session.parameters[0] == {'source_job_id': 4}
 
 
 @pytest.mark.anyio

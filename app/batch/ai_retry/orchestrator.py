@@ -16,6 +16,7 @@ from app.batch.ai_retry.resolver import (
     calculate_retry_counts,
     select_retry_targets,
 )
+from app.batch.exceptions import BatchLeaseLostError
 from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
 from app.batch.steps.generate_ai_summaries import (
     _generate_cluster_card_summary,
@@ -37,10 +38,6 @@ AI_RETRY_SELECT_STEP = 'AI_RETRY_SELECT'
 AI_RETRY_GENERATE_STEP = 'AI_RETRY_GENERATE'
 AI_RETRY_BUILD_PAGE_STEP = 'AI_RETRY_BUILD_PAGE'
 AI_RETRY_FINALIZE_STEP = 'AI_RETRY_FINALIZE'
-
-
-class AiRetryLeaseLostError(RuntimeError):
-    """Raised when a durable worker no longer owns the retry job."""
 
 
 class AiRetryOrchestrator:
@@ -234,7 +231,7 @@ class AiRetryOrchestrator:
                     lease_token=lease_token,
                 )
                 if not completed:
-                    raise AiRetryLeaseLostError(
+                    raise BatchLeaseLostError(
                         f'Lease lost while finalizing AI retry job {job_id}.'
                     )
                 await job_repo.add_event(
@@ -394,7 +391,7 @@ async def _begin_step(
         lease_token=lease_token,
         step_code=step_code,
     ):
-        raise AiRetryLeaseLostError(f'Lease lost before AI retry step {step_code}.')
+        raise BatchLeaseLostError(f'Lease lost before AI retry step {step_code}.')
 
 
 async def _checkpoint(
@@ -419,7 +416,7 @@ async def _checkpoint(
         },
     )
     if not saved:
-        raise AiRetryLeaseLostError(
+        raise BatchLeaseLostError(
             f'Lease lost while checkpointing AI retry job {job_id}.'
         )
 
@@ -478,6 +475,5 @@ __all__ = [
     'AI_RETRY_FINALIZE_STEP',
     'AI_RETRY_GENERATE_STEP',
     'AI_RETRY_SELECT_STEP',
-    'AiRetryLeaseLostError',
     'AiRetryOrchestrator',
 ]

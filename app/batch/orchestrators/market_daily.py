@@ -64,6 +64,8 @@ class MarketDailyBatchOrchestrator:
                     business_date=job.business_date,
                     force_run=bool(job.force_run),
                     rebuild_page_only=bool(job.rebuild_page_only),
+                    source_job_id=getattr(job, 'source_job_id', None),
+                    source_page_id=getattr(job, 'source_page_id', None),
                 )
                 completed_steps = _completed_steps(checkpoint)
                 await repository.add_event(
@@ -168,6 +170,11 @@ class MarketDailyBatchOrchestrator:
                         raw_news_count=failure_context.raw_news_count,
                         processed_news_count=failure_context.processed_news_count,
                         cluster_count=failure_context.cluster_count,
+                        ai_target_count=failure_context.ai_target_count,
+                        ai_attempted_count=failure_context.ai_attempted_count,
+                        ai_success_count=failure_context.ai_success_count,
+                        ai_fallback_count=failure_context.ai_fallback_count,
+                        ai_failed_count=failure_context.ai_failed_count,
                         page_id=failure_context.page_id,
                         page_version_no=failure_context.page_version_no,
                         partial_message=partial_message,

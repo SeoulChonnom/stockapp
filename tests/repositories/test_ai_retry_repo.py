@@ -12,7 +12,12 @@ from app.db.repositories.ai_retry_repo import (
 from tests.support import DummyResult, RecordingAsyncSession, normalize_sql
 
 
-def _job_row(*, source_job_id=10, idempotency_key='retry-key'):
+def _job_row(
+    *,
+    source_job_id=10,
+    source_page_id=501,
+    idempotency_key='retry-key',
+):
     return {
         'job_id': 20,
         'job_name': 'market_daily_batch',
@@ -20,7 +25,7 @@ def _job_row(*, source_job_id=10, idempotency_key='retry-key'):
         'status': 'PENDING',
         'run_mode': 'AI_RETRY',
         'source_job_id': source_job_id,
-        'source_page_id': 501,
+        'source_page_id': source_page_id,
         'idempotency_key': idempotency_key,
         'started_at': datetime(2026, 7, 29, tzinfo=UTC),
         'checkpoint_json': {},
@@ -48,7 +53,7 @@ def _source() -> AiRetrySource:
 @pytest.mark.anyio
 async def test_enqueue_inserts_explicit_pending_ai_retry_contract():
     session = RecordingAsyncSession(results=[DummyResult([_job_row()])])
-    repository = PostgresAiRetryRepository(session)
+    repository = PostgresAiRetryRepository(session, max_attempts=5)
 
     result = await repository.enqueue(
         source=_source(),
@@ -63,6 +68,7 @@ async def test_enqueue_inserts_explicit_pending_ai_retry_contract():
     assert "'ai_retry'" in sql
     assert 'source_job_id' in sql
     assert session.parameters[0]['source_page_id'] == 501
+    assert session.parameters[0]['max_attempts'] == 5
 
 
 @pytest.mark.anyio
@@ -92,3 +98,39 @@ async def test_enqueue_rejects_idempotency_key_for_different_source():
             triggered_by_user_id='ADMIN-1',
             idempotency_key='retry-key',
         )
+
+
+@pytest.mark.anyio
+async def test_enqueue_rejects_idempotency_key_for_different_source_page():
+    session = RecordingAsyncSession(
+        results=[DummyResult([_job_row(source_page_id=777)])]
+    )
+    repository = PostgresAiRetryRepository(session)
+
+    with pytest.raises(AiRetryIdempotencyConflictError):
+        await repository.enqueue(
+            source=_source(),
+            triggered_by_user_id='ADMIN-1',
+            idempotency_key='retry-key',
+        )
+
+
+@pytest.mark.anyio
+async def test_resolve_source_walks_retry_lineage_to_root_and_uses_requested_page():
+    source_row = {
+        'requested_job_id': 30,
+        'source_job_id': 10,
+        'source_page_id': 503,
+        'business_date': date(2026, 7, 28),
+        'source_status': 'SUCCESS',
+    }
+    session = RecordingAsyncSession(results=[DummyResult([source_row])])
+    repository = PostgresAiRetryRepository(session)
+
+    source = await repository.resolve_source(30)
+
+    assert source == AiRetrySource(**source_row)
+    sql = normalize_sql(session.statements[0]).lower()
+    assert 'with recursive lineage as' in sql
+    assert "lineage.run_mode in ('page_rebuild', 'ai_retry')" in sql
+    assert 'cardinality(lineage.path) < 64' in sql

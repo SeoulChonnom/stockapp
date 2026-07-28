@@ -156,6 +156,12 @@ class AiRetryPageBuilder:
                     else source_market.get('partial_message')
                 ),
                 metadata_json=source_market.get('metadata_json') or {},
+                expected_session_date=source_market.get('expected_session_date'),
+                actual_index_source_date=source_market.get('actual_index_source_date'),
+                session_close_at=source_market.get('session_close_at'),
+                news_window_start_at=source_market.get('news_window_start_at'),
+                news_window_end_at=source_market.get('news_window_end_at'),
+                news_coverage_complete=source_market.get('news_coverage_complete'),
             )
 
         for source_index in source_indices:

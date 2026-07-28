@@ -160,3 +160,17 @@ def test_ai_retry_lineage_migration_is_transactional_and_idempotent():
     assert 'UNIQUE (batch_job_id, target_key)' in migration_sql
     assert 'FOREIGN KEY (source_summary_id)' in migration_sql
     assert 'CREATE INDEX IF NOT EXISTS idx_ai_summary_target_effective' in migration_sql
+
+
+def test_market_session_migration_preserves_legacy_nulls_but_rejects_new_nulls():
+    migration_sql = _read_sql(
+        MIGRATIONS_DIRECTORY / '20260729_05_market_session_context_source_date.sql'
+    )
+
+    for constraint_name in (
+        'chk_market_index_daily_source_date_present',
+        'chk_market_index_daily_expected_session_date_present',
+        'chk_market_index_daily_session_close_at_present',
+    ):
+        assert constraint_name in migration_sql
+    assert migration_sql.count('NOT VALID') == 3

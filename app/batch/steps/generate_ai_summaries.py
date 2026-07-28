@@ -204,6 +204,11 @@ class GenerateAiSummariesStep(BatchStep):
         payloads = await asyncio.gather(
             *(summary_job['payload'] for summary_job in summary_jobs)
         )
+        context.ai_target_count = len(summary_jobs)
+        context.ai_attempted_count = len(payloads)
+        context.ai_success_count = 0
+        context.ai_fallback_count = 0
+        context.ai_failed_count = 0
         step_fallback_count = 0
         fallback_details: list[dict[str, Any]] = []
         for summary_job, payload in zip(summary_jobs, payloads, strict=True):
@@ -232,6 +237,15 @@ class GenerateAiSummariesStep(BatchStep):
             )
             context.generated_summary_count += 1
             context.fallback_count += int(payload['fallback_used'])
+            if (
+                payload['status'] == AiSummaryStatus.SUCCESS.value
+                and not payload['fallback_used']
+            ):
+                context.ai_success_count += 1
+            elif payload['status'] == AiSummaryStatus.FAILED.value:
+                context.ai_failed_count += 1
+            else:
+                context.ai_fallback_count += 1
             if payload['fallback_used']:
                 step_fallback_count += 1
                 metadata = payload.get('metadata_json', {})

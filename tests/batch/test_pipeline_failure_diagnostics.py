@@ -495,6 +495,11 @@ async def test_finalize_job_builds_partial_message_from_warning() -> None:
     repository = FinalizeRepository()
     context = build_context()
     context.page_id = 501
+    context.ai_target_count = 4
+    context.ai_attempted_count = 4
+    context.ai_success_count = 3
+    context.ai_fallback_count = 1
+    context.ai_failed_count = 0
     context.warning_messages.append('NASDAQ used fallback trading date 2026-03-16.')
 
     await FinalizeJobStep().run(repository, context)
@@ -504,6 +509,11 @@ async def test_finalize_job_builds_partial_message_from_warning() -> None:
     assert repository.completed['partial_message'] == (
         'NASDAQ used fallback trading date 2026-03-16.'
     )
+    assert repository.completed['ai_target_count'] == 4
+    assert repository.completed['ai_attempted_count'] == 4
+    assert repository.completed['ai_success_count'] == 3
+    assert repository.completed['ai_fallback_count'] == 1
+    assert repository.completed['ai_failed_count'] == 0
 
 
 class OrchestratorSession:
@@ -575,6 +585,10 @@ async def test_orchestrator_failure_persists_only_last_committed_context(
         ) -> BatchExecutionContext:
             _ = repository
             context.raw_news_count = 7
+            context.ai_target_count = 4
+            context.ai_attempted_count = 4
+            context.ai_success_count = 3
+            context.ai_fallback_count = 1
             context.warning_messages.append('Committed collection warning.')
             context.log_messages.append('Committed collection progress.')
             return context
@@ -621,5 +635,10 @@ async def test_orchestrator_failure_persists_only_last_committed_context(
     assert repository.completed['raw_news_count'] == 7
     assert repository.completed['processed_news_count'] == 0
     assert repository.completed['cluster_count'] == 0
+    assert repository.completed['ai_target_count'] == 4
+    assert repository.completed['ai_attempted_count'] == 4
+    assert repository.completed['ai_success_count'] == 3
+    assert repository.completed['ai_fallback_count'] == 1
+    assert repository.completed['ai_failed_count'] == 0
     assert repository.completed['partial_message'] == 'Committed collection warning.'
     assert repository.completed['log_summary'] == 'Committed collection progress.'

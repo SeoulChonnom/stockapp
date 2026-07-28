@@ -19,9 +19,7 @@ class FinalizeJobStep(BatchStep):
     ) -> BatchExecutionContext:
         if not context.partial_message:
             diagnostics = list(
-                dict.fromkeys(
-                    [*context.partial_reasons, *context.warning_messages]
-                )
+                dict.fromkeys([*context.partial_reasons, *context.warning_messages])
             )
             if diagnostics:
                 context.partial_message = '; '.join(diagnostics[:3])
@@ -37,6 +35,11 @@ class FinalizeJobStep(BatchStep):
             raw_news_count=context.raw_news_count,
             processed_news_count=context.processed_news_count,
             cluster_count=context.cluster_count,
+            ai_target_count=context.ai_target_count,
+            ai_attempted_count=context.ai_attempted_count,
+            ai_success_count=context.ai_success_count,
+            ai_fallback_count=context.ai_fallback_count,
+            ai_failed_count=context.ai_failed_count,
             page_id=context.page_id,
             page_version_no=context.page_version_no,
             partial_message=context.partial_message,

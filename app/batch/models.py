@@ -11,6 +11,8 @@ class BatchExecutionContext:
     business_date: date
     force_run: bool
     rebuild_page_only: bool
+    source_job_id: int | None = None
+    source_page_id: int | None = None
     raw_news_count: int = 0
     processed_news_count: int = 0
     cluster_count: int = 0
@@ -19,6 +21,11 @@ class BatchExecutionContext:
     collected_index_count: int = 0
     generated_summary_count: int = 0
     fallback_count: int = 0
+    ai_target_count: int = 0
+    ai_attempted_count: int = 0
+    ai_success_count: int = 0
+    ai_fallback_count: int = 0
+    ai_failed_count: int = 0
     partial_message: str | None = None
     error_code: str | None = None
     error_message: str | None = None
@@ -33,6 +40,8 @@ class BatchExecutionContext:
             'businessDate': self.business_date.isoformat(),
             'forceRun': self.force_run,
             'rebuildPageOnly': self.rebuild_page_only,
+            'sourceJobId': self.source_job_id,
+            'sourcePageId': self.source_page_id,
             'rawNewsCount': self.raw_news_count,
             'processedNewsCount': self.processed_news_count,
             'clusterCount': self.cluster_count,
@@ -41,6 +50,11 @@ class BatchExecutionContext:
             'collectedIndexCount': self.collected_index_count,
             'generatedSummaryCount': self.generated_summary_count,
             'fallbackCount': self.fallback_count,
+            'aiTargetCount': self.ai_target_count,
+            'aiAttemptedCount': self.ai_attempted_count,
+            'aiSuccessCount': self.ai_success_count,
+            'aiFallbackCount': self.ai_fallback_count,
+            'aiFailedCount': self.ai_failed_count,
             'partialMessage': self.partial_message,
             'errorCode': self.error_code,
             'errorMessage': self.error_message,
@@ -58,6 +72,8 @@ class BatchExecutionContext:
         business_date: date,
         force_run: bool,
         rebuild_page_only: bool,
+        source_job_id: int | None = None,
+        source_page_id: int | None = None,
     ) -> BatchExecutionContext:
         """Restore a context while treating malformed checkpoint data as empty."""
         if not isinstance(payload, dict):
@@ -67,6 +83,16 @@ class BatchExecutionContext:
             business_date=business_date,
             force_run=force_run,
             rebuild_page_only=rebuild_page_only,
+            source_job_id=(
+                source_job_id
+                if source_job_id is not None
+                else _checkpoint_optional_int(payload, 'sourceJobId')
+            ),
+            source_page_id=(
+                source_page_id
+                if source_page_id is not None
+                else _checkpoint_optional_int(payload, 'sourcePageId')
+            ),
             raw_news_count=_checkpoint_int(payload, 'rawNewsCount'),
             processed_news_count=_checkpoint_int(payload, 'processedNewsCount'),
             cluster_count=_checkpoint_int(payload, 'clusterCount'),
@@ -75,6 +101,11 @@ class BatchExecutionContext:
             collected_index_count=_checkpoint_int(payload, 'collectedIndexCount'),
             generated_summary_count=_checkpoint_int(payload, 'generatedSummaryCount'),
             fallback_count=_checkpoint_int(payload, 'fallbackCount'),
+            ai_target_count=_checkpoint_int(payload, 'aiTargetCount'),
+            ai_attempted_count=_checkpoint_int(payload, 'aiAttemptedCount'),
+            ai_success_count=_checkpoint_int(payload, 'aiSuccessCount'),
+            ai_fallback_count=_checkpoint_int(payload, 'aiFallbackCount'),
+            ai_failed_count=_checkpoint_int(payload, 'aiFailedCount'),
             partial_message=_checkpoint_optional_string(payload, 'partialMessage'),
             error_code=_checkpoint_optional_string(payload, 'errorCode'),
             error_message=_checkpoint_optional_string(payload, 'errorMessage'),

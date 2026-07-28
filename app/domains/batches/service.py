@@ -124,10 +124,14 @@ class BatchesService:
                     rebuild_page_only=rebuild_page_only,
                     run_mode=run_mode,
                     source_job_id=(
-                        page_source.batch_job_id if page_source is not None else None
+                        page_source.batch_job_id
+                        if rebuild_page_only and page_source is not None
+                        else None
                     ),
                     source_page_id=(
-                        page_source.page_id if page_source is not None else None
+                        page_source.page_id
+                        if rebuild_page_only and page_source is not None
+                        else None
                     ),
                     idempotency_key=normalized_idempotency_key,
                     max_attempts=self._max_attempts,
@@ -173,7 +177,10 @@ class BatchesService:
     ) -> dict[str, object]:
         enqueuer = self._ai_retry_enqueuer
         if enqueuer is None:
-            enqueuer = PostgresAiRetryRepository(self._repo.session)
+            enqueuer = PostgresAiRetryRepository(
+                self._repo.session,
+                max_attempts=self._max_attempts,
+            )
         source = await enqueuer.resolve_source(requested_job_id)
         if source is None:
             raise NotFoundError(

@@ -340,9 +340,14 @@ class BuildPageSnapshotStep(BatchStep):
         source_page_repo: Any,
         snapshot_repo: Any,
     ) -> BatchExecutionContext:
-        source_page = await source_page_repo.get_page_header_by_business_date(
-            context.business_date
-        )
+        if context.source_page_id is not None:
+            source_page = await source_page_repo.get_page_header_by_id(
+                context.source_page_id
+            )
+        else:
+            source_page = await source_page_repo.get_page_header_by_business_date(
+                context.business_date
+            )
         if source_page is None:
             return await self._mark_rebuild_source_missing(repository, context)
 
