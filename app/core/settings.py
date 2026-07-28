@@ -3,10 +3,11 @@ import binascii
 import json
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 from urllib.parse import urlparse
 
 from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from app.db.identifiers import validate_postgres_identifier
 
@@ -110,7 +111,7 @@ class Settings(BaseSettings):
             'jwt_issuer',
         ),
     )
-    jwt_access_audiences: list[str] = Field(
+    jwt_access_audiences: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ['slcn-platform'],
         validation_alias=AliasChoices(
             'SLCN_JWT_ACCESS_AUDIENCES',

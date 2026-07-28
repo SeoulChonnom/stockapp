@@ -80,7 +80,9 @@ async def test_fetch_for_business_date_records_download_timeout(monkeypatch):
     ],
     ids=['empty_history', 'missing_close_column'],
 )
-async def test_fetch_single_ignores_empty_or_missing_close_history(monkeypatch, history):
+async def test_fetch_single_ignores_empty_or_missing_close_history(
+    monkeypatch, history
+):
     result = await _fetch_single_with_history(monkeypatch, history)
 
     assert result is None
@@ -149,3 +151,45 @@ async def test_fetch_single_uses_latest_prior_trading_date_for_holiday(monkeypat
     assert result.close_price == Decimal('101.5000')
     assert result.change_value == Decimal('1.5000')
     assert result.change_percent == Decimal('1.5000')
+
+
+@pytest.mark.anyio
+async def test_fetch_single_skips_latest_row_with_non_finite_close(monkeypatch):
+    history = pd.DataFrame(
+        {
+            'Open': [98.0, 100.0, 102.0],
+            'Close': [100.0, 101.5, float('nan')],
+            'High': [101.0, 102.0, 103.0],
+            'Low': [97.0, 99.0, 101.0],
+        },
+        index=pd.to_datetime(['2026-03-13', '2026-03-16', '2026-03-17']),
+    )
+
+    result = await _fetch_single_with_history(monkeypatch, history)
+
+    assert result is not None
+    assert result.source_date == date(2026, 3, 16)
+    assert result.close_price == Decimal('101.5000')
+    assert result.change_value == Decimal('1.5000')
+
+
+@pytest.mark.anyio
+async def test_fetch_single_sorts_history_before_selecting_latest_finite_row(
+    monkeypatch,
+):
+    history = pd.DataFrame(
+        {
+            'Open': [100.0, 98.0],
+            'Close': [101.5, 100.0],
+            'High': [102.0, 101.0],
+            'Low': [99.0, 97.0],
+        },
+        index=pd.to_datetime(['2026-03-16', '2026-03-13']),
+    )
+
+    result = await _fetch_single_with_history(monkeypatch, history)
+
+    assert result is not None
+    assert result.source_date == date(2026, 3, 16)
+    assert result.close_price == Decimal('101.5000')
+    assert result.change_value == Decimal('1.5000')

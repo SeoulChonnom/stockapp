@@ -137,17 +137,21 @@ class MarketIndexProvider:
         if history.empty:
             return None
 
-        selected = history[history.index.date <= target_date]
+        selected = history[history.index.date <= target_date].sort_index()
         if selected.empty:
             return None
 
-        row = selected.iloc[-1]
-        current_close = self._to_finite_decimal(row.get('Close'))
-        if current_close is None:
+        valid_rows = [
+            (row_index, row, close_price)
+            for row_index, row in selected.iterrows()
+            if (close_price := self._to_finite_decimal(row.get('Close'))) is not None
+        ]
+        if not valid_rows:
             return None
+        source_index, row, current_close = valid_rows[-1]
         previous_close = None
-        if len(selected.index) >= 2:
-            previous_close = self._to_finite_decimal(selected.iloc[-2].get('Close'))
+        if len(valid_rows) >= 2:
+            previous_close = valid_rows[-2][2]
         if previous_close is None:
             previous_close = self._to_finite_decimal(row.get('Open'))
         if previous_close is None:
@@ -160,7 +164,7 @@ class MarketIndexProvider:
 
         high_price = self._to_finite_decimal(row.get('High'))
         low_price = self._to_finite_decimal(row.get('Low'))
-        source_date = selected.index[-1].date()
+        source_date = source_index.date()
         return MarketIndexFetchResult(
             market_type=market_type,
             index_code=index_code,

@@ -52,6 +52,39 @@ def _is_string_list(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+def _normalize_string_list_fields(
+    result: object,
+    *,
+    field_names: tuple[str, ...],
+) -> object:
+    if not isinstance(result, dict):
+        return result
+    normalized = dict(result)
+    for field_name in field_names:
+        value = normalized.get(field_name)
+        if isinstance(value, str):
+            stripped = value.strip()
+            normalized[field_name] = [stripped] if stripped else []
+    return normalized
+
+
+def _normalize_string_fields(
+    result: object,
+    *,
+    field_names: tuple[str, ...],
+) -> object:
+    if not isinstance(result, dict):
+        return result
+    normalized = dict(result)
+    for field_name in field_names:
+        value = normalized.get(field_name)
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            normalized[field_name] = '\n\n'.join(
+                item.strip() for item in value if item.strip()
+            )
+    return normalized
+
+
 def _validate_summary_result(
     result: object,
     *,
@@ -400,6 +433,10 @@ async def _generate_market_summary(
                 for cluster in clusters
             ],
         )
+        result = _normalize_string_list_fields(
+            result,
+            field_names=('background', 'key_themes'),
+        )
         malformed_reason = _validate_summary_result(
             result,
             summary_name='Market summary',
@@ -503,6 +540,14 @@ async def _generate_cluster_detail_summary(
                 'summary': cluster['summary_long'] or cluster['summary_short'],
             },
             articles=articles,
+        )
+        result = _normalize_string_list_fields(
+            result,
+            field_names=('paragraphs',),
+        )
+        result = _normalize_string_fields(
+            result,
+            field_names=('body',),
         )
         malformed_reason = _validate_summary_result(
             result,

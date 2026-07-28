@@ -518,7 +518,7 @@ async def test_generate_ai_summaries_bounds_llm_calls_and_persists_model_name():
 
 
 @pytest.mark.anyio
-async def test_generate_ai_summaries_uses_fallback_for_malformed_market_metadata():
+async def test_generate_ai_summaries_normalizes_string_market_metadata():
     class SingleClusterRepo:
         def __init__(self, session):
             _ = session
@@ -620,31 +620,18 @@ async def test_generate_ai_summaries_uses_fallback_for_malformed_market_metadata
     market_row = next(
         row for row in summary_repo.rows if row.summary_type == 'MARKET_SUMMARY'
     )
-    assert updated_context.fallback_count == 1
+    assert updated_context.fallback_count == 0
     assert updated_context.ai_target_count == 4
     assert updated_context.ai_attempted_count == 4
-    assert updated_context.ai_success_count == 3
-    assert updated_context.ai_fallback_count == 1
+    assert updated_context.ai_success_count == 4
+    assert updated_context.ai_fallback_count == 0
     assert updated_context.ai_failed_count == 0
-    assert repository.events == [
-        (
-            GenerateAiSummariesStep.step_code,
-            'AI summaries generated with fallback responses.',
-        )
-    ]
-    assert market_row.fallback_used is True
-    assert market_row.status == 'FALLBACK'
-    assert market_row.metadata_json['background'] == ['Chip stocks lifted the index.']
-    assert market_row.metadata_json['keyThemes'] == ['chips', 'AI']
-    assert market_row.metadata_json['outlook'] == (
-        'Chip stocks led a broad technology rebound.'
-    )
-    assert market_row.metadata_json['reason'] == 'llm_malformed_response'
-    assert market_row.metadata_json['error'] == {
-        'provider': 'BatchLlmProvider',
-        'errorClass': 'ValueError',
-        'errorMessage': 'Market summary background must be a list of strings.',
-    }
+    assert repository.events == []
+    assert market_row.fallback_used is False
+    assert market_row.status == 'SUCCESS'
+    assert market_row.metadata_json['background'] == ['this must not become characters']
+    assert market_row.metadata_json['keyThemes'] == ['AI']
+    assert market_row.metadata_json['outlook'] == 'Outlook text'
 
 
 @pytest.mark.anyio

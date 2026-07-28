@@ -58,6 +58,37 @@ def test_settings_defaults_to_gemini_3_1_flash_lite(
 
 
 @pytest.mark.parametrize(
+    ('raw_value', 'expected'),
+    [
+        ('slcn-platform', ['slcn-platform']),
+        ('slcn-platform,stockapp', ['slcn-platform', 'stockapp']),
+        ('["slcn-platform", "stockapp"]', ['slcn-platform', 'stockapp']),
+    ],
+)
+def test_settings_loads_jwt_access_audiences_from_env(
+    raw_value: str,
+    expected: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv('STOCKAPP_JWT_ACCESS_AUDIENCES', raw_value)
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.jwt_access_audiences == expected
+
+
+def test_settings_loads_jwt_access_audiences_from_slcn_env_alias(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv('STOCKAPP_JWT_ACCESS_AUDIENCES', raising=False)
+    monkeypatch.setenv('SLCN_JWT_ACCESS_AUDIENCES', 'slcn-platform')
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.jwt_access_audiences == ['slcn-platform']
+
+
+@pytest.mark.parametrize(
     'key_name',
     [
         'gemini_api_key',
