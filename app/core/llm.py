@@ -61,7 +61,32 @@ class GeminiJsonClient:
             )
         except TimeoutError as exc:
             raise LlmTimeoutError('LLM invocation timed out.') from exc
-        return self._parse_json(str(response.content))
+        return self._parse_json(self._extract_text_content(response.content))
+
+    @staticmethod
+    def _extract_text_content(content: object) -> str:
+        if isinstance(content, str):
+            if not content.strip():
+                raise ValueError('Expected text content from the LLM response.')
+            return content
+
+        blocks = content if isinstance(content, list) else [content]
+        text_blocks: list[str] = []
+        for block in blocks:
+            if isinstance(block, str):
+                text_blocks.append(block)
+                continue
+            if isinstance(block, dict):
+                text = block.get('text')
+                if isinstance(text, str):
+                    text_blocks.append(text)
+
+        if not text_blocks:
+            raise ValueError('Expected text content from the LLM response.')
+        text_content = ''.join(text_blocks)
+        if not text_content.strip():
+            raise ValueError('Expected text content from the LLM response.')
+        return text_content
 
     @staticmethod
     def _parse_json(content: str) -> dict[str, Any]:

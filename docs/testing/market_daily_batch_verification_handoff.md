@@ -552,3 +552,78 @@ LLM 오류가 있으면 코드를 임의로 변경하기 전에 provider/model/e
 
 향후 동일 증상이 있으면 새 테스트를 시작하기 전에 잔여 FastAPI/pytest/MCP
 프로세스를 먼저 확인한다.
+
+## 8. 2026-07-28 개인 PC 재개 결과
+
+회사 PC에서 중단된 절차를 개인 PC에서 재개했다. 사용자 제공 DB URL은
+프로세스 범위에서만 `STOCKAPP_DATABASE_URL`로 매핑했고, 로컬 검증용 JWT
+설정과 토큰도 프로세스 메모리에만 두었다. 서버와 모든 API 요청은 Naver
+검색 API 제약에 맞춰 `http://127.0.0.1:8000`을 사용했다. 검증 종료 후
+서버와 임시 인증 환경을 제거했으며, 생성된 배치/페이지 데이터는 삭제하지
+않았다.
+
+### 8.1 provider smoke 결과
+
+- Naver 검색: certifi 검증을 유지한 실요청 성공, 1페이지 100건 반환
+- yfinance: 5개 ticker 모두 성공
+  - US `^GSPC`, `^IXIC`, `^DJI` 실제 source date: `2026-07-27`
+  - KR `^KS11`, `^KQ11` 실제 source date: `2026-07-28`
+- Gemini: 현재 LangChain 응답의 `content`가 문자열이 아니라
+  `[{type, text, extras}]` 형태일 수 있음을 확인
+
+Gemini structured content를 `str(response.content)`로 변환해 JSON 파싱하던
+문제를 `GeminiJsonClient`에서 실제 text block을 추출하도록 수정했다.
+문자열, fenced JSON, 실제 `AIMessage`, 복수/mixed block, 빈/지원하지 않는
+content에 대한 회귀 테스트를 추가했다. 최소 실요청은 수정 후 정상 JSON
+응답을 반환했다.
+
+### 8.2 full live batch
+
+`2026-07-28` 기준 full batch는 job 1, page 1(version 1)을 생성했다.
+
+- terminal status: `PARTIAL`
+- duration: 403초
+- raw / processed / cluster: `1318 / 1265 / 153`
+- page와 job의 status/count/partial message 일치
+- page child: market 2, index 5, cluster 153, article link 1265
+- article content provider fallback WARN: 4건
+- cluster enrichment fallback: 76건
+  - `LlmTimeoutError`: 5건
+  - Gemini `RESOURCE_EXHAUSTED` 429: 71건
+- `ai_summary`: 총 309건 모두 `FALLBACK`
+  - cluster card 153, cluster detail 153, global headline 1, market summary 2
+
+Gemini 429의 직접 원인은 사용 중인 free-tier 모델의 분당 요청 한도
+15건이다. 파이프라인은 의도한 fallback 경로로 페이지까지 생성했지만,
+외부 quota가 유지되는 동안 LLM 전체 success 상태는 재현할 수 없다.
+
+### 8.3 rebuild-only
+
+같은 날짜의 `rebuildPageOnly=true` 실행은 job 2, page 2(version 2)를
+생성했다.
+
+- trigger type: `ADMIN_REBUILD`
+- terminal status: `PARTIAL`
+- duration: 0초
+- raw / processed / cluster: `1318 / 1265 / 153`
+- source page와 status/count/partial message 일치
+- 새 `ai_summary` row: 0건
+- provider context event: 0건
+- Naver 수집, cluster 생성/fallback, AI provider/fallback 이벤트 없음
+  (각 단계의 공통 started/completed 이벤트만 기록)
+- 양쪽 child count: `2 / 5 / 153 / 1265`
+- index, cluster, article-link의 semantic hash와 순서 일치
+- market summary/analysis/count/order/partial/metadata 일치
+- market `last_updated_at`만 rebuild 시각으로 갱신
+
+### 8.4 최종 로컬 검증
+
+```text
+uv run pytest                         186 passed, 4 skipped
+uv run ruff check app tests           passed
+ruff format --check (변경 파일 2개)    passed
+git diff --check                      passed
+```
+
+전체 `ruff format --check app tests`는 이번 변경과 무관한 기존 23개 파일의
+format debt 때문에 실패한다.
