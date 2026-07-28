@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from html import unescape
@@ -28,6 +28,7 @@ class NaverCollectedKeywordResult:
     fetched_count: int
     candidate_count: int
     articles: list[NewsArticleRawCreateParams]
+    coverage_complete: bool = True
 
 
 class NaverNewsProvider:
@@ -44,13 +45,21 @@ class NaverNewsProvider:
         *,
         keyword_record: NewsSearchKeywordRecord,
         business_date: date,
+        window_start_at: datetime | None = None,
+        window_end_at: datetime | None = None,
     ) -> NaverCollectedKeywordResult:
         if not self.is_configured():
             raise RuntimeError('Naver news API credentials are not configured.')
 
+        window_start_at, window_end_at = self._normalize_window(
+            business_date=business_date,
+            window_start_at=window_start_at,
+            window_end_at=window_end_at,
+        )
         fetched_count = 0
         candidate_count = 0
         articles: list[NewsArticleRawCreateParams] = []
+        coverage_complete = False
 
         async with self._build_client() as client:
             start = 1
@@ -60,18 +69,22 @@ class NaverNewsProvider:
                 )
                 items = payload.get('items', [])
                 if not items:
+                    coverage_complete = True
                     break
 
                 fetched_count += len(items)
-                page_articles, should_stop = self._extract_business_date_articles(
+                page_articles, should_stop = self._extract_window_articles(
                     items=items,
                     keyword_record=keyword_record,
                     business_date=business_date,
+                    window_start_at=window_start_at,
+                    window_end_at=window_end_at,
                 )
                 candidate_count += len(page_articles)
                 articles.extend(page_articles)
 
                 if should_stop or len(items) < _NAVER_PAGE_SIZE:
+                    coverage_complete = True
                     break
                 start += _NAVER_PAGE_SIZE
 
@@ -79,6 +92,7 @@ class NaverNewsProvider:
             fetched_count=fetched_count,
             candidate_count=candidate_count,
             articles=articles,
+            coverage_complete=coverage_complete,
         )
 
     def _build_client(self) -> httpx.AsyncClient:
@@ -110,12 +124,14 @@ class NaverNewsProvider:
         response.raise_for_status()
         return response.json()
 
-    def _extract_business_date_articles(
+    def _extract_window_articles(
         self,
         *,
         items: list[dict],
         keyword_record: NewsSearchKeywordRecord,
         business_date: date,
+        window_start_at: datetime,
+        window_end_at: datetime,
     ) -> tuple[list[NewsArticleRawCreateParams], bool]:
         matched_articles: list[NewsArticleRawCreateParams] = []
         should_stop = False
@@ -125,11 +141,10 @@ class NaverNewsProvider:
             if published_at is None:
                 continue
 
-            published_date = published_at.astimezone(KST).date()
-            if published_date < business_date:
+            if published_at < window_start_at:
                 should_stop = True
                 break
-            if published_date != business_date:
+            if published_at >= window_end_at:
                 continue
 
             matched_articles.append(
@@ -151,6 +166,24 @@ class NaverNewsProvider:
             )
 
         return matched_articles, should_stop
+
+    @staticmethod
+    def _normalize_window(
+        *,
+        business_date: date,
+        window_start_at: datetime | None,
+        window_end_at: datetime | None,
+    ) -> tuple[datetime, datetime]:
+        if window_start_at is None and window_end_at is None:
+            window_start_at = datetime.combine(business_date, time.min, tzinfo=KST)
+            window_end_at = window_start_at + timedelta(days=1)
+        if window_start_at is None or window_end_at is None:
+            raise ValueError('Both news window boundaries must be provided.')
+        if window_start_at.tzinfo is None or window_end_at.tzinfo is None:
+            raise ValueError('News window boundaries must be timezone-aware.')
+        if window_start_at > window_end_at:
+            raise ValueError('News window start must not be after its end.')
+        return window_start_at, window_end_at
 
     @staticmethod
     def _build_provider_article_key(item: dict, published_at: datetime) -> str:
@@ -179,7 +212,7 @@ class NaverNewsProvider:
             return None
         try:
             parsed = parsedate_to_datetime(value)
-        except (TypeError, ValueError, IndexError):
+        except TypeError, ValueError, IndexError:
             return None
         if parsed.tzinfo is None:
             return None

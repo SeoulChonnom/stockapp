@@ -107,7 +107,8 @@ class NewsArticleRawRepository(PostgresRepository):
                 :naver_link,
                 CAST(:payload_json AS JSONB)
             )
-            ON CONFLICT (provider_name, provider_article_key) DO NOTHING
+            ON CONFLICT (business_date, provider_name, provider_article_key)
+            DO NOTHING
             RETURNING id
             """.format(
                 raw_table=_qualified_table('news_article_raw'),

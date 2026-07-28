@@ -6,6 +6,7 @@ from app.batch.steps.create_job import CreateJobStep
 from app.batch.steps.dedupe_articles import DedupeArticlesStep
 from app.batch.steps.finalize_job import FinalizeJobStep
 from app.batch.steps.generate_ai_summaries import GenerateAiSummariesStep
+from app.batch.steps.prepare_market_contexts import PrepareMarketContextsStep
 
 __all__ = [
     'BuildClustersStep',
@@ -16,4 +17,5 @@ __all__ = [
     'DedupeArticlesStep',
     'FinalizeJobStep',
     'GenerateAiSummariesStep',
+    'PrepareMarketContextsStep',
 ]

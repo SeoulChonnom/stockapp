@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Enum,
@@ -63,6 +64,14 @@ class MarketDailyPageMarket(Base):
     market_type: Mapped[MarketType] = mapped_column(
         Enum(MarketType, name='market_type_enum')
     )
+    expected_session_date: Mapped[date | None] = mapped_column(Date)
+    actual_index_source_date: Mapped[date | None] = mapped_column(Date)
+    session_close_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    news_window_start_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    news_window_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    news_coverage_complete: Mapped[bool | None] = mapped_column(Boolean)
     display_order: Mapped[int] = mapped_column(SmallInteger)
     market_label: Mapped[str] = mapped_column(Text)
     summary_title: Mapped[str | None] = mapped_column(Text)
@@ -100,6 +109,9 @@ class MarketDailyPageMarketIndex(Base):
         ForeignKey('stock.market_daily_page_market.id', ondelete='CASCADE')
     )
     market_index_daily_id: Mapped[int | None] = mapped_column(Integer)
+    source_date: Mapped[date | None] = mapped_column(Date)
+    expected_session_date: Mapped[date | None] = mapped_column(Date)
+    session_close_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     display_order: Mapped[int] = mapped_column(SmallInteger)
     index_code: Mapped[str] = mapped_column(Text)
     index_name: Mapped[str] = mapped_column(Text)

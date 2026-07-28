@@ -60,6 +60,9 @@ def build_daily_page_payload(
                 changePercent=row['change_percent'],
                 highPrice=row.get('high_price'),
                 lowPrice=row.get('low_price'),
+                sourceDate=row.get('source_date'),
+                expectedSessionDate=row.get('expected_session_date'),
+                sessionCloseAt=_as_iso(row.get('session_close_at')),
             )
         )
 
@@ -120,6 +123,12 @@ def build_daily_page_payload(
                     clusterCount=market['cluster_count'],
                     lastUpdatedAt=_as_iso(market['last_updated_at']),
                     partialMessage=market.get('partial_message'),
+                    sourceDate=market.get('actual_index_source_date'),
+                    expectedSessionDate=market.get('expected_session_date'),
+                    sessionCloseAt=_as_iso(market.get('session_close_at')),
+                    newsWindowStartAt=_as_iso(market.get('news_window_start_at')),
+                    newsWindowEndAt=_as_iso(market.get('news_window_end_at')),
+                    coverageComplete=market.get('news_coverage_complete'),
                 ),
             )
         )

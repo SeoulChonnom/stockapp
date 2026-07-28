@@ -18,6 +18,9 @@ MIGRATIONS_DIRECTORY = REPOSITORY_ROOT / 'db' / 'migrations'
 DATE_DEDUPE_MIGRATION = (
     MIGRATIONS_DIRECTORY / '20260728_03_news_article_processed_date_dedupe.sql'
 )
+MARKET_SESSION_MIGRATION = (
+    MIGRATIONS_DIRECTORY / '20260729_05_market_session_context_source_date.sql'
+)
 
 
 def _execute_file(connection, path: Path) -> None:
@@ -221,6 +224,127 @@ async def test_durable_queue_repository_recovers_and_fences_expired_lease(
             await repository.commit()
     finally:
         await engine.dispose()
+
+
+def test_market_session_migration_upgrades_legacy_contract_idempotently(
+    postgres_connection,
+):
+    postgres_connection.execute(
+        """
+        DROP TABLE stock.batch_job_market_context;
+
+        ALTER TABLE stock.market_index_daily
+            DROP CONSTRAINT chk_market_index_daily_source_not_future,
+            DROP COLUMN source_date,
+            DROP COLUMN expected_session_date,
+            DROP COLUMN session_close_at;
+
+        ALTER TABLE stock.market_daily_page_market
+            DROP CONSTRAINT chk_market_daily_page_market_news_window,
+            DROP CONSTRAINT chk_market_daily_page_market_source_not_future,
+            DROP COLUMN expected_session_date,
+            DROP COLUMN actual_index_source_date,
+            DROP COLUMN session_close_at,
+            DROP COLUMN news_window_start_at,
+            DROP COLUMN news_window_end_at,
+            DROP COLUMN news_coverage_complete;
+
+        ALTER TABLE stock.market_daily_page_market_index
+            DROP CONSTRAINT
+                chk_market_daily_page_market_index_source_not_future,
+            DROP COLUMN source_date,
+            DROP COLUMN expected_session_date,
+            DROP COLUMN session_close_at;
+
+        ALTER TABLE stock.news_article_raw
+            DROP CONSTRAINT uq_news_article_raw_business_provider_key,
+            ADD CONSTRAINT uq_news_article_raw_provider_key
+                UNIQUE (provider_name, provider_article_key);
+        """
+    )
+
+    _execute_file(postgres_connection, MARKET_SESSION_MIGRATION)
+    _execute_file(postgres_connection, MARKET_SESSION_MIGRATION)
+
+    context_columns = postgres_connection.execute(
+        """
+        SELECT column_name, is_nullable
+        FROM information_schema.columns
+        WHERE table_schema = 'stock'
+          AND table_name = 'batch_job_market_context'
+          AND column_name IN (
+              'expected_session_date',
+              'session_close_at',
+              'news_window_start_at',
+              'news_window_end_at',
+              'news_coverage_complete'
+          )
+        ORDER BY column_name
+        """
+    ).fetchall()
+    index_columns = postgres_connection.execute(
+        """
+        SELECT column_name, is_nullable
+        FROM information_schema.columns
+        WHERE table_schema = 'stock'
+          AND table_name = 'market_index_daily'
+          AND column_name IN (
+              'source_date',
+              'expected_session_date',
+              'session_close_at'
+          )
+        ORDER BY column_name
+        """
+    ).fetchall()
+
+    postgres_connection.execute(
+        """
+        INSERT INTO stock.news_article_raw (
+            provider_name,
+            provider_article_key,
+            market_type,
+            business_date,
+            title
+        )
+        VALUES
+            (
+                'NAVER_NEWS',
+                'same-provider-key',
+                'US',
+                DATE '2026-07-28',
+                'First publication date'
+            ),
+            (
+                'NAVER_NEWS',
+                'same-provider-key',
+                'US',
+                DATE '2026-07-29',
+                'Second publication date'
+            );
+        """
+    )
+    repeated_provider_key_count = postgres_connection.execute(
+        """
+        SELECT count(*)
+        FROM stock.news_article_raw
+        WHERE provider_name = 'NAVER_NEWS'
+          AND provider_article_key = 'same-provider-key'
+        """
+    ).fetchone()
+
+    assert context_columns == [
+        ('expected_session_date', 'NO'),
+        ('news_coverage_complete', 'NO'),
+        ('news_window_end_at', 'NO'),
+        ('news_window_start_at', 'NO'),
+        ('session_close_at', 'NO'),
+    ]
+    assert index_columns == [
+        ('expected_session_date', 'YES'),
+        ('session_close_at', 'YES'),
+        ('source_date', 'YES'),
+    ]
+    assert repeated_provider_key_count == (2,)
 
 
 def test_migration_files_upgrade_legacy_contracts_as_whole_files(

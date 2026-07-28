@@ -43,6 +43,13 @@ class IndexCardResponse(BaseModel):
     changePercent: Decimal
     highPrice: Decimal | None = None
     lowPrice: Decimal | None = None
+    sourceDate: date | None = None
+    expectedSessionDate: date | None = None
+    sessionCloseAt: datetime | str | None = None
+
+    _normalize_session_close_at = field_validator('sessionCloseAt', mode='before')(
+        _normalize_timestamp
+    )
 
 
 class ClusterCardResponse(BaseModel):
@@ -81,10 +88,20 @@ class MarketMetadataResponse(BaseModel):
     clusterCount: int
     lastUpdatedAt: datetime | str
     partialMessage: str | None = None
+    sourceDate: date | None = None
+    expectedSessionDate: date | None = None
+    sessionCloseAt: datetime | str | None = None
+    newsWindowStartAt: datetime | str | None = None
+    newsWindowEndAt: datetime | str | None = None
+    coverageComplete: bool | None = None
 
-    _normalize_last_updated_at = field_validator('lastUpdatedAt', mode='before')(
-        _normalize_timestamp
-    )
+    _normalize_market_timestamps = field_validator(
+        'lastUpdatedAt',
+        'sessionCloseAt',
+        'newsWindowStartAt',
+        'newsWindowEndAt',
+        mode='before',
+    )(_normalize_timestamp)
 
 
 class MarketSectionResponse(BaseModel):

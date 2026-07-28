@@ -5,6 +5,7 @@ from datetime import date
 
 import pytest
 
+from tests.market_context_fakes import CompleteMarketContextRepository
 from tests.support import RecordingAsyncSession, load_module
 
 batch_models_module = load_module('app.batch.models')
@@ -58,7 +59,9 @@ class EmptyIndexRepository:
 
 class FailingLiveRepository:
     def __init__(self, session):
-        raise AssertionError(f'rebuild must not construct live repository for {session!r}')
+        raise AssertionError(
+            f'rebuild must not construct live repository for {session!r}'
+        )
 
 
 class DifferentLiveRepository:
@@ -395,6 +398,7 @@ async def test_normal_snapshot_marks_fallback_partial_and_builds_partial_message
         summary_repo_factory=EmptySummaryRepository,
         index_repo_factory=EmptyIndexRepository,
         snapshot_repo_factory=lambda session: snapshot_repository,
+        context_repo_factory=CompleteMarketContextRepository,
     )
     context = BatchExecutionContext(
         job_id=1001,

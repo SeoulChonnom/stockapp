@@ -17,6 +17,7 @@ from app.batch.steps import (
     DedupeArticlesStep,
     FinalizeJobStep,
     GenerateAiSummariesStep,
+    PrepareMarketContextsStep,
 )
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
@@ -28,6 +29,7 @@ class MarketDailyBatchOrchestrator:
         self._session_maker = session_maker or get_session_maker()
         self._steps = [
             CreateJobStep(),
+            PrepareMarketContextsStep(),
             CollectNewsStep(),
             DedupeArticlesStep(),
             BuildClustersStep(),

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from datetime import date, datetime, time, timedelta
+from typing import Any
+from zoneinfo import ZoneInfo
+
 import httpx
 
 from app.batch.exceptions import BatchPipelineError
@@ -8,6 +12,7 @@ from app.batch.providers import NAVER_NEWS_PROVIDER_NAME, NaverNewsProvider
 from app.batch.steps.base import BatchStep
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
+from app.db.repositories.market_context_repo import MarketContextRepository
 from app.db.repositories.news_article_raw_repo import NewsArticleRawRepository
 from app.db.repositories.news_search_keyword_repo import NewsSearchKeywordRepository
 
@@ -16,6 +21,15 @@ class CollectNewsStep(BatchStep):
     step_code = 'COLLECT_NEWS'
     started_message = 'Collect news step started.'
     completed_message = 'Collect news step completed.'
+
+    def __init__(
+        self,
+        *,
+        provider_factory: type | None = None,
+        context_repo_factory: type | None = None,
+    ) -> None:
+        self._provider_factory = provider_factory
+        self._context_repo_factory = context_repo_factory
 
     async def run(
         self,
@@ -30,7 +44,6 @@ class CollectNewsStep(BatchStep):
 
         keyword_repo = NewsSearchKeywordRepository(repository.session)
         raw_repo = NewsArticleRawRepository(repository.session)
-
         keywords = await keyword_repo.list_active_keywords(
             provider_name=NAVER_NEWS_PROVIDER_NAME
         )
@@ -40,22 +53,47 @@ class CollectNewsStep(BatchStep):
                 error_message='Naver news keywords are not configured.',
             )
 
-        provider = NaverNewsProvider()
+        provider = (
+            self._provider_factory() if self._provider_factory else NaverNewsProvider()
+        )
         if not provider.is_configured():
             raise BatchPipelineError(
                 error_code='NAVER_NOT_CONFIGURED',
                 error_message='Naver news API credentials are not configured.',
             )
 
+        context_repo = None
+        persisted_contexts = []
+        if self._context_repo_factory is not None or hasattr(
+            repository.session, 'execute'
+        ):
+            context_repo = (self._context_repo_factory or MarketContextRepository)(
+                repository.session
+            )
+            persisted_contexts = await context_repo.list_for_job(context.job_id)
+        persisted_by_market = {row.market_type: row for row in persisted_contexts}
+
         total_fetched = 0
         total_candidates = 0
         total_inserted = 0
+        market_has_keyword = {market_type: False for market_type in persisted_by_market}
+        market_coverage_complete = {
+            market_type: True for market_type in persisted_by_market
+        }
 
         for keyword in keywords:
+            market_has_keyword[keyword.market_type] = True
+            window = persisted_by_market.get(keyword.market_type)
+            window_start_at, window_end_at = _news_window(
+                business_date=context.business_date,
+                persisted_context=window,
+            )
             try:
                 collection = await provider.collect_for_keyword(
                     keyword_record=keyword,
                     business_date=context.business_date,
+                    window_start_at=window_start_at,
+                    window_end_at=window_end_at,
                 )
             except Exception as exc:
                 if _is_naver_auth_failure(exc):
@@ -77,6 +115,7 @@ class CollectNewsStep(BatchStep):
                 )
                 if partial_reason not in context.partial_reasons:
                     context.partial_reasons.append(partial_reason)
+                market_coverage_complete[keyword.market_type] = False
                 await repository.add_event(
                     job_id=context.job_id,
                     step_code=self.step_code,
@@ -98,6 +137,15 @@ class CollectNewsStep(BatchStep):
             total_fetched += collection.fetched_count
             total_candidates += collection.candidate_count
             total_inserted += inserted_count
+            coverage_complete = bool(getattr(collection, 'coverage_complete', True))
+            if not coverage_complete:
+                market_coverage_complete[keyword.market_type] = False
+                partial_reason = (
+                    'Naver news pagination cap was reached before covering '
+                    f"the persisted window for keyword '{keyword.keyword}'."
+                )
+                if partial_reason not in context.partial_reasons:
+                    context.partial_reasons.append(partial_reason)
             await repository.add_event(
                 job_id=context.job_id,
                 step_code=self.step_code,
@@ -110,7 +158,19 @@ class CollectNewsStep(BatchStep):
                     'fetchedCount': collection.fetched_count,
                     'candidateCount': collection.candidate_count,
                     'insertedCount': inserted_count,
+                    'coverageComplete': coverage_complete,
                 },
+            )
+
+        for market_type in persisted_by_market:
+            coverage_complete = bool(
+                market_has_keyword.get(market_type)
+                and market_coverage_complete.get(market_type)
+            )
+            await context_repo.set_news_coverage_complete(
+                job_id=context.job_id,
+                market_type=market_type,
+                coverage_complete=coverage_complete,
             )
 
         context.raw_news_count = await raw_repo.count_articles_by_business_date(
@@ -125,10 +185,25 @@ class CollectNewsStep(BatchStep):
 
 
 def _is_naver_auth_failure(exc: Exception) -> bool:
-    return (
-        isinstance(exc, httpx.HTTPStatusError)
-        and exc.response.status_code in {401, 403}
-    )
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in {
+        401,
+        403,
+    }
+
+
+def _news_window(
+    *,
+    business_date: date,
+    persisted_context: Any | None,
+) -> tuple[datetime, datetime]:
+    if persisted_context is not None:
+        return (
+            persisted_context.news_window_start_at,
+            persisted_context.news_window_end_at,
+        )
+    kst = ZoneInfo('Asia/Seoul')
+    start_at = datetime.combine(business_date, time.min, tzinfo=kst)
+    return start_at, start_at + timedelta(days=1)
 
 
 __all__ = ['CollectNewsStep']

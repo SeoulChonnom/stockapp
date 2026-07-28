@@ -9,6 +9,7 @@ from app.db.enums import AiSummaryType, EventLevel, PageStatus
 from app.db.repositories.ai_summary_repo import AiSummaryRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.cluster_repo import ClusterRepository
+from app.db.repositories.market_context_repo import MarketContextRepository
 from app.db.repositories.market_index_repo import MarketIndexRepository
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.db.repositories.page_snapshot_write_repo import PageSnapshotWriteRepository
@@ -41,6 +42,7 @@ class BuildPageSnapshotStep(BatchStep):
         index_repo_factory: Callable[[object], Any] | None = None,
         source_page_repo_factory: Callable[[object], Any] | None = None,
         snapshot_repo_factory: Callable[[object], Any] | None = None,
+        context_repo_factory: Callable[[object], Any] | None = None,
     ) -> None:
         self._cluster_repo_factory = cluster_repo_factory or ClusterRepository
         self._summary_repo_factory = summary_repo_factory or AiSummaryRepository
@@ -51,6 +53,7 @@ class BuildPageSnapshotStep(BatchStep):
         self._snapshot_repo_factory = (
             snapshot_repo_factory or PageSnapshotWriteRepository
         )
+        self._context_repo_factory = context_repo_factory or MarketContextRepository
 
     async def run(
         self,
@@ -82,7 +85,6 @@ class BuildPageSnapshotStep(BatchStep):
         )
         indices = await index_repo.list_indices_by_business_date(context.business_date)
         summaries = await summary_repo.list_summaries_for_job(context.job_id)
-
         if not clusters:
             context.error_code = 'SNAPSHOT_SOURCE_MISSING'
             context.error_message = '스냅샷 생성에 필요한 클러스터 데이터가 없습니다.'
@@ -92,6 +94,30 @@ class BuildPageSnapshotStep(BatchStep):
                 level=EventLevel.WARN.value,
                 message='Skipped page snapshot creation because no clusters exist.',
                 context_json={'businessDate': context.business_date.isoformat()},
+            )
+            return context
+        market_contexts = {
+            row.market_type: row
+            for row in await self._context_repo_factory(session).list_for_job(
+                context.job_id
+            )
+        }
+        missing_market_contexts = [
+            market_type
+            for market_type in ('US', 'KR')
+            if market_type not in market_contexts
+        ]
+        if missing_market_contexts:
+            context.error_code = 'MARKET_CONTEXT_MISSING'
+            context.error_message = (
+                '스냅샷 생성에 필요한 시장 세션 컨텍스트가 없습니다.'
+            )
+            await repository.add_event(
+                job_id=context.job_id,
+                step_code=self.step_code,
+                level=EventLevel.WARN.value,
+                message='Skipped page snapshot creation because market contexts are missing.',
+                context_json={'marketTypes': missing_market_contexts},
             )
             return context
 
@@ -149,6 +175,7 @@ class BuildPageSnapshotStep(BatchStep):
             indices_by_market.setdefault(index.market_type, []).append(index)
 
         for display_order, market_type in enumerate(['US', 'KR'], start=1):
+            market_context = market_contexts[market_type]
             market_summary = summary_by_type.get(
                 (AiSummaryType.MARKET_SUMMARY.value, market_type, None)
             )
@@ -156,6 +183,12 @@ class BuildPageSnapshotStep(BatchStep):
             page_market_id = await snapshot_repo.create_page_market(
                 page_id=page_id,
                 market_type=market_type,
+                expected_session_date=market_context.expected_session_date,
+                actual_index_source_date=market_context.actual_index_source_date,
+                session_close_at=market_context.session_close_at,
+                news_window_start_at=market_context.news_window_start_at,
+                news_window_end_at=market_context.news_window_end_at,
+                news_coverage_complete=market_context.news_coverage_complete,
                 display_order=display_order,
                 market_label='미국 증시 일간 요약'
                 if market_type == 'US'
@@ -182,6 +215,9 @@ class BuildPageSnapshotStep(BatchStep):
                     {
                         'page_market_id': page_market_id,
                         'market_index_daily_id': index.market_index_daily_id,
+                        'source_date': index.source_date,
+                        'expected_session_date': index.expected_session_date,
+                        'session_close_at': index.session_close_at,
                         'display_order': index_order,
                         'index_code': index.index_code,
                         'index_name': index.index_name,
@@ -312,58 +348,69 @@ class BuildPageSnapshotStep(BatchStep):
 
         new_market_ids: dict[int, int] = {}
         for source_market in source_markets:
-            new_market_ids[source_market['id']] = (
-                await snapshot_repo.create_page_market(
-                    page_id=page_id,
-                    market_type=source_market['market_type'],
-                    display_order=source_market['display_order'],
-                    market_label=source_market['market_label'],
-                    summary_title=source_market.get('summary_title'),
-                    summary_body=source_market.get('summary_body'),
-                    analysis_background_json=source_market.get(
-                        'analysis_background_json'
-                    )
-                    or [],
-                    analysis_key_themes_json=source_market.get(
-                        'analysis_key_themes_json'
-                    )
-                    or [],
-                    analysis_outlook=source_market.get('analysis_outlook'),
-                    raw_news_count=source_market['raw_news_count'],
-                    processed_news_count=source_market['processed_news_count'],
-                    cluster_count=source_market['cluster_count'],
-                    partial_message=source_market.get('partial_message'),
-                    metadata_json=source_market.get('metadata_json') or {},
+            market_snapshot = {
+                'page_id': page_id,
+                'market_type': source_market['market_type'],
+                'display_order': source_market['display_order'],
+                'market_label': source_market['market_label'],
+                'summary_title': source_market.get('summary_title'),
+                'summary_body': source_market.get('summary_body'),
+                'analysis_background_json': source_market.get(
+                    'analysis_background_json'
                 )
-            )
+                or [],
+                'analysis_key_themes_json': source_market.get(
+                    'analysis_key_themes_json'
+                )
+                or [],
+                'analysis_outlook': source_market.get('analysis_outlook'),
+                'raw_news_count': source_market['raw_news_count'],
+                'processed_news_count': source_market['processed_news_count'],
+                'cluster_count': source_market['cluster_count'],
+                'partial_message': source_market.get('partial_message'),
+                'metadata_json': source_market.get('metadata_json') or {},
+            }
+            for snapshot_field in (
+                'expected_session_date',
+                'actual_index_source_date',
+                'session_close_at',
+                'news_window_start_at',
+                'news_window_end_at',
+                'news_coverage_complete',
+            ):
+                if snapshot_field in source_market:
+                    market_snapshot[snapshot_field] = source_market[snapshot_field]
+            new_market_ids[
+                source_market['id']
+            ] = await snapshot_repo.create_page_market(**market_snapshot)
 
         for source_index in source_indices:
-            await snapshot_repo.insert_page_market_index(
-                {
-                    'page_market_id': new_market_ids[
-                        source_index['page_market_id']
-                    ],
-                    'market_index_daily_id': source_index[
-                        'market_index_daily_id'
-                    ],
-                    'display_order': source_index['display_order'],
-                    'index_code': source_index['index_code'],
-                    'index_name': source_index['index_name'],
-                    'close_price': source_index['close_price'],
-                    'change_value': source_index['change_value'],
-                    'change_percent': source_index['change_percent'],
-                    'high_price': source_index['high_price'],
-                    'low_price': source_index['low_price'],
-                    'currency_code': source_index['currency_code'],
-                }
-            )
+            index_snapshot = {
+                'page_market_id': new_market_ids[source_index['page_market_id']],
+                'market_index_daily_id': source_index['market_index_daily_id'],
+                'display_order': source_index['display_order'],
+                'index_code': source_index['index_code'],
+                'index_name': source_index['index_name'],
+                'close_price': source_index['close_price'],
+                'change_value': source_index['change_value'],
+                'change_percent': source_index['change_percent'],
+                'high_price': source_index['high_price'],
+                'low_price': source_index['low_price'],
+                'currency_code': source_index['currency_code'],
+            }
+            for snapshot_field in (
+                'source_date',
+                'expected_session_date',
+                'session_close_at',
+            ):
+                if snapshot_field in source_index:
+                    index_snapshot[snapshot_field] = source_index[snapshot_field]
+            await snapshot_repo.insert_page_market_index(index_snapshot)
 
         for source_cluster in source_clusters:
             await snapshot_repo.insert_page_market_cluster(
                 {
-                    'page_market_id': new_market_ids[
-                        source_cluster['page_market_id']
-                    ],
+                    'page_market_id': new_market_ids[source_cluster['page_market_id']],
                     'cluster_id': source_cluster['cluster_id'],
                     'cluster_uid': source_cluster['cluster_uid'],
                     'display_order': source_cluster['display_order'],
@@ -374,9 +421,7 @@ class BuildPageSnapshotStep(BatchStep):
                     'representative_article_id': source_cluster.get(
                         'representative_article_id'
                     ),
-                    'representative_title': source_cluster.get(
-                        'representative_title'
-                    ),
+                    'representative_title': source_cluster.get('representative_title'),
                     'representative_publisher_name': source_cluster.get(
                         'representative_publisher_name'
                     ),

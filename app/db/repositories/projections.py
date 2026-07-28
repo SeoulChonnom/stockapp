@@ -53,6 +53,12 @@ class PageMarketRecord:
     last_updated_at: datetime
     partial_message: str | None = None
     metadata_json: Any = None
+    expected_session_date: date | None = None
+    actual_index_source_date: date | None = None
+    session_close_at: datetime | None = None
+    news_window_start_at: datetime | None = None
+    news_window_end_at: datetime | None = None
+    news_coverage_complete: bool | None = None
 
 
 @dataclass(slots=True)
@@ -69,6 +75,9 @@ class PageMarketIndexRecord:
     high_price: Any | None
     low_price: Any | None
     currency_code: str
+    source_date: date | None = None
+    expected_session_date: date | None = None
+    session_close_at: datetime | None = None
 
 
 @dataclass(slots=True)
@@ -323,6 +332,9 @@ class NewsClusterWriteRecord:
 class MarketIndexDailyCreateParams:
     business_date: date
     market_type: str
+    source_date: date
+    expected_session_date: date
+    session_close_at: datetime
     index_code: str
     index_name: str
     close_price: Any
@@ -350,6 +362,34 @@ class MarketIndexDailyRecord:
     provider_name: str
     collected_at: datetime | None = None
     created_at: datetime | None = None
+    source_date: date | None = None
+    expected_session_date: date | None = None
+    session_close_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class BatchJobMarketContextCreateParams:
+    batch_job_id: int
+    market_type: str
+    expected_session_date: date
+    session_close_at: datetime
+    news_window_start_at: datetime
+    news_window_end_at: datetime
+
+
+@dataclass(slots=True)
+class BatchJobMarketContextRecord:
+    market_context_id: int
+    batch_job_id: int
+    market_type: str
+    expected_session_date: date
+    actual_index_source_date: date | None
+    session_close_at: datetime
+    news_window_start_at: datetime
+    news_window_end_at: datetime
+    news_coverage_complete: bool
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(slots=True)

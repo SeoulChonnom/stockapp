@@ -68,6 +68,9 @@ async def test_get_page_indices_includes_source_daily_index_id():
     assert result == []
     sql = normalize_sql(session.statements[0])
     assert 'market_index_daily_id' in sql
+    assert 'source_date' in sql
+    assert 'expected_session_date' in sql
+    assert 'session_close_at' in sql
 
 
 @pytest.mark.anyio

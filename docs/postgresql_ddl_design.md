@@ -32,7 +32,9 @@ PRD의 "반드시 합의되어야 할 정책" 중 이번 설계에 반영된 확
 
 이번 문서에 반영한 해석:
 
-- `business_date`는 시장 데이터의 귀속일이며, 생성 시각과 분리된 별도 `DATE` 컬럼으로 저장한다.
+- `business_date`는 KST 페이지 발행일이며, 생성 시각과 분리된 별도 `DATE`
+  컬럼으로 저장한다. 시장 데이터의 거래일은 시장별
+  `expected_session_date`/`source_date`로 별도 저장한다.
 - 재생성된 페이지는 항상 같은 `business_date` 내에서 `version_no`를 증가시킨다.
 - `triggered_by_user_id`는 UUID 값을 저장한다. 실제 사용자 테이블 FK 연결은 인증 스키마 확정 시점에 추가한다.
 - 클러스터 상세와 페이지 카드에 노출되는 대표 기사는 조회 시 계산이 아니라 저장 시점 확정값을 사용한다.
@@ -108,12 +110,18 @@ DB 설계는 기사 링크가 본질적으로 `market_type` 문맥을 갖는다�
 ### 4-2. 시간 전략
 
 - `business_date`: KST 기준 `DATE`
+- `expected_session_date`: 거래소 calendar 기준으로 완료된 최신 정상 세션
+- `source_date`: provider가 실제 반환한 지수 거래일
 - 이벤트 시각: `TIMESTAMPTZ`
 - DB 저장 시각은 UTC 기반 `TIMESTAMPTZ`로 저장하고, `business_date`만 KST 기준으로 계산한다.
 
 권장 규칙:
 
 - 배치 시작 시 `business_date = (now() AT TIME ZONE 'Asia/Seoul')::date` 또는 명시 입력값 사용
+- provider 호출 전에 US(XNYS)/KR(XKRX)별 세션과 뉴스 cutoff를
+  `batch_job_market_context`에 영속한다.
+- 뉴스 범위는 `[start, end)`이며 마지막 `news_coverage_complete=true`
+  cutoff만 다음 배치의 watermark로 사용한다.
 - API 응답 직렬화는 KST 기준 포맷 정책을 애플리케이션에서 통일
 
 ### 4-3. 상태값 전략

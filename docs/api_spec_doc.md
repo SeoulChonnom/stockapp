@@ -133,9 +133,25 @@ Authorization: Bearer {TOKEN}
           "changeValue": 120.33,
           "changePercent": 0.66,
           "highPrice": 18300.1,
-          "lowPrice": 18100.2
+          "lowPrice": 18100.2,
+          "sourceDate": "2026-03-17",
+          "expectedSessionDate": "2026-03-17",
+          "sessionCloseAt": "2026-03-17T20:00:00Z"
         }
       ],
+      "metadata": {
+        "rawNewsCount": 27,
+        "processedNewsCount": 18,
+        "clusterCount": 5,
+        "lastUpdatedAt": "2026-03-18T06:20:00Z",
+        "partialMessage": null,
+        "sourceDate": "2026-03-17",
+        "expectedSessionDate": "2026-03-17",
+        "sessionCloseAt": "2026-03-17T20:00:00Z",
+        "newsWindowStartAt": "2026-03-16T22:00:00Z",
+        "newsWindowEndAt": "2026-03-17T22:00:00Z",
+        "coverageComplete": true
+      },
       "topClusters": [
         {
           "clusterId": "51f0d9a0-9fc5-4f15-a4f9-62856f128683",

@@ -47,6 +47,7 @@ PostgreSQL 설계는 데이터 계층을 아래 두 층으로 나눈다.
 
 - 원천 계층
   - `batch_job`
+  - `batch_job_market_context`
   - `batch_job_event`
   - `news_article_raw`
   - `news_article_processed`
@@ -65,7 +66,10 @@ PostgreSQL 설계는 데이터 계층을 아래 두 층으로 나눈다.
 
 ### 2-3. PostgreSQL 전용 전제
 
-- `business_date`는 KST 기준 날짜다.
+- `business_date`는 KST 기준 페이지 발행일이다. US/KR 거래일과 동일하다는
+  가정을 두지 않는다.
+- 시장별 완료 거래일, 세션 종료 시각, 뉴스 cutoff는
+  `batch_job_market_context`에 실행 전에 고정한다.
 - `TIMESTAMPTZ`를 기본 시각 타입으로 사용한다.
 - 상태값은 PostgreSQL enum과 Python enum을 일치시킨다.
 - 클러스터 외부 식별자는 `cluster_uid`를 사용한다.
@@ -549,13 +553,14 @@ tests/
 `batch/orchestrators/market_daily.py`는 아래 순서를 관리한다.
 
 1. `create_job`
-2. `collect_news`
-3. `dedupe_articles`
-4. `build_clusters`
-5. `collect_market_indices`
-6. `generate_ai_summaries`
-7. `build_page_snapshot`
-8. `finalize_job`
+2. `prepare_market_contexts`
+3. `collect_news`
+4. `dedupe_articles`
+5. `build_clusters`
+6. `collect_market_indices`
+7. `generate_ai_summaries`
+8. `build_page_snapshot`
+9. `finalize_job`
 
 ### 8-2. 단계별 책임
 
@@ -569,6 +574,8 @@ tests/
 #### `collect_news.py`
 
 - 시장별 키워드 기반 수집
+- 저장된 `[news_window_start_at, news_window_end_at)` 범위만 포함
+- keyword 실패 또는 provider cap 도달 시 coverage watermark 유지
 - `news_article_raw` 저장
 - 수집 건수 집계
 
@@ -589,6 +596,8 @@ tests/
 #### `collect_market_indices.py`
 
 - 대표 지수 수집
+- 시장별 `expected_session_date` 이하 최신 row 선택
+- 실제 `source_date`가 오래되면 `PARTIAL`, 미래면 거부
 - `market_index_daily` 저장
 
 #### `generate_ai_summaries.py`

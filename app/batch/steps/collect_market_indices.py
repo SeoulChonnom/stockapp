@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, date, datetime, time
 
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.market_index_provider import (
@@ -10,6 +11,7 @@ from app.batch.providers.market_index_provider import (
 from app.batch.steps.base import BatchStep, require_repository_session
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
+from app.db.repositories.market_context_repo import MarketContextRepository
 from app.db.repositories.market_index_repo import MarketIndexRepository
 from app.db.repositories.projections import MarketIndexDailyCreateParams
 
@@ -24,9 +26,11 @@ class CollectMarketIndicesStep(BatchStep):
         *,
         provider_factory: Callable[[], object] | None = None,
         index_repo_factory: Callable[[object], object] | None = None,
+        context_repo_factory: Callable[[object], object] | None = None,
     ) -> None:
         self._provider_factory = provider_factory or MarketIndexProvider
         self._index_repo_factory = index_repo_factory or MarketIndexRepository
+        self._context_repo_factory = context_repo_factory or MarketContextRepository
 
     async def run(
         self,
@@ -43,7 +47,25 @@ class CollectMarketIndicesStep(BatchStep):
 
         provider = self._provider_factory()
         index_repo = self._index_repo_factory(session)
-        results = await provider.fetch_for_business_date(context.business_date)
+        context_repo = None
+        market_context_rows = []
+        if self._context_repo_factory is not MarketContextRepository or hasattr(
+            session, 'execute'
+        ):
+            context_repo = self._context_repo_factory(session)
+            market_context_rows = await context_repo.list_for_job(context.job_id)
+        market_contexts = {row.market_type: row for row in market_context_rows}
+        expected_session_dates = {
+            market_type: row.expected_session_date
+            for market_type, row in market_contexts.items()
+        }
+        if expected_session_dates:
+            results = await provider.fetch_for_business_date(
+                context.business_date,
+                expected_session_dates=expected_session_dates,
+            )
+        else:
+            results = await provider.fetch_for_business_date(context.business_date)
         failures = list(getattr(provider, 'last_failures', []))
         for failure in failures:
             ticker = _failure_value(failure, 'ticker')
@@ -83,11 +105,52 @@ class CollectMarketIndicesStep(BatchStep):
             return context
 
         inserted_count = 0
+        source_dates_by_market: dict[str, list[date]] = {}
         for result in results:
+            market_context = market_contexts.get(result.market_type)
+            expected_session_date = (
+                market_context.expected_session_date
+                if market_context is not None
+                else context.business_date
+            )
+            if result.source_date > expected_session_date:
+                partial_reason = (
+                    f'{result.market_type}:{result.index_code} returned future '
+                    f'source date {result.source_date.isoformat()} after expected '
+                    f'session {expected_session_date.isoformat()}.'
+                )
+                if partial_reason not in context.partial_reasons:
+                    context.partial_reasons.append(partial_reason)
+                await repository.add_event(
+                    job_id=context.job_id,
+                    step_code=self.step_code,
+                    level=EventLevel.WARN.value,
+                    message='Rejected a future market index source date.',
+                    context_json={
+                        'marketType': result.market_type,
+                        'indexCode': result.index_code,
+                        'sourceDate': result.source_date.isoformat(),
+                        'expectedSessionDate': expected_session_date.isoformat(),
+                    },
+                )
+                continue
+
+            session_close_at = (
+                market_context.session_close_at
+                if market_context is not None
+                else datetime.combine(
+                    expected_session_date,
+                    time.min,
+                    tzinfo=UTC,
+                )
+            )
             await index_repo.upsert_index(
                 MarketIndexDailyCreateParams(
                     business_date=context.business_date,
                     market_type=result.market_type,
+                    source_date=result.source_date,
+                    expected_session_date=expected_session_date,
+                    session_close_at=session_close_at,
                     index_code=result.index_code,
                     index_name=result.index_name,
                     close_price=result.close_price,
@@ -100,11 +163,49 @@ class CollectMarketIndicesStep(BatchStep):
                 )
             )
             inserted_count += 1
-            if result.source_date != context.business_date:
-                context.warning_messages.append(
-                    f'{result.market_type}:{result.index_code} used fallback '
-                    f'trading date {result.source_date.isoformat()}.'
+            source_dates_by_market.setdefault(result.market_type, []).append(
+                result.source_date
+            )
+            if result.source_date < expected_session_date:
+                partial_reason = (
+                    f'{result.market_type}:{result.index_code} used stale source '
+                    f'date {result.source_date.isoformat()} before expected session '
+                    f'{expected_session_date.isoformat()}.'
                 )
+                if partial_reason not in context.partial_reasons:
+                    context.partial_reasons.append(partial_reason)
+                level = EventLevel.WARN.value
+                message = 'Market index source date is stale.'
+            else:
+                level = EventLevel.INFO.value
+                message = 'Market index matched the expected completed session.'
+            await repository.add_event(
+                job_id=context.job_id,
+                step_code=self.step_code,
+                level=level,
+                message=message,
+                context_json={
+                    'marketType': result.market_type,
+                    'indexCode': result.index_code,
+                    'sourceDate': result.source_date.isoformat(),
+                    'expectedSessionDate': expected_session_date.isoformat(),
+                    'sessionCloseAt': session_close_at.isoformat(),
+                },
+            )
+
+        for market_type, source_dates in source_dates_by_market.items():
+            if market_type not in market_contexts:
+                continue
+            await context_repo.set_actual_index_source_date(
+                job_id=context.job_id,
+                market_type=market_type,
+                source_date=min(source_dates),
+            )
+
+        if inserted_count == 0:
+            partial_reason = '시장 지수 데이터를 수집하지 못했습니다.'
+            if partial_reason not in context.partial_reasons:
+                context.partial_reasons.append(partial_reason)
 
         context.collected_index_count += inserted_count
         context.log_messages.append(f'Collected {inserted_count} market index row(s).')

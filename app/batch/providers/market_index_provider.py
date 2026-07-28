@@ -55,7 +55,10 @@ class MarketIndexProvider:
         self.last_failures: list[MarketIndexFailureDetail] = []
 
     async def fetch_for_business_date(
-        self, business_date: date
+        self,
+        business_date: date,
+        *,
+        expected_session_dates: dict[str, date] | None = None,
     ) -> list[MarketIndexFetchResult]:
         descriptors = [
             {
@@ -70,7 +73,10 @@ class MarketIndexProvider:
         ]
         tasks = [
             self._fetch_single(
-                business_date=business_date,
+                expected_session_date=(expected_session_dates or {}).get(
+                    descriptor['market_type'],
+                    business_date,
+                ),
                 market_type=descriptor['market_type'],
                 ticker=descriptor['ticker'],
                 index_name=descriptor['index_name'],
@@ -87,11 +93,19 @@ class MarketIndexProvider:
                 ticker=descriptor['ticker'],
                 index_code=descriptor['index_code'],
                 index_name=descriptor['index_name'],
-                error_class=type(result).__name__,
-                error_message=str(result),
+                error_class=(
+                    type(result).__name__
+                    if isinstance(result, Exception)
+                    else 'MissingMarketIndexData'
+                ),
+                error_message=(
+                    str(result)
+                    if isinstance(result, Exception)
+                    else 'No valid row was returned at or before the expected session.'
+                ),
             )
             for descriptor, result in zip(descriptors, results, strict=True)
-            if isinstance(result, Exception)
+            if isinstance(result, Exception) or result is None
         ]
         return [
             result for result in results if isinstance(result, MarketIndexFetchResult)
@@ -100,26 +114,30 @@ class MarketIndexProvider:
     async def _fetch_single(
         self,
         *,
-        business_date: date,
+        expected_session_date: date | None = None,
+        business_date: date | None = None,
         market_type: str,
         ticker: str,
         index_name: str,
         currency_code: str,
         index_code: str,
     ) -> MarketIndexFetchResult | None:
+        target_date = expected_session_date or business_date
+        if target_date is None:
+            raise ValueError('An expected session date is required.')
         history = await asyncio.wait_for(
             asyncio.to_thread(
                 self._download_history,
                 ticker,
-                business_date - timedelta(days=7),
-                business_date + timedelta(days=1),
+                target_date - timedelta(days=7),
+                target_date + timedelta(days=1),
             ),
             timeout=self._settings.yfinance_timeout_seconds,
         )
         if history.empty:
             return None
 
-        selected = history[history.index.date <= business_date]
+        selected = history[history.index.date <= target_date]
         if selected.empty:
             return None
 
@@ -166,7 +184,7 @@ class MarketIndexProvider:
             return None
         try:
             decimal_value = Decimal(str(value))
-        except (ArithmeticError, ValueError):
+        except ArithmeticError, ValueError:
             return None
         return decimal_value if decimal_value.is_finite() else None
 

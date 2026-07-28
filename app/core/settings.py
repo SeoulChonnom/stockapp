@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     database_pool_size: int = Field(
         default=5,
         ge=1,
-        validation_alias=AliasChoices('STOCKAPP_DATABASE_POOL_SIZE', 'database_pool_size'),
+        validation_alias=AliasChoices(
+            'STOCKAPP_DATABASE_POOL_SIZE', 'database_pool_size'
+        ),
     )
     database_max_overflow: int = Field(
         default=10,
@@ -173,6 +175,14 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices(
             'STOCKAPP_YFINANCE_TIMEOUT_SECONDS',
             'yfinance_timeout_seconds',
+        ),
+    )
+    market_session_data_grace_minutes: int = Field(
+        default=30,
+        ge=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_MARKET_SESSION_DATA_GRACE_MINUTES',
+            'market_session_data_grace_minutes',
         ),
     )
     llm_provider: str = Field(
@@ -351,7 +361,7 @@ class Settings(BaseSettings):
         padding = '=' * (-len(secret) % 4)
         try:
             decoded_secret = base64.urlsafe_b64decode(f'{secret}{padding}')
-        except (ValueError, binascii.Error):
+        except ValueError, binascii.Error:
             return ['jwt_secret must be base64url encoded']
         if len(decoded_secret) < 32:
             return ['jwt_secret must decode to at least 32 bytes']

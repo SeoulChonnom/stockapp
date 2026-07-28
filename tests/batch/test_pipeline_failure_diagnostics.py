@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -225,9 +225,14 @@ async def test_collect_news_transient_failure_is_partial_and_recounts_available_
 
     class PartiallyFailingProvider(ConfiguredNaverProvider):
         async def collect_for_keyword(
-            self, *, keyword_record: object, business_date: date
+            self,
+            *,
+            keyword_record: object,
+            business_date: date,
+            window_start_at: datetime,
+            window_end_at: datetime,
         ) -> NaverCollectedKeywordResult:
-            _ = business_date
+            _ = (business_date, window_start_at, window_end_at)
             if keyword_record.keyword == 'broken':
                 raise TimeoutError('provider timeout')
             return NaverCollectedKeywordResult(
@@ -259,9 +264,9 @@ async def test_collect_news_transient_failure_is_partial_and_recounts_available_
 async def test_raw_news_repository_counts_all_rows_for_business_date() -> None:
     session = RecordingAsyncSession(results=[DummyResult([7])])
 
-    count = await NewsArticleRawRepository(
-        session
-    ).count_articles_by_business_date(date(2026, 3, 17))
+    count = await NewsArticleRawRepository(session).count_articles_by_business_date(
+        date(2026, 3, 17)
+    )
 
     assert count == 7
     assert 'COUNT(*)' in normalize_sql(session.statements[0])
@@ -327,7 +332,9 @@ async def test_collect_market_indices_surfaces_partial_ticker_failures() -> None
 
 
 @pytest.mark.anyio
-async def test_cluster_llm_fallback_increments_count_and_adds_partial_diagnostic() -> None:
+async def test_cluster_llm_fallback_increments_count_and_adds_partial_diagnostic() -> (
+    None
+):
     article = SimpleNamespace(
         processed_article_id=4001,
         market_type='US',
@@ -384,7 +391,9 @@ async def test_cluster_llm_fallback_increments_count_and_adds_partial_diagnostic
 
 
 @pytest.mark.anyio
-async def test_summary_llm_errors_are_in_warning_event_and_partial_diagnostics() -> None:
+async def test_summary_llm_errors_are_in_warning_event_and_partial_diagnostics() -> (
+    None
+):
     cluster = {
         'id': 7001,
         'market_type': 'US',

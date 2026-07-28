@@ -118,6 +118,36 @@ CREATE INDEX idx_batch_job_expired_lease
     ON batch_job (lease_expires_at, id)
     WHERE status = 'RUNNING';
 
+CREATE TABLE batch_job_market_context (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    batch_job_id BIGINT NOT NULL REFERENCES batch_job(id) ON DELETE CASCADE,
+    market_type market_type_enum NOT NULL,
+    expected_session_date DATE NOT NULL,
+    actual_index_source_date DATE NULL,
+    session_close_at TIMESTAMPTZ NOT NULL,
+    news_window_start_at TIMESTAMPTZ NOT NULL,
+    news_window_end_at TIMESTAMPTZ NOT NULL,
+    news_coverage_complete BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_batch_job_market_context_job_market
+        UNIQUE (batch_job_id, market_type),
+    CONSTRAINT chk_batch_job_market_context_news_window
+        CHECK (news_window_start_at <= news_window_end_at),
+    CONSTRAINT chk_batch_job_market_context_source_not_future
+        CHECK (
+            actual_index_source_date IS NULL
+            OR actual_index_source_date <= expected_session_date
+        )
+);
+
+CREATE INDEX idx_batch_job_market_context_coverage
+    ON batch_job_market_context (
+        market_type,
+        news_window_end_at DESC
+    )
+    WHERE news_coverage_complete;
+
 CREATE TABLE batch_job_event (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     batch_job_id BIGINT NOT NULL REFERENCES batch_job(id) ON DELETE CASCADE,
@@ -181,8 +211,8 @@ CREATE TABLE news_article_raw (
     payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     collected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uq_news_article_raw_provider_key
-        UNIQUE (provider_name, provider_article_key)
+    CONSTRAINT uq_news_article_raw_business_provider_key
+        UNIQUE (business_date, provider_name, provider_article_key)
 );
 
 CREATE INDEX idx_news_article_raw_business_market
@@ -267,6 +297,9 @@ CREATE TABLE market_index_daily (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     business_date DATE NOT NULL,
     market_type market_type_enum NOT NULL,
+    source_date DATE NOT NULL,
+    expected_session_date DATE NOT NULL,
+    session_close_at TIMESTAMPTZ NOT NULL,
     index_code TEXT NOT NULL,
     index_name TEXT NOT NULL,
     close_price NUMERIC(20, 4) NOT NULL,
@@ -278,7 +311,9 @@ CREATE TABLE market_index_daily (
     provider_name TEXT NOT NULL,
     collected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uq_market_index_daily UNIQUE (business_date, market_type, index_code)
+    CONSTRAINT uq_market_index_daily UNIQUE (business_date, market_type, index_code),
+    CONSTRAINT chk_market_index_daily_source_not_future
+        CHECK (source_date <= expected_session_date)
 );
 
 CREATE INDEX idx_market_index_daily_business_market
@@ -357,6 +392,12 @@ CREATE TABLE market_daily_page_market (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     page_id BIGINT NOT NULL REFERENCES market_daily_page(id) ON DELETE CASCADE,
     market_type market_type_enum NOT NULL,
+    expected_session_date DATE NULL,
+    actual_index_source_date DATE NULL,
+    session_close_at TIMESTAMPTZ NULL,
+    news_window_start_at TIMESTAMPTZ NULL,
+    news_window_end_at TIMESTAMPTZ NULL,
+    news_coverage_complete BOOLEAN NULL,
     display_order SMALLINT NOT NULL,
     market_label TEXT NOT NULL,
     summary_title TEXT NULL,
@@ -378,6 +419,18 @@ CREATE TABLE market_daily_page_market (
             raw_news_count >= 0
             AND processed_news_count >= 0
             AND cluster_count >= 0
+        ),
+    CONSTRAINT chk_market_daily_page_market_news_window
+        CHECK (
+            news_window_start_at IS NULL
+            OR news_window_end_at IS NULL
+            OR news_window_start_at <= news_window_end_at
+        ),
+    CONSTRAINT chk_market_daily_page_market_source_not_future
+        CHECK (
+            actual_index_source_date IS NULL
+            OR expected_session_date IS NULL
+            OR actual_index_source_date <= expected_session_date
         )
 );
 
@@ -388,6 +441,9 @@ CREATE TABLE market_daily_page_market_index (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     page_market_id BIGINT NOT NULL REFERENCES market_daily_page_market(id) ON DELETE CASCADE,
     market_index_daily_id BIGINT NULL REFERENCES market_index_daily(id) ON DELETE SET NULL,
+    source_date DATE NULL,
+    expected_session_date DATE NULL,
+    session_close_at TIMESTAMPTZ NULL,
     display_order SMALLINT NOT NULL,
     index_code TEXT NOT NULL,
     index_name TEXT NOT NULL,
@@ -400,7 +456,13 @@ CREATE TABLE market_daily_page_market_index (
     CONSTRAINT uq_market_daily_page_market_index_order
         UNIQUE (page_market_id, display_order),
     CONSTRAINT chk_market_daily_page_market_index_order_positive
-        CHECK (display_order > 0)
+        CHECK (display_order > 0),
+    CONSTRAINT chk_market_daily_page_market_index_source_not_future
+        CHECK (
+            source_date IS NULL
+            OR expected_session_date IS NULL
+            OR source_date <= expected_session_date
+        )
 );
 
 CREATE INDEX idx_market_daily_page_market_index_market

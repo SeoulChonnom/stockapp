@@ -8,6 +8,7 @@ from uuid import UUID
 
 import pytest  # pyright: ignore[reportMissingImports]
 
+from tests.market_context_fakes import CompleteMarketContextRepository
 from tests.support import RecordingAsyncSession, load_module
 
 batch_models_module = load_module('app.batch.models')
@@ -20,6 +21,7 @@ CollectMarketIndicesStep = steps_module.CollectMarketIndicesStep
 GenerateAiSummariesStep = steps_module.GenerateAiSummariesStep
 AiSummaryRecord = projections_module.AiSummaryRecord
 MarketIndexDailyRecord = projections_module.MarketIndexDailyRecord
+
 
 @dataclass
 class EventRepository:
@@ -123,8 +125,15 @@ async def test_collect_news_step_preserves_successful_keyword_when_one_fails(
         def is_configured(self):
             return True
 
-        async def collect_for_keyword(self, *, keyword_record, business_date):
-            _ = business_date
+        async def collect_for_keyword(
+            self,
+            *,
+            keyword_record,
+            business_date,
+            window_start_at,
+            window_end_at,
+        ):
+            _ = (business_date, window_start_at, window_end_at)
             if keyword_record.keyword == 'broken':
                 raise TimeoutError('provider timeout')
             return provider_module.NaverCollectedKeywordResult(
@@ -443,10 +452,10 @@ async def test_generate_ai_summaries_bounds_llm_calls_and_persists_model_name():
             return await self._record('market')
 
         async def summarize_cluster_card(self, **kwargs):
-            return await self._record(f"card-{kwargs['cluster']['title']}")
+            return await self._record(f'card-{kwargs["cluster"]["title"]}')
 
         async def summarize_cluster_detail(self, **kwargs):
-            return await self._record(f"detail-{kwargs['cluster']['title']}")
+            return await self._record(f'detail-{kwargs["cluster"]["title"]}')
 
     summary_repo = RecordingSummaryRepo(RecordingAsyncSession())
     llm_provider = TrackingLlmProvider()
@@ -909,7 +918,9 @@ async def test_build_page_snapshot_step_sets_page_identity_and_writes_snapshot(
     context.processed_news_count = 6
     context.cluster_count = 1
 
-    updated_context = await BuildPageSnapshotStep().run(repository, context)
+    updated_context = await BuildPageSnapshotStep(
+        context_repo_factory=CompleteMarketContextRepository
+    ).run(repository, context)
 
     assert updated_context.page_id == 501
     assert updated_context.page_version_no == 4
@@ -1022,6 +1033,7 @@ async def test_build_page_snapshot_drops_malformed_market_metadata_fields():
         summary_repo_factory=MalformedSummaryRepo,
         index_repo_factory=EmptyIndexRepo,
         snapshot_repo_factory=lambda session: snapshot_repo,
+        context_repo_factory=CompleteMarketContextRepository,
     ).run(repository, context)
 
     us_market = snapshot_repo.market_calls[0]
