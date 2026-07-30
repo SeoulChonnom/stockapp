@@ -14,19 +14,21 @@ class PostgresRepository:
         self.session = session
 
     @staticmethod
-    def _model_from_mapping(model_cls: type[T], mapping: Mapping[str, Any]) -> T:
+    def _model_from_mapping(model_cls: type[T], mapping: Mapping[Any, Any]) -> T:
         if not is_dataclass(model_cls):
             return model_cls(**dict(mapping))  # type: ignore[misc]
 
         allowed_fields = {field.name for field in fields(model_cls)}
         payload = {
-            key: value for key, value in mapping.items() if key in allowed_fields
+            str(key): value
+            for key, value in mapping.items()
+            if key in allowed_fields
         }
         return model_cls(**payload)
 
     @classmethod
     def _models_from_mappings(
-        cls, model_cls: type[T], mappings: Sequence[Mapping[str, Any]]
+        cls, model_cls: type[T], mappings: Sequence[Mapping[Any, Any]]
     ) -> list[T]:
         return [cls._model_from_mapping(model_cls, mapping) for mapping in mappings]
 

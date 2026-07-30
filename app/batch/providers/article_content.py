@@ -16,9 +16,10 @@ _WHITESPACE_RE = re.compile(r'\s+')
 
 
 class _ArticleHttpResponse(Protocol):
-    text: str
+    @property
+    def text(self) -> str: ...
 
-    def raise_for_status(self) -> None: ...
+    def raise_for_status(self) -> object: ...
 
 
 class _ArticleHttpClient(Protocol):

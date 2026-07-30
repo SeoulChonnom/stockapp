@@ -11,12 +11,15 @@ class ExchangeCalendar(Protocol):
 
     def session_on_or_before(self, calendar_name: str, day: date) -> date:
         """Return the latest exchange session on or before ``day``."""
+        ...
 
     def previous_session(self, calendar_name: str, session_date: date) -> date:
         """Return the exchange session immediately before ``session_date``."""
+        ...
 
     def session_close(self, calendar_name: str, session_date: date) -> datetime:
         """Return a session's regular close as an aware UTC datetime."""
+        ...
 
 
 class ExchangeCalendarsAdapter:

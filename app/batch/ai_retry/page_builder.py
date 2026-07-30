@@ -23,20 +23,20 @@ class AiRetryPageBuilder:
     def __init__(
         self,
         *,
-        source_page_repo_factory: Callable[[object], Any] | None = None,
-        snapshot_repo_factory: Callable[[object], Any] | None = None,
+        source_page_repo_factory: Callable[[Any], Any] | None = None,
+        snapshot_repo_factory: Callable[[Any], Any] | None = None,
     ) -> None:
-        self._source_page_repo_factory = (
+        self._source_page_repo_factory: Callable[[Any], Any] = (
             source_page_repo_factory or PageSnapshotRepository
         )
-        self._snapshot_repo_factory = (
+        self._snapshot_repo_factory: Callable[[Any], Any] = (
             snapshot_repo_factory or PageSnapshotWriteRepository
         )
 
     async def build(
         self,
         *,
-        session: object,
+        session: Any,
         source_page_id: int,
         source_job_id: int,
         retry_job_id: int,
@@ -259,9 +259,9 @@ def _build_page_issues(
 
 def _partial_message(issues: list[dict[str, Any]]) -> str | None:
     messages = [
-        issue.get('message')
+        message
         for issue in issues
-        if isinstance(issue.get('message'), str)
+        if isinstance(message := issue.get('message'), str)
     ]
     return '; '.join(messages[:3]) if messages else None
 

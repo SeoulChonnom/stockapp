@@ -24,6 +24,13 @@ def _as_iso(value: Any) -> str | None:
     return str(value)
 
 
+def _as_required_iso(value: Any) -> str:
+    iso = _as_iso(value)
+    if iso is None:
+        raise ValueError('required datetime value is missing')
+    return iso
+
+
 def assemble_batch_run_response(payload: dict[str, Any]) -> BatchRunResponse:
     return BatchRunResponse.model_validate(payload)
 
@@ -69,7 +76,7 @@ def build_batch_job_list_payload(result: Any) -> dict[str, Any]:
             attemptCount=item.attempt_count,
             maxAttempts=item.max_attempts,
             currentStep=item.current_step,
-            startedAt=_as_iso(item.started_at),
+            startedAt=_as_required_iso(item.started_at),
             endedAt=_as_iso(item.ended_at),
             durationSeconds=item.duration_seconds,
             marketScope=item.market_scope,
@@ -121,7 +128,7 @@ def build_batch_job_detail_payload(job: Any) -> dict[str, Any]:
         currentStep=job.current_step,
         forceRun=job.force_run,
         rebuildPageOnly=job.rebuild_page_only,
-        startedAt=_as_iso(job.started_at),
+        startedAt=_as_required_iso(job.started_at),
         endedAt=_as_iso(job.ended_at),
         durationSeconds=job.duration_seconds,
         rawNewsCount=job.raw_news_count,

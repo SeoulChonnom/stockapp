@@ -5,26 +5,27 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "beautifulsoup4>=4.14.2",
-    "fastapi[standard]>=0.135.2",
-    "greenlet>=3.2.4",
-    "httpx>=0.28.1",
-    "langchain>=0.3.27",
-    "langchain-google-genai>=2.1.12",
-    "pydantic-settings>=2.13.1",
-    "PyJWT>=2.10.1",
-    "psycopg[binary]>=3.2.12",
-    "sqlalchemy>=2.0.44",
-    "yfinance>=0.2.66",
-    "exchange-calendars>=4.13.2",
+  "beautifulsoup4>=4.14.2",
+  "fastapi[standard]>=0.135.2",
+  "greenlet>=3.2.4",
+  "httpx>=0.28.1",
+  "langchain>=0.3.27",
+  "langchain-google-genai>=2.1.12",
+  "pydantic-settings>=2.13.1",
+  "PyJWT>=2.10.1",
+  "psycopg[binary]>=3.2.12",
+  "sqlalchemy>=2.0.44",
+  "yfinance>=0.2.66",
+  "exchange-calendars>=4.13.2",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2",
-    "pytest-asyncio>=1.2.0",
-    "ruff>=0.15.12",
-    "vulture>=2.16",
+  "pyright>=1.1.411",
+  "pytest>=9.0.2",
+  "pytest-asyncio>=1.2.0",
+  "ruff>=0.15.12",
+  "vulture>=2.16",
 ]
 
 [tool.fastapi]
@@ -43,9 +44,7 @@ docstring-code-format = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "TID"]
-ignore = [
-  "E501",
-]
+ignore = ["E501"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -58,3 +57,8 @@ min_confidence = 80
 paths = ["app/", "tests/", "main.py"]
 sort_by_size = true
 verbose = false
+
+[tool.pyright]
+include = ["app"]
+venvPath = "."
+venv = ".venv"

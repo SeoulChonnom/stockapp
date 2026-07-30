@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 
 from app.db.identifiers import qualify_db_identifier
@@ -60,6 +61,7 @@ class AiRetryIdempotencyConflictError(Exception):
 class AiRetryEnqueuePort(Protocol):
     async def resolve_source(self, requested_job_id: int) -> AiRetrySource | None:
         """Resolve a requested job to the immutable root job and source page."""
+        ...
 
     async def enqueue(
         self,
@@ -69,6 +71,7 @@ class AiRetryEnqueuePort(Protocol):
         idempotency_key: str | None,
     ) -> AiRetryEnqueueResult:
         """Create or return an idempotent PENDING AI retry job."""
+        ...
 
     async def commit(self) -> None:
         """Commit the enqueue transaction."""
@@ -308,7 +311,7 @@ class PostgresAiRetryRepository(PostgresRepository):
         *,
         job_id: int,
         status: str,
-        counts: object,
+        counts: Any,
         page_id: int | None,
         page_version_no: int | None,
         partial_message: str | None,
@@ -372,7 +375,7 @@ class PostgresAiRetryRepository(PostgresRepository):
                 'lease_token': lease_token,
             },
         )
-        return bool(result.rowcount)
+        return bool(cast('CursorResult[Any]', result).rowcount)
 
     @staticmethod
     def _validate_idempotent_job(existing: AiRetryJob, source: AiRetrySource) -> None:

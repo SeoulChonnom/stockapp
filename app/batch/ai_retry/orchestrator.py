@@ -272,16 +272,19 @@ async def _generate_target(
     target = selection.target
     if target.summary_type == 'GLOBAL_HEADLINE':
         return await _generate_global_headline(llm_provider, clusters, indices)
+    market_type = target.market_type
+    if market_type is None:
+        raise ValueError(f'Retry target is missing a market type: {target.target_key}')
     if target.summary_type == 'MARKET_SUMMARY':
         market_clusters = [
-            row for row in clusters if row['market_type'] == target.market_type
+            row for row in clusters if row['market_type'] == market_type
         ]
         market_indices = [
-            row for row in indices if row.market_type == target.market_type
+            row for row in indices if row.market_type == market_type
         ]
         return await _generate_market_summary(
             llm_provider,
-            market_type=target.market_type,
+            market_type=market_type,
             clusters=market_clusters,
             indices=market_indices,
         )
@@ -304,14 +307,14 @@ async def _generate_target(
     if target.summary_type == 'CLUSTER_CARD_SUMMARY':
         return await _generate_cluster_card_summary(
             llm_provider,
-            target.market_type,
+            market_type,
             cluster,
             articles,
         )
     if target.summary_type == 'CLUSTER_DETAIL_ANALYSIS':
         return await _generate_cluster_detail_summary(
             llm_provider,
-            target.market_type,
+            market_type,
             cluster,
             articles,
         )

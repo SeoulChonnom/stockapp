@@ -85,6 +85,11 @@ def _normalize_string_fields(
     return normalized
 
 
+def _as_summary_mapping(result: object) -> dict[str, Any]:
+    """Narrow an already-validated summary result to a mapping."""
+    return result if isinstance(result, dict) else {}
+
+
 def _validate_summary_result(
     result: object,
     *,
@@ -445,18 +450,19 @@ async def _generate_market_summary(
         )
         if malformed_reason:
             return _with_malformed_fallback(fallback, malformed_reason)
+        payload = _as_summary_mapping(result)
         return {
-            'title': result.get('title') or fallback['title'],
-            'body': result.get('body') or fallback['body'],
+            'title': payload.get('title') or fallback['title'],
+            'body': payload.get('body') or fallback['body'],
             'status': AiSummaryStatus.SUCCESS.value,
             'fallback_used': False,
             'model_name': model_name,
             'metadata_json': {
-                'background': result.get('background')
+                'background': payload.get('background')
                 or fallback['metadata_json']['background'],
-                'keyThemes': result.get('key_themes')
+                'keyThemes': payload.get('key_themes')
                 or fallback['metadata_json']['keyThemes'],
-                'outlook': result.get('outlook')
+                'outlook': payload.get('outlook')
                 or fallback['metadata_json']['outlook'],
             },
         }
@@ -557,10 +563,11 @@ async def _generate_cluster_detail_summary(
         )
         if malformed_reason:
             return _with_malformed_fallback(fallback, malformed_reason)
+        payload = _as_summary_mapping(result)
         return {
-            'title': result.get('title') or fallback['title'],
-            'body': result.get('body') or fallback['body'],
-            'paragraphs': result.get('paragraphs') or fallback['paragraphs'],
+            'title': payload.get('title') or fallback['title'],
+            'body': payload.get('body') or fallback['body'],
+            'paragraphs': payload.get('paragraphs') or fallback['paragraphs'],
             'status': AiSummaryStatus.SUCCESS.value,
             'fallback_used': False,
             'model_name': model_name,

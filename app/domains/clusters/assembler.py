@@ -25,6 +25,13 @@ def _as_iso(value: Any) -> str | None:
     return str(value)
 
 
+def _as_required_iso(value: Any) -> str:
+    iso = _as_iso(value)
+    if iso is None:
+        raise ValueError('required datetime value is missing')
+    return iso
+
+
 def _as_date(value: Any) -> date:
     if isinstance(value, date):
         return value
@@ -73,7 +80,7 @@ def build_cluster_detail_payload(
             )
             for article in articles
         ],
-        lastUpdatedAt=_as_iso(cluster['last_updated_at']),
+        lastUpdatedAt=_as_required_iso(cluster['last_updated_at']),
         articleCount=cluster['article_count'],
     ).model_dump(mode='json')
 

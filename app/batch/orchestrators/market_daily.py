@@ -19,6 +19,7 @@ from app.batch.steps import (
     GenerateAiSummariesStep,
     PrepareMarketContextsStep,
 )
+from app.batch.steps.base import BatchStep
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.session import get_session_maker
@@ -27,7 +28,7 @@ from app.db.session import get_session_maker
 class MarketDailyBatchOrchestrator:
     def __init__(self, session_maker: async_sessionmaker | None = None) -> None:
         self._session_maker = session_maker or get_session_maker()
-        self._steps = [
+        self._steps: list[BatchStep] = [
             CreateJobStep(),
             PrepareMarketContextsStep(),
             CollectNewsStep(),

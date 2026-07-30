@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from typing import Any
+from typing import Any, TypeGuard
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -163,6 +163,8 @@ class CollectNewsStep(BatchStep):
             )
 
         for market_type in persisted_by_market:
+            if context_repo is None:
+                continue
             coverage_complete = bool(
                 market_has_keyword.get(market_type)
                 and market_coverage_complete.get(market_type)
@@ -184,7 +186,7 @@ class CollectNewsStep(BatchStep):
         return context
 
 
-def _is_naver_auth_failure(exc: Exception) -> bool:
+def _is_naver_auth_failure(exc: Exception) -> TypeGuard[httpx.HTTPStatusError]:
     return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in {
         401,
         403,

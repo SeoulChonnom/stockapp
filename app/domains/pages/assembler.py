@@ -32,6 +32,13 @@ def _as_iso(value: Any) -> str | None:
     return str(value)
 
 
+def _as_required_iso(value: Any) -> str:
+    iso = _as_iso(value)
+    if iso is None:
+        raise ValueError('required datetime value is missing')
+    return iso
+
+
 def _as_date(value: Any) -> date:
     if isinstance(value, date):
         return value
@@ -121,7 +128,7 @@ def build_daily_page_payload(
                     rawNewsCount=market['raw_news_count'],
                     processedNewsCount=market['processed_news_count'],
                     clusterCount=market['cluster_count'],
-                    lastUpdatedAt=_as_iso(market['last_updated_at']),
+                    lastUpdatedAt=_as_required_iso(market['last_updated_at']),
                     partialMessage=market.get('partial_message'),
                     sourceDate=market.get('actual_index_source_date'),
                     expectedSessionDate=market.get('expected_session_date'),
@@ -140,14 +147,14 @@ def build_daily_page_payload(
         pageTitle=page['page_title'],
         status=page['status'],
         globalHeadline=page.get('global_headline'),
-        generatedAt=_as_iso(page['generated_at']),
+        generatedAt=_as_required_iso(page['generated_at']),
         partialMessage=page.get('partial_message'),
         markets=market_sections,
         metadata=PageMetadataResponse(
             rawNewsCount=page['raw_news_count'],
             processedNewsCount=page['processed_news_count'],
             clusterCount=page['cluster_count'],
-            lastUpdatedAt=_as_iso(page['last_updated_at']),
+            lastUpdatedAt=_as_required_iso(page['last_updated_at']),
             isLatest=bool(page.get('is_latest', False)),
         ),
     ).model_dump(mode='json')

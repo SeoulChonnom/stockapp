@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Any, cast
 
 import yfinance as yf
 
@@ -137,7 +138,8 @@ class MarketIndexProvider:
         if history.empty:
             return None
 
-        selected = history[history.index.date <= target_date].sort_index()
+        index_dates = cast(Any, history.index).date
+        selected = history[index_dates <= target_date].sort_index()
         if selected.empty:
             return None
 
@@ -164,7 +166,7 @@ class MarketIndexProvider:
 
         high_price = self._to_finite_decimal(row.get('High'))
         low_price = self._to_finite_decimal(row.get('Low'))
-        source_date = source_index.date()
+        source_date = cast(Any, source_index).date()
         return MarketIndexFetchResult(
             market_type=market_type,
             index_code=index_code,

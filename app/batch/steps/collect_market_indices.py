@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time
+from typing import Any
 
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.market_index_provider import (
@@ -24,9 +25,9 @@ class CollectMarketIndicesStep(BatchStep):
     def __init__(
         self,
         *,
-        provider_factory: Callable[[], object] | None = None,
-        index_repo_factory: Callable[[object], object] | None = None,
-        context_repo_factory: Callable[[object], object] | None = None,
+        provider_factory: Callable[[], Any] | None = None,
+        index_repo_factory: Callable[[Any], Any] | None = None,
+        context_repo_factory: Callable[[Any], Any] | None = None,
     ) -> None:
         self._provider_factory = provider_factory or MarketIndexProvider
         self._index_repo_factory = index_repo_factory or MarketIndexRepository
@@ -194,7 +195,7 @@ class CollectMarketIndicesStep(BatchStep):
             )
 
         for market_type, source_dates in source_dates_by_market.items():
-            if market_type not in market_contexts:
+            if context_repo is None or market_type not in market_contexts:
                 continue
             await context_repo.set_actual_index_source_date(
                 job_id=context.job_id,
