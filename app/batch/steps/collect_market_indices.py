@@ -10,6 +10,10 @@ from app.batch.providers.market_index_provider import (
     MarketIndexProvider,
 )
 from app.batch.steps.base import BatchStep, require_repository_session
+from app.core.public_diagnostics import (
+    EXTERNAL_PROVIDER_FAILURE_MESSAGE,
+    public_external_provider_error,
+)
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.market_context_repo import MarketContextRepository
@@ -71,10 +75,9 @@ class CollectMarketIndicesStep(BatchStep):
         for failure in failures:
             ticker = _failure_value(failure, 'ticker')
             error_class = _failure_value(failure, 'error_class')
-            error_message = _failure_value(failure, 'error_message')
             partial_reason = (
                 f'Market index collection failed for {ticker}: '
-                f'{error_class}: {error_message}'
+                f'{EXTERNAL_PROVIDER_FAILURE_MESSAGE}'
             )
             if partial_reason not in context.partial_reasons:
                 context.partial_reasons.append(partial_reason)
@@ -89,10 +92,7 @@ class CollectMarketIndicesStep(BatchStep):
                     'ticker': ticker,
                     'indexCode': _failure_value(failure, 'index_code'),
                     'indexName': _failure_value(failure, 'index_name'),
-                    'error': {
-                        'errorClass': error_class,
-                        'errorMessage': error_message,
-                    },
+                    'error': public_external_provider_error(error_class),
                 },
             )
         if not results:

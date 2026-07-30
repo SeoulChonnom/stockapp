@@ -86,6 +86,21 @@ class Settings(BaseSettings):
             'batch_worker_retry_delay_seconds',
         ),
     )
+    batch_max_clusters_per_market: int = Field(
+        default=12,
+        ge=2,
+        validation_alias=AliasChoices(
+            'STOCKAPP_BATCH_MAX_CLUSTERS_PER_MARKET',
+            'batch_max_clusters_per_market',
+        ),
+    )
+    batch_startup_recovery_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            'STOCKAPP_BATCH_STARTUP_RECOVERY_ENABLED',
+            'batch_startup_recovery_enabled',
+        ),
+    )
     auth_stub_token: str = 'dev-token'
     jwt_secret: str | None = Field(
         default=None,

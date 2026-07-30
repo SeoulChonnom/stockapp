@@ -5,6 +5,10 @@ from typing import Any
 
 from app.batch.models import BatchExecutionContext
 from app.batch.steps.base import BatchStep, require_repository_session
+from app.core.public_diagnostics import (
+    sanitize_public_diagnostic,
+    sanitize_public_diagnostics,
+)
 from app.db.enums import AiSummaryType, EventLevel, PageStatus
 from app.db.repositories.ai_summary_repo import AiSummaryRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
@@ -33,7 +37,7 @@ def _structured_page_issues(
     context: BatchExecutionContext,
 ) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
-    for reason in context.partial_reasons:
+    for reason in sanitize_public_diagnostics(context.partial_reasons):
         is_ai_issue = reason.startswith('AI summary fallback')
         issues.append(
             {
@@ -48,7 +52,7 @@ def _structured_page_issues(
             'code': 'BATCH_WARNING',
             'message': warning,
         }
-        for warning in context.warning_messages
+        for warning in sanitize_public_diagnostics(context.warning_messages)
     )
     return issues
 
@@ -146,12 +150,15 @@ class BuildPageSnapshotStep(BatchStep):
             return context
 
         if not context.partial_message:
-            partial_messages = [
-                *context.partial_reasons,
-                *context.warning_messages,
-            ]
+            partial_messages = sanitize_public_diagnostics(
+                [*context.partial_reasons, *context.warning_messages]
+            )
             if partial_messages:
                 context.partial_message = '; '.join(partial_messages[:3])
+        else:
+            context.partial_message = sanitize_public_diagnostic(
+                context.partial_message
+            )
 
         summary_by_type: dict[tuple[str, str | None, int | None], object] = {}
         for summary in summaries:
@@ -185,7 +192,7 @@ class BuildPageSnapshotStep(BatchStep):
             cluster_count=context.cluster_count,
             batch_job_id=context.job_id,
             metadata_json={
-                'warnings': context.warning_messages,
+                'warnings': sanitize_public_diagnostics(context.warning_messages),
                 'issues': _structured_page_issues(context),
             },
         )
@@ -323,8 +330,10 @@ class BuildPageSnapshotStep(BatchStep):
                 level=EventLevel.WARN.value,
                 message='Page snapshot created with partial status.',
                 context_json={
-                    'warnings': context.warning_messages,
-                    'partialReasons': context.partial_reasons,
+                    'warnings': sanitize_public_diagnostics(context.warning_messages),
+                    'partialReasons': sanitize_public_diagnostics(
+                        context.partial_reasons
+                    ),
                 },
             )
         context.log_messages.append(

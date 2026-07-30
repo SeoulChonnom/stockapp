@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, date, datetime
 
 from tests.support import jsonable, load_module
@@ -40,6 +41,35 @@ def test_daily_page_assembler_preserves_display_order(sample_daily_page_payload)
     assert (
         response['markets'][1]['topClusters'][0]['title'] == '반도체와 자동차 동반 강세'
     )
+
+
+def test_daily_page_assembler_redacts_legacy_provider_diagnostics(
+    sample_daily_page_payload,
+):
+    payload = deepcopy(sample_daily_page_payload)
+    naver_reason = (
+        'Naver news pagination cap was reached before covering the persisted '
+        "window for keyword '증시'."
+    )
+    raw_provider_reason = (
+        'AI summary fallback for GLOBAL_HEADLINE: 429 RESOURCE_EXHAUSTED '
+        'quota RetryInfo secret-token https://generativelanguage.googleapis.com'
+    )
+    payload['partialMessage'] = f'{naver_reason}; {raw_provider_reason}'
+    payload['markets'][0]['metadata']['partialMessage'] = raw_provider_reason
+
+    response = jsonable(assemble_daily_page_response(payload))
+    serialized = repr(response)
+
+    assert naver_reason in response['partialMessage']
+    assert (
+        'AI provider request failed; fallback content was used.'
+        in response['partialMessage']
+    )
+    assert '429' not in serialized
+    assert 'RetryInfo' not in serialized
+    assert 'secret-token' not in serialized
+    assert 'googleapis.com' not in serialized
 
 
 def test_daily_page_assembler_normalizes_utc_timestamps_to_z(

@@ -464,3 +464,52 @@ async def test_normal_snapshot_marks_fallback_partial_and_builds_partial_message
         == '요약 일부가 대체 생성되었습니다.; 외부 제공자 경고'
     )
     assert updated_context.partial_message == create_page['partial_message']
+
+
+@pytest.mark.anyio
+async def test_normal_snapshot_redacts_provider_payload_from_page_and_event():
+    class EmptySummaryRepository:
+        def __init__(self, session):
+            _ = session
+
+        async def list_summaries_for_job(self, job_id):
+            _ = job_id
+            return []
+
+    raw_provider_reason = (
+        'AI summary fallback for GLOBAL_HEADLINE: 429 RESOURCE_EXHAUSTED '
+        'quota RetryInfo secret-token https://generativelanguage.googleapis.com'
+    )
+    naver_reason = (
+        'Naver news pagination cap was reached before covering the persisted '
+        "window for keyword '증시'."
+    )
+    snapshot_repository = RecordingSnapshotRepository(RecordingAsyncSession())
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=False,
+        fallback_count=1,
+        partial_reasons=[naver_reason, raw_provider_reason],
+    )
+
+    await BuildPageSnapshotStep(
+        cluster_repo_factory=SourceClusterRepository,
+        summary_repo_factory=EmptySummaryRepository,
+        index_repo_factory=EmptyIndexRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+        context_repo_factory=CompleteMarketContextRepository,
+    ).run(repository, context)
+
+    create_page = next(
+        payload for name, payload in snapshot_repository.calls if name == 'create_page'
+    )
+    serialized = f'{create_page!r} {repository.events!r}'
+    assert naver_reason in create_page['partial_message']
+    assert 'AI provider request failed; fallback content was used.' in serialized
+    assert '429' not in serialized
+    assert 'RetryInfo' not in serialized
+    assert 'secret-token' not in serialized
+    assert 'googleapis.com' not in serialized

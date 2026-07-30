@@ -90,7 +90,10 @@ class BatchesService:
                     run_mode=run_mode,
                     force=force,
                 )
-                return build_batch_run_payload(existing_job)
+                return {
+                    **build_batch_run_payload(existing_job),
+                    '_created': False,
+                }
 
         if await self._repo.has_active_job_for_business_date(resolved_business_date):
             raise ConflictError(
@@ -149,7 +152,10 @@ class BatchesService:
                         run_mode=run_mode,
                         force=force,
                     )
-                    return build_batch_run_payload(existing_job)
+                    return {
+                        **build_batch_run_payload(existing_job),
+                        '_created': False,
+                    }
             raise ConflictError(
                 'BATCH_ALREADY_RUNNING',
                 '동일 날짜의 배치가 이미 실행 중입니다.',
@@ -166,7 +172,10 @@ class BatchesService:
             },
         )
         await self._repo.commit()
-        return build_batch_run_payload(job)
+        return {
+            **build_batch_run_payload(job),
+            '_created': True,
+        }
 
     async def retry_ai_summaries(
         self,
@@ -241,6 +250,7 @@ class BatchesService:
             'sourcePageId': job.source_page_id,
             'idempotencyKey': job.idempotency_key,
             'startedAt': job.started_at.isoformat(),
+            '_created': result.created,
         }
 
 

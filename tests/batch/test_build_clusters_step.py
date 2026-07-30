@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest  # pyright: ignore[reportMissingImports]
 
@@ -90,6 +92,93 @@ class FakeClusterRepo:
         )
 
 
+class ListProcessedRepo:
+    def __init__(self, articles):
+        self.articles = articles
+
+    async def list_by_business_date(self, business_date, *, market_type=None):
+        _ = business_date
+        return [
+            article
+            for article in self.articles
+            if market_type is None or article.market_type == market_type
+        ]
+
+
+class RecordingLlmProvider:
+    concurrency_limit = 4
+
+    def __init__(self, *, configured: bool):
+        self.configured = configured
+        self.calls: list[dict] = []
+
+    def is_configured(self):
+        return self.configured
+
+    async def enrich_cluster(self, **kwargs):
+        if not self.configured:
+            raise AssertionError('Unconfigured provider must not be called.')
+        self.calls.append(kwargs)
+        representative = kwargs['articles'][0]
+        return {
+            'title': representative['title'],
+            'summary_short': representative['summary'],
+            'summary_long': representative['summary'],
+            'tags': ['tag'],
+            'analysis_paragraphs': ['analysis'],
+            'representative_article_index': 0,
+        }
+
+
+def _processed_article(
+    article_id: int,
+    *,
+    market_type: str,
+    title: str,
+    published_at: datetime,
+):
+    return projections_module.NewsArticleProcessedRecord(
+        processed_article_id=article_id,
+        business_date=BUSINESS_DATE,
+        market_type=market_type,
+        dedupe_hash=f'{article_id:064x}',
+        canonical_title=title,
+        publisher_name='publisher',
+        published_at=published_at,
+        origin_link=f'https://example.com/{article_id}',
+        naver_link=None,
+        source_summary=f'summary {article_id}',
+        article_body_excerpt=f'excerpt {article_id}',
+        content_json={},
+        created_at=published_at,
+        updated_at=published_at,
+    )
+
+
+async def _run_step_with_articles(articles, *, provider, max_per_market=12):
+    session = RecordingAsyncSession()
+    batch_repository = FakeBatchRepository(session=session, events=[])
+    processed_repository = ListProcessedRepo(articles)
+    cluster_repository = FakeClusterRepo(session)
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+    step = BuildClustersStep(
+        processed_repo_factory=lambda _session: processed_repository,
+        cluster_repo_factory=lambda _session: cluster_repository,
+        llm_provider_factory=lambda: provider,
+        settings=SimpleNamespace(
+            batch_max_clusters_per_market=max_per_market,
+        ),
+    )
+
+    updated_context = await step.run(batch_repository, context)
+    return updated_context, batch_repository, cluster_repository
+
+
 @pytest.mark.anyio
 async def test_build_clusters_creates_scaffold_bundle(monkeypatch):
     session = RecordingAsyncSession()
@@ -116,7 +205,7 @@ async def test_build_clusters_creates_scaffold_bundle(monkeypatch):
     step = BuildClustersStep()
     updated_context = await step.run(fake_repository, context)
 
-    assert updated_context.cluster_count == 1
+    assert updated_context.cluster_count == 2
     assert updated_context.log_messages
 
 
@@ -137,7 +226,10 @@ async def test_build_clusters_records_llm_fallback_error_context(monkeypatch):
 
         async def enrich_cluster(self, **kwargs):
             _ = kwargs
-            raise TimeoutError('provider timeout')
+            raise TimeoutError(
+                '429 RESOURCE_EXHAUSTED secret-token RetryInfo '
+                'https://generativelanguage.googleapis.com'
+            )
 
     monkeypatch.setattr(
         build_clusters_module, 'NewsArticleProcessedRepository', FakeProcessedRepo
@@ -158,10 +250,15 @@ async def test_build_clusters_records_llm_fallback_error_context(monkeypatch):
     assert len(warning_events) == 2
     for event in warning_events:
         assert event['context_json']['error'] == {
-            'provider': 'BatchLlmProvider',
+            'code': 'AI_PROVIDER_REQUEST_FAILED',
             'errorClass': 'TimeoutError',
-            'errorMessage': 'provider timeout',
+            'message': 'AI provider request failed; fallback content was used.',
         }
+    serialized = repr(fake_repository.events)
+    assert 'secret-token' not in serialized
+    assert 'RetryInfo' not in serialized
+    assert 'googleapis.com' not in serialized
+    assert all('secret-token' not in reason for reason in context.partial_reasons)
 
 
 @pytest.mark.anyio
@@ -205,9 +302,11 @@ async def test_build_clusters_falls_back_when_llm_enrichment_is_malformed(
     for event in warning_events:
         assert event['context_json']['fallbackReason'] == 'llm_malformed_response'
         assert event['context_json']['error'] == {
-            'provider': 'BatchLlmProvider',
+            'code': 'AI_PROVIDER_RESPONSE_INVALID',
             'errorClass': 'ValueError',
-            'errorMessage': 'Cluster enrichment tags must be a list.',
+            'message': (
+                'AI provider returned an invalid response; fallback content was used.'
+            ),
         }
 
 
@@ -253,11 +352,162 @@ async def test_build_clusters_bounds_llm_enrichment_concurrency(monkeypatch):
     monkeypatch.setattr(
         build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
     )
-    monkeypatch.setattr(
-        build_clusters_module, 'BatchLlmProvider', lambda: llm_provider
-    )
+    monkeypatch.setattr(build_clusters_module, 'BatchLlmProvider', lambda: llm_provider)
 
     updated_context = await BuildClustersStep().run(fake_repository, context)
 
     assert llm_provider.max_active == 2
     assert updated_context.cluster_count == 2
+
+
+def test_cluster_ranking_is_stable_by_count_recency_and_article_id():
+    base_time = datetime(2026, 3, 17, tzinfo=UTC)
+    articles = [
+        _processed_article(
+            21,
+            market_type='US',
+            title='gamma market',
+            published_at=base_time + timedelta(days=2),
+        ),
+        _processed_article(
+            2,
+            market_type='US',
+            title='alpha market',
+            published_at=base_time,
+        ),
+        _processed_article(
+            11,
+            market_type='US',
+            title='beta market',
+            published_at=base_time + timedelta(days=2),
+        ),
+        _processed_article(
+            1,
+            market_type='US',
+            title='alpha market',
+            published_at=base_time,
+        ),
+        _processed_article(
+            20,
+            market_type='US',
+            title='gamma market',
+            published_at=base_time + timedelta(days=1),
+        ),
+        _processed_article(
+            10,
+            market_type='US',
+            title='beta market',
+            published_at=base_time + timedelta(days=1),
+        ),
+        _processed_article(
+            3,
+            market_type='US',
+            title='alpha market',
+            published_at=base_time,
+        ),
+    ]
+
+    ranked = build_clusters_module._rank_market_clusters(
+        build_clusters_module._group_articles(articles)
+    )
+
+    assert [
+        [article.processed_article_id for article in cluster] for cluster in ranked
+    ] == [
+        [3, 2, 1],
+        [11, 10],
+        [21, 20],
+    ]
+
+
+@pytest.mark.anyio
+async def test_cluster_topology_is_independent_of_provider_configuration():
+    base_time = datetime(2026, 3, 17, tzinfo=UTC)
+    articles = [
+        _processed_article(
+            article_id,
+            market_type='US',
+            title=f'topic{article_id // 2} signal{article_id // 2}',
+            published_at=base_time + timedelta(minutes=article_id),
+        )
+        for article_id in range(1, 7)
+    ]
+    configured_provider = RecordingLlmProvider(configured=True)
+    unconfigured_provider = RecordingLlmProvider(configured=False)
+
+    _, _, configured_clusters = await _run_step_with_articles(
+        articles,
+        provider=configured_provider,
+    )
+    _, _, unconfigured_clusters = await _run_step_with_articles(
+        list(reversed(articles)),
+        provider=unconfigured_provider,
+    )
+
+    assert [article_ids for _, article_ids in configured_clusters.calls] == [
+        article_ids for _, article_ids in unconfigured_clusters.calls
+    ]
+    assert len(configured_provider.calls) == len(configured_clusters.calls)
+    assert unconfigured_provider.calls == []
+
+
+@pytest.mark.anyio
+async def test_large_market_inputs_cap_persisted_clusters_and_llm_calls(caplog):
+    base_time = datetime(2026, 3, 17, tzinfo=UTC)
+    articles = [
+        *[
+            _processed_article(
+                article_id,
+                market_type='US',
+                title=f'ustopic{article_id} ussignal{article_id}',
+                published_at=base_time + timedelta(minutes=article_id),
+            )
+            for article_id in range(1, 81)
+        ],
+        *[
+            _processed_article(
+                article_id,
+                market_type='KR',
+                title=f'krtopic{article_id} krsignal{article_id}',
+                published_at=base_time + timedelta(minutes=article_id),
+            )
+            for article_id in range(1001, 1161)
+        ],
+    ]
+    provider = RecordingLlmProvider(configured=True)
+    caplog.set_level(
+        'INFO',
+        logger='app.batch.steps.build_clusters',
+    )
+
+    context, batch_repository, cluster_repository = await _run_step_with_articles(
+        articles,
+        provider=provider,
+    )
+
+    assert context.cluster_count == 24
+    assert len(cluster_repository.calls) == 24
+    assert len(provider.calls) == 24
+    selection_events = {
+        event['context_json']['marketType']: event['context_json']
+        for event in batch_repository.events
+        if event['message'] == 'Selected cluster candidates for persistence.'
+    }
+    assert selection_events == {
+        'KR': {
+            'marketType': 'KR',
+            'candidateCount': 160,
+            'selectedCount': 12,
+            'omittedCount': 148,
+            'maxClustersPerMarket': 12,
+        },
+        'US': {
+            'marketType': 'US',
+            'candidateCount': 80,
+            'selectedCount': 12,
+            'omittedCount': 68,
+            'maxClustersPerMarket': 12,
+        },
+    }
+    assert 'candidate=160, selected=12, omitted=148' in ' '.join(context.log_messages)
+    assert 'candidate_count=160 selected_count=12 omitted_count=148' in caplog.text

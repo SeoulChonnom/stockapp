@@ -444,8 +444,10 @@ tests/
 
 - `uq_batch_job_one_active_per_day` 제약과 애플리케이션 예외 처리를 함께 가져가야 한다.
 - 목록 응답은 통계 요약까지 포함해야 한다.
-- API 프로세스는 배치를 직접 실행하지 않는다. `python -m app.batch.worker`
-  프로세스가 `SKIP LOCKED`로 claim하고 lease/heartbeat/checkpoint를 관리한다.
+- API는 작업을 `PENDING`으로 커밋한 뒤 HTTP 202 응답의 FastAPI
+  `BackgroundTasks`에서 유한한 durable queue drain을 시작한다. 같은 API
+  프로세스의 drain이 `SKIP LOCKED`로 claim하고 lease/heartbeat/checkpoint를
+  관리하며, 재시작 시 startup recovery가 남은 작업을 다시 drain한다.
 
 ### 6-5. `domains/admin`
 

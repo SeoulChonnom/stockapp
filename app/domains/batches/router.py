@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Annotated
 
 from fastapi import (  # pyright: ignore[reportMissingImports]
     APIRouter,
+    BackgroundTasks,
     Depends,
     Header,
     Path,
@@ -13,6 +15,11 @@ from fastapi import (  # pyright: ignore[reportMissingImports]
 )
 
 from app.api.deps import AdminDep, DbSession
+from app.batch.background import (
+    InProcessBatchScheduler,
+    get_in_process_batch_scheduler,
+)
+from app.batch.logging import log_safe_exception
 from app.core.response import ApiSuccess
 from app.core.settings import get_settings
 from app.db.repositories.batch_job_repo import BatchJobRepository
@@ -33,6 +40,7 @@ from app.schemas.batch import (
     BatchRunResponse,
 )
 
+LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix='/batch', tags=['batch'])
 
 
@@ -43,7 +51,28 @@ def get_batches_service(session: DbSession) -> BatchesService:
     )
 
 
+def get_batch_scheduler() -> InProcessBatchScheduler:
+    return get_in_process_batch_scheduler()
+
+
+async def schedule_batch_drain(scheduler: InProcessBatchScheduler) -> None:
+    """Start a detached drain on the request event loop without failing the response."""
+    try:
+        scheduler.start_drain()
+    except Exception as exc:
+        log_safe_exception(
+            LOGGER,
+            logging.ERROR,
+            'Unable to schedule background batch drain.',
+            exception=exc,
+        )
+
+
 BatchesServiceDep = Annotated[BatchesService, Depends(get_batches_service)]
+BatchSchedulerDep = Annotated[
+    InProcessBatchScheduler,
+    Depends(get_batch_scheduler),
+]
 
 
 @router.post(
@@ -53,8 +82,10 @@ BatchesServiceDep = Annotated[BatchesService, Depends(get_batches_service)]
 )
 async def start_market_daily_batch(
     payload: BatchRunRequest,
+    background_tasks: BackgroundTasks,
     current_user: AdminDep,
     service: BatchesServiceDep,
+    scheduler: BatchSchedulerDep,
     idempotency_key: Annotated[
         str | None,
         Header(
@@ -72,6 +103,8 @@ async def start_market_daily_batch(
         rebuild_page_only=payload.rebuildPageOnly,
         idempotency_key=idempotency_key,
     )
+    if result.get('_created', True):
+        background_tasks.add_task(schedule_batch_drain, scheduler)
     return ApiSuccess(data=assemble_batch_run_response(result))
 
 
@@ -111,8 +144,10 @@ async def get_batch_job_detail(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def retry_ai_summaries(
+    background_tasks: BackgroundTasks,
     current_user: AdminDep,
     service: BatchesServiceDep,
+    scheduler: BatchSchedulerDep,
     jobId: Annotated[int, Path(alias='jobId', ge=1)],
     idempotency_key: Annotated[
         str | None,
@@ -129,7 +164,14 @@ async def retry_ai_summaries(
         user_id=current_user.user_id,
         idempotency_key=idempotency_key,
     )
+    if result.get('_created', True):
+        background_tasks.add_task(schedule_batch_drain, scheduler)
     return ApiSuccess(data=assemble_ai_retry_run_response(result))
 
 
-__all__ = ['get_batches_service', 'router']
+__all__ = [
+    'get_batch_scheduler',
+    'get_batches_service',
+    'router',
+    'schedule_batch_drain',
+]

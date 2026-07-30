@@ -34,16 +34,20 @@ FastAPI service for market daily brief collection, clustering, summarization, an
 
    The FastAPI entrypoint is configured as `app.main:app` in `pyproject.toml`.
 
-6. Start the durable batch worker in a separate process.
+6. Enqueue a batch through the API.
 
-   ```bash
-   uv run python -m app.batch.worker
-   ```
+   `POST /stock/api/batch/market-daily` persists a durable `PENDING` job and
+   returns HTTP 202. After the response is prepared, FastAPI `BackgroundTasks`
+   drains the PostgreSQL queue in the same API process. Queue claims still use
+   `FOR UPDATE SKIP LOCKED`, leases, heartbeats, retries, and checkpoints, so
+   concurrent requests and idempotent replays do not execute one job twice.
 
-   `POST /stock/api/batch/market-daily` only persists a `PENDING` job and returns
-   HTTP 202. The worker atomically claims it with PostgreSQL `FOR UPDATE SKIP
-   LOCKED`, renews a lease while it runs, and resumes from the last committed
-   step checkpoint after a crash.
+   The container enables a one-shot startup recovery drain. It recovers jobs
+   left `PENDING`, and expired `RUNNING` leases, after a process restart. If a
+   restarted process finds a still-valid `RUNNING` lease, the finite drain waits
+   until its next lease deadline and then recovers it if it was not renewed.
+   Local non-container runs enable the same behavior with
+   `STOCKAPP_BATCH_STARTUP_RECOVERY_ENABLED=true`.
 
 ## Configuration notes
 
@@ -54,6 +58,8 @@ FastAPI service for market daily brief collection, clustering, summarization, an
 - LLM and article crawling timeouts and concurrency limits are configured with `STOCKAPP_LLM_TIMEOUT_SECONDS`, `STOCKAPP_LLM_CONCURRENCY_LIMIT`, `STOCKAPP_ARTICLE_CRAWL_TIMEOUT_SECONDS`, and `STOCKAPP_ARTICLE_CRAWL_CONCURRENCY_LIMIT`.
 - Gemini calls are limited by `STOCKAPP_LLM_REQUESTS_PER_MINUTE` (default `12`). Clients on the same event loop share one limiter; each application worker or server process normally has its own event loop and therefore enforces an independent limit.
 - Durable worker timing is configured with `STOCKAPP_BATCH_WORKER_POLL_INTERVAL_SECONDS`, `STOCKAPP_BATCH_WORKER_HEARTBEAT_SECONDS`, `STOCKAPP_BATCH_WORKER_LEASE_SECONDS`, `STOCKAPP_BATCH_WORKER_MAX_ATTEMPTS`, and `STOCKAPP_BATCH_WORKER_RETRY_DELAY_SECONDS`. The lease must be longer than the heartbeat interval.
+- Clustering uses deterministic title-token groups and persists/enriches at most `STOCKAPP_BATCH_MAX_CLUSTERS_PER_MARKET` candidates per market (default `12`). Candidates are ranked by article count, latest publication time, and a stable article-ID tie-break before any cluster LLM calls.
+- `STOCKAPP_BATCH_STARTUP_RECOVERY_ENABLED` controls the one-shot queue drain at API startup. The Docker image enables it by default; `.env.example` enables it for the documented local workflow.
 - Completed XNYS/XKRX sessions are calculated with `exchange-calendars`. `STOCKAPP_MARKET_SESSION_DATA_GRACE_MINUTES` (default `30`) delays session eligibility after the regular close so yfinance has time to publish settled data.
 
 ## Market date and news coverage policy
@@ -70,9 +76,9 @@ FastAPI service for market daily brief collection, clustering, summarization, an
 - Enqueue a batch: `POST /stock/api/batch/market-daily`. Supplying a stable
   `Idempotency-Key` header makes cron retries return the original job instead of
   creating a duplicate.
-- Run exactly one durable worker replica while using the free Gemini tier. The
-  Gemini RPM limiter is process-local, so multiple worker replicas multiply the
-  effective request rate.
+- Keep API replica count at one while using the free Gemini tier. The Gemini RPM
+  limiter is process-local, so multiple API replicas multiply the effective
+  request rate even though PostgreSQL prevents duplicate job claims.
 - Enqueue unresolved AI summary retry (ADMIN):
   `POST /stock/api/batch/jobs/{jobId}/retry-ai`
 - Run tests locally: `uv run pytest`
@@ -80,20 +86,33 @@ FastAPI service for market daily brief collection, clustering, summarization, an
 
 The current automated coverage used for remediation evidence is offline and static. It uses pytest, dependency overrides, fake sessions, and mocked providers rather than live Naver, Gemini, or production database calls unless explicitly running integration tests.
 
-AI retry requests are durable `PENDING` jobs and are not run in FastAPI
-`BackgroundTasks`. A durable worker must dispatch `runMode=AI_RETRY` to
-`AiRetryOrchestrator`. See `docs/ai_summary_retry.md` for idempotency, recovery,
-and page-version rules.
+AI retry requests are durable `PENDING` jobs. Their HTTP 202 responses schedule
+the same queue drain through FastAPI `BackgroundTasks`, and `runMode=AI_RETRY`
+dispatches to `AiRetryOrchestrator`. See `docs/ai_summary_retry.md` for
+idempotency, recovery, and page-version rules.
 
 ## Schema and deployment policy
 
 - `db/schema_postgresql.sql` remains the schema source of truth. Introducing Alembic or another migration workflow needs an explicit governance decision.
 - Existing deployments apply `db/migrations/20260729_04_batch_job_durable_queue.sql`
-  before starting the new worker. API deployment and worker deployment should
-  use the same schema version.
-- During the first durable-worker rollout, stop old API instances and allow any
-  in-process `BackgroundTasks` batch to finish before starting the worker.
-  Lease-less legacy `RUNNING` rows are intentionally recovered by the worker.
+  before starting the updated API process.
+- Apply durable queue migrations before starting the API process. Startup
+  recovery and request-triggered drains use the same queue schema.
+- Before switching execution modes, stop any separately deployed durable worker
+  so only the API container drains the queue. The startup recovery drain
+  reclaims expired `RUNNING` leases and resumes their persisted checkpoints.
 - Existing databases must apply `db/migrations/20260729_05_market_session_context_source_date.sql` after the preceding numbered migrations. Existing snapshot fields remain nullable for legacy page compatibility; full new batch writes populate them.
 - External failure notifications, such as Slack or paging, are not configured in this service yet. Choose the notification channel, recipients, and severity policy before implementation.
 - Do not copy values from a real `.env` into documentation, tests, tickets, logs, or commits.
+
+## Single-container execution constraints
+
+- Run one API container with one Uvicorn worker. PostgreSQL claim fencing makes
+  accidental concurrency safe, but each process has an independent Gemini rate
+  limiter and in-process scheduler.
+- FastAPI `BackgroundTasks` do not survive process termination. Job state,
+  leases, and checkpoints do survive; the next container startup recovery drain
+  resumes work after the expired lease is recoverable.
+- Request background callbacks only start a managed drain and return. Provider
+  execution and delayed retries run in a detached task owned by the application
+  lifespan, so a future `available_at` does not keep the request task occupied.

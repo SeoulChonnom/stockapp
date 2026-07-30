@@ -10,6 +10,10 @@ from app.batch.exceptions import BatchPipelineError
 from app.batch.models import BatchExecutionContext
 from app.batch.providers import NAVER_NEWS_PROVIDER_NAME, NaverNewsProvider
 from app.batch.steps.base import BatchStep
+from app.core.public_diagnostics import (
+    EXTERNAL_PROVIDER_FAILURE_MESSAGE,
+    public_external_provider_error,
+)
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.market_context_repo import MarketContextRepository
@@ -111,7 +115,7 @@ class CollectNewsStep(BatchStep):
                 context.warning_messages.append(warning_message)
                 partial_reason = (
                     f'Naver news collection failed for keyword '
-                    f"'{keyword.keyword}': {exc}"
+                    f"'{keyword.keyword}': {EXTERNAL_PROVIDER_FAILURE_MESSAGE}"
                 )
                 if partial_reason not in context.partial_reasons:
                     context.partial_reasons.append(partial_reason)
@@ -125,11 +129,7 @@ class CollectNewsStep(BatchStep):
                         'provider': keyword.provider_name,
                         'marketType': keyword.market_type,
                         'keyword': keyword.keyword,
-                        'error': {
-                            'provider': 'NaverNewsProvider',
-                            'errorClass': type(exc).__name__,
-                            'errorMessage': str(exc),
-                        },
+                        'error': public_external_provider_error(type(exc).__name__),
                     },
                 )
                 continue

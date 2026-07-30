@@ -198,6 +198,32 @@ def test_settings_defaults_to_twelve_llm_requests_per_minute(
     assert settings.llm_requests_per_minute == 12
 
 
+def test_settings_defaults_to_twelve_clusters_per_market(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv('STOCKAPP_BATCH_MAX_CLUSTERS_PER_MARKET', raising=False)
+    monkeypatch.delenv('batch_max_clusters_per_market', raising=False)
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.batch_max_clusters_per_market == 12
+
+
+def test_settings_loads_cluster_cap_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv('STOCKAPP_BATCH_MAX_CLUSTERS_PER_MARKET', '8')
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.batch_max_clusters_per_market == 8
+
+
+def test_settings_rejects_cluster_cap_below_two():
+    with pytest.raises(ValidationError, match='batch_max_clusters_per_market'):
+        settings_module.Settings(batch_max_clusters_per_market=1)
+
+
 def test_settings_loads_llm_requests_per_minute_from_env(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -227,12 +253,14 @@ def test_settings_loads_durable_worker_timing_from_env(
     monkeypatch.setenv('STOCKAPP_BATCH_WORKER_HEARTBEAT_SECONDS', '20')
     monkeypatch.setenv('STOCKAPP_BATCH_WORKER_LEASE_SECONDS', '90')
     monkeypatch.setenv('STOCKAPP_BATCH_WORKER_MAX_ATTEMPTS', '4')
+    monkeypatch.setenv('STOCKAPP_BATCH_STARTUP_RECOVERY_ENABLED', 'true')
 
     settings = settings_module.Settings(_env_file=None)
 
     assert settings.batch_worker_heartbeat_seconds == 20
     assert settings.batch_worker_lease_seconds == 90
     assert settings.batch_worker_max_attempts == 4
+    assert settings.batch_startup_recovery_enabled is True
 
 
 def test_settings_rejects_lease_not_longer_than_heartbeat():

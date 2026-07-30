@@ -167,9 +167,9 @@ async def test_collect_news_step_preserves_successful_keyword_when_one_fails(
     assert len(warning_events) == 1
     assert warning_events[0]['context_json']['keyword'] == 'broken'
     assert warning_events[0]['context_json']['error'] == {
-        'provider': 'NaverNewsProvider',
+        'code': 'EXTERNAL_PROVIDER_REQUEST_FAILED',
         'errorClass': 'TimeoutError',
-        'errorMessage': 'provider timeout',
+        'message': 'External provider request failed.',
     }
 
 
@@ -697,19 +697,31 @@ async def test_generate_ai_summaries_step_records_fallback_error_metadata(monkey
 
         async def summarize_global_headline(self, **kwargs):
             _ = kwargs
-            raise TimeoutError('provider timeout')
+            raise TimeoutError(
+                '429 RESOURCE_EXHAUSTED secret-token RetryInfo '
+                'https://generativelanguage.googleapis.com'
+            )
 
         async def summarize_market(self, **kwargs):
             _ = kwargs
-            raise TimeoutError('provider timeout')
+            raise TimeoutError(
+                '429 RESOURCE_EXHAUSTED secret-token RetryInfo '
+                'https://generativelanguage.googleapis.com'
+            )
 
         async def summarize_cluster_card(self, **kwargs):
             _ = kwargs
-            raise TimeoutError('provider timeout')
+            raise TimeoutError(
+                '429 RESOURCE_EXHAUSTED secret-token RetryInfo '
+                'https://generativelanguage.googleapis.com'
+            )
 
         async def summarize_cluster_detail(self, **kwargs):
             _ = kwargs
-            raise TimeoutError('provider timeout')
+            raise TimeoutError(
+                '429 RESOURCE_EXHAUSTED secret-token RetryInfo '
+                'https://generativelanguage.googleapis.com'
+            )
 
     fake_summary_repo = FakeSummaryRepo(RecordingAsyncSession())
     monkeypatch.setattr(generate_module, 'ClusterRepository', FakeClusterRepo)
@@ -735,12 +747,19 @@ async def test_generate_ai_summaries_step_records_fallback_error_metadata(monkey
     assert len(fake_summary_repo.rows) == 4
     for row in fake_summary_repo.rows:
         assert row.fallback_used is True
-        assert row.error_message == 'provider timeout'
+        assert (
+            row.error_message
+            == 'AI provider request failed; fallback content was used.'
+        )
         assert row.metadata_json['error'] == {
-            'provider': 'BatchLlmProvider',
+            'code': 'AI_PROVIDER_REQUEST_FAILED',
             'errorClass': 'TimeoutError',
-            'errorMessage': 'provider timeout',
+            'message': 'AI provider request failed; fallback content was used.',
         }
+        serialized = repr(row)
+        assert 'secret-token' not in serialized
+        assert 'RetryInfo' not in serialized
+        assert 'googleapis.com' not in serialized
 
 
 @pytest.mark.anyio

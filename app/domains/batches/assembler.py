@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from app.core.public_diagnostics import sanitize_public_diagnostic
 from app.schemas.batch import (
     AiRetryRunResponse,
     BatchJobDetailResponse,
@@ -42,13 +43,28 @@ def assemble_ai_retry_run_response(
 
 
 def assemble_batch_job_list_response(payload: dict[str, Any]) -> BatchJobListResponse:
-    return BatchJobListResponse.model_validate(payload)
+    safe_payload = dict(payload)
+    safe_payload['items'] = [
+        {
+            **item,
+            'partialMessage': sanitize_public_diagnostic(item.get('partialMessage')),
+        }
+        for item in payload.get('items', [])
+    ]
+    return BatchJobListResponse.model_validate(safe_payload)
 
 
 def assemble_batch_job_detail_response(
     payload: dict[str, Any],
 ) -> BatchJobDetailResponse:
-    return BatchJobDetailResponse.model_validate(payload)
+    return BatchJobDetailResponse.model_validate(
+        {
+            **payload,
+            'partialMessage': sanitize_public_diagnostic(payload.get('partialMessage')),
+            'errorMessage': sanitize_public_diagnostic(payload.get('errorMessage')),
+            'logSummary': sanitize_public_diagnostic(payload.get('logSummary')),
+        }
+    )
 
 
 def build_batch_run_payload(job: Any) -> dict[str, Any]:
@@ -85,7 +101,7 @@ def build_batch_job_list_payload(result: Any) -> dict[str, Any]:
             clusterCount=item.cluster_count,
             pageId=item.page_id,
             pageVersionNo=item.page_version_no,
-            partialMessage=item.partial_message,
+            partialMessage=sanitize_public_diagnostic(item.partial_message),
             aiTargetCount=item.ai_target_count,
             aiAttemptedCount=item.ai_attempted_count,
             aiSuccessCount=item.ai_success_count,
@@ -136,10 +152,10 @@ def build_batch_job_detail_payload(job: Any) -> dict[str, Any]:
         clusterCount=job.cluster_count,
         pageId=job.page_id,
         pageVersionNo=job.page_version_no,
-        partialMessage=job.partial_message,
+        partialMessage=sanitize_public_diagnostic(job.partial_message),
         errorCode=job.error_code,
-        errorMessage=job.error_message,
-        logSummary=job.log_summary,
+        errorMessage=sanitize_public_diagnostic(job.error_message),
+        logSummary=sanitize_public_diagnostic(job.log_summary),
         aiTargetCount=job.ai_target_count,
         aiAttemptedCount=job.ai_attempted_count,
         aiSuccessCount=job.ai_success_count,

@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from app.batch.ai_summary_targets import build_ai_summary_target_key
+from app.batch.logging import log_safe_exception
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
 from app.batch.steps.base import BatchStep, require_repository_session
+from app.core.public_diagnostics import (
+    AI_PROVIDER_FAILURE_MESSAGE,
+    AI_PROVIDER_INVALID_RESPONSE_MESSAGE,
+    public_ai_invalid_response,
+    public_ai_provider_error,
+)
 from app.db.enums import AiSummaryStatus, AiSummaryType, EventLevel
 from app.db.repositories.ai_summary_write_repo import AiSummaryWriteRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
@@ -15,27 +23,23 @@ from app.db.repositories.cluster_repo import ClusterRepository
 from app.db.repositories.market_index_repo import MarketIndexRepository
 from app.db.repositories.projections import AiSummaryCreateParams
 
+LOGGER = logging.getLogger(__name__)
+
 
 def _llm_error_metadata(exc: Exception) -> dict[str, str]:
-    return {
-        'provider': 'BatchLlmProvider',
-        'errorClass': type(exc).__name__,
-        'errorMessage': str(exc),
-    }
+    return public_ai_provider_error(exc)
 
 
 def _llm_malformed_metadata(reason: str) -> dict[str, str]:
-    return {
-        'provider': 'BatchLlmProvider',
-        'errorClass': 'ValueError',
-        'errorMessage': reason,
-    }
+    _ = reason
+    return public_ai_invalid_response()
 
 
 def _with_malformed_fallback(fallback: dict[str, Any], reason: str) -> dict[str, Any]:
+    _ = reason
     return {
         **fallback,
-        'error_message': reason,
+        'error_message': AI_PROVIDER_INVALID_RESPONSE_MESSAGE,
         'metadata_json': {
             **fallback.get('metadata_json', {}),
             'reason': 'llm_malformed_response',
@@ -289,7 +293,7 @@ class GenerateAiSummariesStep(BatchStep):
                 metadata = payload.get('metadata_json', {})
                 error = metadata.get('error') if isinstance(metadata, dict) else None
                 diagnostic = (
-                    error.get('errorMessage')
+                    error.get('message')
                     if isinstance(error, dict)
                     else payload.get('error_message')
                     or 'LLM provider is not configured.'
@@ -311,7 +315,7 @@ class GenerateAiSummariesStep(BatchStep):
                         if isinstance(metadata, dict)
                         else None,
                         'error': error,
-                        'errorMessage': payload.get('error_message'),
+                        'message': payload.get('error_message'),
                     }
                 )
 
@@ -380,7 +384,13 @@ async def _generate_global_headline(
             'metadata_json': {'reason': 'llm'},
         }
     except Exception as exc:
-        fallback['error_message'] = str(exc)
+        log_safe_exception(
+            LOGGER,
+            logging.WARNING,
+            'Global headline provider request failed.',
+            exception=exc,
+        )
+        fallback['error_message'] = AI_PROVIDER_FAILURE_MESSAGE
         fallback['metadata_json'] = {
             **fallback['metadata_json'],
             'error': _llm_error_metadata(exc),
@@ -467,7 +477,13 @@ async def _generate_market_summary(
             },
         }
     except Exception as exc:
-        fallback['error_message'] = str(exc)
+        log_safe_exception(
+            LOGGER,
+            logging.WARNING,
+            'Market summary provider request failed.',
+            exception=exc,
+        )
+        fallback['error_message'] = AI_PROVIDER_FAILURE_MESSAGE
         fallback['metadata_json'] = {
             **fallback['metadata_json'],
             'error': _llm_error_metadata(exc),
@@ -513,7 +529,13 @@ async def _generate_cluster_card_summary(
             'metadata_json': {'reason': 'llm'},
         }
     except Exception as exc:
-        fallback['error_message'] = str(exc)
+        log_safe_exception(
+            LOGGER,
+            logging.WARNING,
+            'Cluster card summary provider request failed.',
+            exception=exc,
+        )
+        fallback['error_message'] = AI_PROVIDER_FAILURE_MESSAGE
         fallback['metadata_json'] = {
             **fallback['metadata_json'],
             'error': _llm_error_metadata(exc),
@@ -574,7 +596,13 @@ async def _generate_cluster_detail_summary(
             'metadata_json': {'reason': 'llm'},
         }
     except Exception as exc:
-        fallback['error_message'] = str(exc)
+        log_safe_exception(
+            LOGGER,
+            logging.WARNING,
+            'Cluster detail summary provider request failed.',
+            exception=exc,
+        )
+        fallback['error_message'] = AI_PROVIDER_FAILURE_MESSAGE
         fallback['metadata_json'] = {
             **fallback['metadata_json'],
             'error': _llm_error_metadata(exc),

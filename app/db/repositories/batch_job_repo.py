@@ -388,6 +388,31 @@ class BatchJobRepository(PostgresRepository):
         row = result.mappings().one_or_none()
         return self._model_from_mapping(BatchJobRecord, row) if row else None
 
+    async def seconds_until_next_actionable_job(self) -> float | None:
+        statement = text(
+            """
+            SELECT GREATEST(
+                EXTRACT(EPOCH FROM (MIN(action_at) - now())),
+                0
+            )
+            FROM (
+                SELECT available_at AS action_at
+                FROM {batch_job_table}
+                WHERE status = 'PENDING'
+                  AND attempt_count < max_attempts
+
+                UNION ALL
+
+                SELECT COALESCE(lease_expires_at, now()) AS action_at
+                FROM {batch_job_table}
+                WHERE status = 'RUNNING'
+            ) AS actionable_jobs
+            """.format(batch_job_table=_qualified_table('batch_job'))
+        )
+        result = await self.session.execute(statement)
+        value = result.scalar_one_or_none()
+        return float(value) if value is not None else None
+
     async def heartbeat_claim(
         self,
         *,

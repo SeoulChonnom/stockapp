@@ -89,4 +89,8 @@ async def test_429_is_persistable_fallback_instead_of_crashing_retry():
 
     assert payload['status'] == 'FALLBACK'
     assert payload['fallback_used'] is True
-    assert '429' in payload['error_message']
+    assert (
+        payload['error_message']
+        == 'AI provider request failed; fallback content was used.'
+    )
+    assert '429' not in repr(payload)

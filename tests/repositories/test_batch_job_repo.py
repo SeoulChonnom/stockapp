@@ -133,6 +133,25 @@ async def test_recover_expired_claims_requeues_retryable_and_fails_exhausted():
     assert 'attempt_count >= max_attempts' in failed_sql
     assert "status = 'pending'" in requeued_sql
     assert 'attempt_count < max_attempts' in requeued_sql
+    assert 'lease_expires_at is null' in failed_sql
+    assert 'lease_expires_at is null' in requeued_sql
+
+
+@pytest.mark.anyio
+async def test_seconds_until_next_actionable_job_includes_retry_and_lease_times():
+    session = RecordingAsyncSession(results=[DummyResult([12.5])])
+    repo = BatchJobRepository(session)
+
+    delay_seconds = await repo.seconds_until_next_actionable_job()
+
+    assert delay_seconds == 12.5
+    sql = normalize_sql(session.statements[0]).lower()
+    assert 'min(action_at)' in sql
+    assert 'available_at as action_at' in sql
+    assert 'coalesce(lease_expires_at, now()) as action_at' in sql
+    assert "status = 'pending'" in sql
+    assert "status = 'running'" in sql
+    assert 'attempt_count < max_attempts' in sql
 
 
 @pytest.mark.anyio

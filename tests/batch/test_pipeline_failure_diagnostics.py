@@ -254,7 +254,7 @@ async def test_collect_news_transient_failure_is_partial_and_recounts_available_
 
     assert context.raw_news_count == 7
     assert any(
-        'broken' in reason and 'provider timeout' in reason
+        'broken' in reason and 'External provider request failed.' in reason
         for reason in context.partial_reasons
     )
     assert any(event.get('level') == 'WARN' for event in repository.events)
@@ -323,18 +323,26 @@ async def test_collect_market_indices_surfaces_partial_ticker_failures() -> None
 
     assert context.collected_index_count == 1
     assert any(
-        'BROKEN' in reason and 'provider timeout' in reason
+        'BROKEN' in reason and 'External provider request failed.' in reason
         for reason in context.partial_reasons
     )
     warning = next(event for event in repository.events if event.get('level') == 'WARN')
     assert warning['context_json']['ticker'] == 'BROKEN'
-    assert warning['context_json']['error']['errorMessage'] == 'provider timeout'
+    assert warning['context_json']['error'] == {
+        'code': 'EXTERNAL_PROVIDER_REQUEST_FAILED',
+        'message': 'External provider request failed.',
+        'errorClass': 'TimeoutError',
+    }
 
 
 @pytest.mark.anyio
-async def test_cluster_llm_fallback_increments_count_and_adds_partial_diagnostic() -> (
-    None
-):
+async def test_cluster_llm_fallback_increments_count_and_adds_partial_diagnostic(
+    caplog,
+) -> None:
+    raw_provider_error = (
+        '429 RESOURCE_EXHAUSTED quota RetryInfo secret-token '
+        'https://generativelanguage.googleapis.com'
+    )
     article = SimpleNamespace(
         processed_article_id=4001,
         market_type='US',
@@ -371,7 +379,7 @@ async def test_cluster_llm_fallback_increments_count_and_adds_partial_diagnostic
 
         async def enrich_cluster(self, **kwargs) -> dict:
             _ = kwargs
-            raise TimeoutError('cluster provider timeout')
+            raise TimeoutError(raw_provider_error)
 
     repository = EventRepository(session=object(), events=[])
     context = await BuildClustersStep(
@@ -382,18 +390,30 @@ async def test_cluster_llm_fallback_increments_count_and_adds_partial_diagnostic
 
     assert context.fallback_count == 1
     assert any(
-        'cluster provider timeout' in reason for reason in context.partial_reasons
+        'AI provider request failed; fallback content was used.' in reason
+        for reason in context.partial_reasons
     )
     warning = next(event for event in repository.events if event.get('level') == 'WARN')
-    assert warning['context_json']['error']['errorMessage'] == (
-        'cluster provider timeout'
-    )
+    assert warning['context_json']['error'] == {
+        'code': 'AI_PROVIDER_REQUEST_FAILED',
+        'message': 'AI provider request failed; fallback content was used.',
+        'errorClass': 'TimeoutError',
+    }
+    serialized = f'{context.partial_reasons!r} {warning!r} {caplog.text}'
+    assert '429' not in serialized
+    assert 'RetryInfo' not in serialized
+    assert 'secret-token' not in serialized
+    assert 'googleapis.com' not in serialized
 
 
 @pytest.mark.anyio
-async def test_summary_llm_errors_are_in_warning_event_and_partial_diagnostics() -> (
-    None
-):
+async def test_summary_llm_errors_are_in_warning_event_and_partial_diagnostics(
+    caplog,
+) -> None:
+    raw_provider_error = (
+        '429 RESOURCE_EXHAUSTED quota RetryInfo secret-token '
+        'https://generativelanguage.googleapis.com'
+    )
     cluster = {
         'id': 7001,
         'market_type': 'US',
@@ -449,19 +469,19 @@ async def test_summary_llm_errors_are_in_warning_event_and_partial_diagnostics()
 
         async def summarize_global_headline(self, **kwargs) -> dict:
             _ = kwargs
-            raise TimeoutError('summary provider timeout')
+            raise TimeoutError(raw_provider_error)
 
         async def summarize_market(self, **kwargs) -> dict:
             _ = kwargs
-            raise TimeoutError('summary provider timeout')
+            raise TimeoutError(raw_provider_error)
 
         async def summarize_cluster_card(self, **kwargs) -> dict:
             _ = kwargs
-            raise TimeoutError('summary provider timeout')
+            raise TimeoutError(raw_provider_error)
 
         async def summarize_cluster_detail(self, **kwargs) -> dict:
             _ = kwargs
-            raise TimeoutError('summary provider timeout')
+            raise TimeoutError(raw_provider_error)
 
     repository = EventRepository(session=object(), events=[])
     context = await GenerateAiSummariesStep(
@@ -473,13 +493,21 @@ async def test_summary_llm_errors_are_in_warning_event_and_partial_diagnostics()
 
     assert context.fallback_count == 4
     assert any(
-        'summary provider timeout' in reason for reason in context.partial_reasons
+        'AI provider request failed; fallback content was used.' in reason
+        for reason in context.partial_reasons
     )
     warning = next(event for event in repository.events if event.get('level') == 'WARN')
     assert warning['context_json']['fallbackCount'] == 4
-    assert warning['context_json']['fallbackDetails'][0]['error']['errorMessage'] == (
-        'summary provider timeout'
-    )
+    assert warning['context_json']['fallbackDetails'][0]['error'] == {
+        'code': 'AI_PROVIDER_REQUEST_FAILED',
+        'message': 'AI provider request failed; fallback content was used.',
+        'errorClass': 'TimeoutError',
+    }
+    serialized = f'{context.partial_reasons!r} {warning!r} {caplog.text}'
+    assert '429' not in serialized
+    assert 'RetryInfo' not in serialized
+    assert 'secret-token' not in serialized
+    assert 'googleapis.com' not in serialized
 
 
 @pytest.mark.anyio
@@ -514,6 +542,43 @@ async def test_finalize_job_builds_partial_message_from_warning() -> None:
     assert repository.completed['ai_success_count'] == 3
     assert repository.completed['ai_fallback_count'] == 1
     assert repository.completed['ai_failed_count'] == 0
+
+
+@pytest.mark.anyio
+async def test_finalize_job_redacts_provider_payload_and_keeps_naver_reason() -> None:
+    class FinalizeRepository(EventRepository):
+        def __init__(self) -> None:
+            super().__init__(session=object(), events=[])
+            self.completed: dict | None = None
+
+        async def mark_job_completed(self, **kwargs) -> None:
+            self.completed = kwargs
+
+    naver_reason = (
+        'Naver news pagination cap was reached before covering the persisted '
+        "window for keyword '증시'."
+    )
+    raw_provider_reason = (
+        'AI summary fallback for GLOBAL_HEADLINE: 429 RESOURCE_EXHAUSTED '
+        'quota RetryInfo secret-token https://generativelanguage.googleapis.com'
+    )
+    repository = FinalizeRepository()
+    context = build_context()
+    context.page_id = 501
+    context.fallback_count = 1
+    context.partial_reasons.extend([naver_reason, raw_provider_reason])
+    context.log_messages.append(raw_provider_reason)
+
+    await FinalizeJobStep().run(repository, context)
+
+    assert repository.completed is not None
+    serialized = repr(repository.completed)
+    assert naver_reason in repository.completed['partial_message']
+    assert 'AI provider request failed; fallback content was used.' in serialized
+    assert '429' not in serialized
+    assert 'RetryInfo' not in serialized
+    assert 'secret-token' not in serialized
+    assert 'googleapis.com' not in serialized
 
 
 class OrchestratorSession:

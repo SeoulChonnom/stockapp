@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
+from time import perf_counter
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.batch.exceptions import BatchLeaseLostError, BatchPipelineError
+from app.batch.logging import log_batch_lifecycle
 from app.batch.models import BatchExecutionContext
 from app.batch.steps import (
     BuildClustersStep,
@@ -20,9 +23,16 @@ from app.batch.steps import (
     PrepareMarketContextsStep,
 )
 from app.batch.steps.base import BatchStep
+from app.core.public_diagnostics import (
+    public_external_provider_error,
+    sanitize_public_diagnostic,
+    sanitize_public_diagnostics,
+)
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.session import get_session_maker
+
+LOGGER = logging.getLogger(__name__)
 
 
 class MarketDailyBatchOrchestrator:
@@ -41,6 +51,7 @@ class MarketDailyBatchOrchestrator:
         ]
 
     async def run(self, job_id: int, lease_token: UUID | None = None) -> None:
+        orchestrator_started_at = perf_counter()
         async with self._session_maker() as session:
             repository = (
                 BatchJobRepository(session)
@@ -49,6 +60,8 @@ class MarketDailyBatchOrchestrator:
             )
             context: BatchExecutionContext | None = None
             last_committed_context: BatchExecutionContext | None = None
+            current_step_code = 'ORCHESTRATE'
+            current_step_started_at: float | None = None
             try:
                 job = await repository.get_job_by_id(job_id)
                 if job is None:
@@ -68,6 +81,15 @@ class MarketDailyBatchOrchestrator:
                     source_job_id=getattr(job, 'source_job_id', None),
                     source_page_id=getattr(job, 'source_page_id', None),
                 )
+                log_batch_lifecycle(
+                    LOGGER,
+                    logging.INFO,
+                    event='started',
+                    job_id=job_id,
+                    page_id=_context_page_id(context),
+                    reference_date=context.business_date,
+                    stage='ORCHESTRATE',
+                )
                 completed_steps = _completed_steps(checkpoint)
                 await repository.add_event(
                     job_id=job_id,
@@ -84,7 +106,27 @@ class MarketDailyBatchOrchestrator:
                         type(step).__name__.upper(),
                     )
                     if step_code in completed_steps:
+                        log_batch_lifecycle(
+                            LOGGER,
+                            logging.INFO,
+                            event='skipped',
+                            job_id=job_id,
+                            page_id=_context_page_id(context),
+                            reference_date=context.business_date,
+                            stage=step_code,
+                        )
                         continue
+                    current_step_code = step_code
+                    current_step_started_at = perf_counter()
+                    log_batch_lifecycle(
+                        LOGGER,
+                        logging.INFO,
+                        event='started',
+                        job_id=job_id,
+                        page_id=_context_page_id(context),
+                        reference_date=context.business_date,
+                        stage=step_code,
+                    )
                     if lease_token is not None:
                         step_started = await repository.begin_step(
                             job_id=job_id,
@@ -116,7 +158,53 @@ class MarketDailyBatchOrchestrator:
                             )
                     await repository.commit()
                     last_committed_context = deepcopy(context)
+                    log_batch_lifecycle(
+                        LOGGER,
+                        logging.INFO,
+                        event='completed',
+                        job_id=job_id,
+                        page_id=_context_page_id(context),
+                        reference_date=context.business_date,
+                        stage=step_code,
+                        duration_seconds=perf_counter() - current_step_started_at,
+                    )
+                    current_step_started_at = None
+                log_batch_lifecycle(
+                    LOGGER,
+                    logging.INFO,
+                    event='completed',
+                    job_id=job_id,
+                    page_id=_context_page_id(context),
+                    reference_date=context.business_date,
+                    stage='ORCHESTRATE',
+                    duration_seconds=perf_counter() - orchestrator_started_at,
+                )
             except Exception as exc:
+                if context is not None and current_step_started_at is not None:
+                    log_batch_lifecycle(
+                        LOGGER,
+                        logging.ERROR,
+                        event='failed',
+                        job_id=job_id,
+                        page_id=_context_page_id(context),
+                        reference_date=context.business_date,
+                        stage=current_step_code,
+                        duration_seconds=perf_counter() - current_step_started_at,
+                        exception=exc,
+                    )
+                log_batch_lifecycle(
+                    LOGGER,
+                    logging.ERROR,
+                    event='failed',
+                    job_id=job_id,
+                    page_id=_context_page_id(context),
+                    reference_date=(
+                        context.business_date if context is not None else None
+                    ),
+                    stage='ORCHESTRATE',
+                    duration_seconds=perf_counter() - orchestrator_started_at,
+                    exception=exc,
+                )
                 await _rollback_active_transaction(repository)
                 if lease_token is not None:
                     raise
@@ -137,10 +225,7 @@ class MarketDailyBatchOrchestrator:
                     message='Market daily batch orchestrator failed.',
                     context_json={
                         'errorCode': error_code,
-                        'error': {
-                            'errorClass': type(exc).__name__,
-                            'errorMessage': str(exc),
-                        },
+                        'error': public_external_provider_error(type(exc).__name__),
                     },
                 )
                 await repository.commit()
@@ -149,6 +234,13 @@ class MarketDailyBatchOrchestrator:
                     failure_context
                 ):
                     partial_message = failure_context.partial_message
+                    failure_context.partial_reasons = sanitize_public_diagnostics(
+                        failure_context.partial_reasons
+                    )
+                    failure_context.warning_messages = sanitize_public_diagnostics(
+                        failure_context.warning_messages
+                    )
+                    partial_message = sanitize_public_diagnostic(partial_message)
                     if not partial_message:
                         diagnostics = list(
                             dict.fromkeys(
@@ -180,8 +272,10 @@ class MarketDailyBatchOrchestrator:
                         page_version_no=failure_context.page_version_no,
                         partial_message=partial_message,
                         error_code=error_code,
-                        error_message=error_message,
-                        log_summary=' '.join(failure_context.log_messages) or None,
+                        error_message=sanitize_public_diagnostic(error_message),
+                        log_summary=sanitize_public_diagnostic(
+                            ' '.join(failure_context.log_messages) or None
+                        ),
                     )
                 else:
                     await repository.mark_job_failed(
@@ -191,6 +285,12 @@ class MarketDailyBatchOrchestrator:
                     )
                 await repository.commit()
                 raise
+
+
+def _context_page_id(context: BatchExecutionContext | None) -> int | None:
+    if context is None:
+        return None
+    return context.page_id or context.source_page_id
 
 
 def _has_progress_or_diagnostics(context: BatchExecutionContext) -> bool:

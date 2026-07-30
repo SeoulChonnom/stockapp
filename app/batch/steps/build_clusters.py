@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import defaultdict
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from app.batch.logging import log_safe_exception
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import normalize_title, tokenize_text
 from app.batch.providers.llm_provider import BatchLlmProvider
 from app.batch.steps.base import BatchStep, require_repository_session
+from app.core.public_diagnostics import (
+    public_ai_invalid_response,
+    public_ai_provider_error,
+)
+from app.core.settings import Settings, get_settings
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.news_article_processed_repo import (
@@ -18,21 +25,16 @@ from app.db.repositories.news_article_processed_repo import (
 from app.db.repositories.news_cluster_write_repo import NewsClusterWriteRepository
 from app.db.repositories.projections import NewsClusterCreateParams
 
+LOGGER = logging.getLogger(__name__)
+
 
 def _serialize_exception(exc: Exception) -> dict[str, str]:
-    return {
-        'provider': 'BatchLlmProvider',
-        'errorClass': type(exc).__name__,
-        'errorMessage': str(exc),
-    }
+    return public_ai_provider_error(exc)
 
 
 def _serialize_malformed_response(reason: str) -> dict[str, str]:
-    return {
-        'provider': 'BatchLlmProvider',
-        'errorClass': 'ValueError',
-        'errorMessage': reason,
-    }
+    _ = reason
+    return public_ai_invalid_response()
 
 
 class BuildClustersStep(BatchStep):
@@ -46,12 +48,16 @@ class BuildClustersStep(BatchStep):
         processed_repo_factory: Callable[[object], Any] | None = None,
         cluster_repo_factory: Callable[[object], Any] | None = None,
         llm_provider_factory: Callable[[], Any] | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self._processed_repo_factory = (
             processed_repo_factory or NewsArticleProcessedRepository
         )
         self._cluster_repo_factory = cluster_repo_factory or NewsClusterWriteRepository
         self._llm_provider_factory = llm_provider_factory or BatchLlmProvider
+        self._max_clusters_per_market = (
+            settings or get_settings()
+        ).batch_max_clusters_per_market
 
     async def run(
         self,
@@ -90,11 +96,48 @@ class BuildClustersStep(BatchStep):
             grouped_articles[article.market_type].append(article)
 
         created_cluster_count = 0
-        for market_type, articles in grouped_articles.items():
-            market_clusters = (
-                [articles]
-                if not llm_provider.is_configured()
-                else _group_articles(articles)
+        for market_type in sorted(grouped_articles):
+            articles = grouped_articles[market_type]
+            candidate_clusters = _rank_market_clusters(_group_articles(articles))
+            selected_clusters = candidate_clusters[: self._max_clusters_per_market]
+            candidate_count = len(candidate_clusters)
+            selected_count = len(selected_clusters)
+            omitted_count = candidate_count - selected_count
+            selection_context = {
+                'marketType': market_type,
+                'candidateCount': candidate_count,
+                'selectedCount': selected_count,
+                'omittedCount': omitted_count,
+                'maxClustersPerMarket': self._max_clusters_per_market,
+            }
+            await repository.add_event(
+                job_id=context.job_id,
+                step_code=self.step_code,
+                level=EventLevel.INFO.value,
+                message='Selected cluster candidates for persistence.',
+                context_json=selection_context,
+            )
+            LOGGER.info(
+                (
+                    'cluster_selection market_type=%s candidate_count=%s '
+                    'selected_count=%s omitted_count=%s max_clusters_per_market=%s'
+                ),
+                market_type,
+                candidate_count,
+                selected_count,
+                omitted_count,
+                self._max_clusters_per_market,
+                extra={
+                    'batch_market_type': market_type,
+                    'batch_cluster_candidate_count': candidate_count,
+                    'batch_cluster_selected_count': selected_count,
+                    'batch_cluster_omitted_count': omitted_count,
+                    'batch_max_clusters_per_market': (self._max_clusters_per_market),
+                },
+            )
+            context.log_messages.append(
+                f'{market_type} cluster candidates: candidate={candidate_count}, '
+                f'selected={selected_count}, omitted={omitted_count}.'
             )
             if hasattr(cluster_repo, 'list_cluster_ids_for_business_date') and hasattr(
                 cluster_repo, 'delete_clusters_by_ids'
@@ -106,30 +149,19 @@ class BuildClustersStep(BatchStep):
                     )
                 )
                 await cluster_repo.delete_clusters_by_ids(existing_cluster_ids)
-            ordered_cluster_articles = [
-                sorted(
-                    cluster_articles,
-                    key=lambda article: (
-                        article.published_at or datetime.min.replace(tzinfo=UTC),
-                        article.processed_article_id,
-                    ),
-                    reverse=True,
-                )
-                for cluster_articles in market_clusters
-            ]
             enrichments = await _enrich_market_clusters(
                 llm_provider,
                 market_type,
-                ordered_cluster_articles,
+                selected_clusters,
             )
             for cluster_rank, (ordered_articles, enrichment) in enumerate(
-                zip(ordered_cluster_articles, enrichments, strict=True), start=1
+                zip(selected_clusters, enrichments, strict=True), start=1
             ):
                 if enrichment.get('fallback_used'):
                     context.fallback_count += 1
                     error_context = enrichment.get('error_context')
                     diagnostic = (
-                        error_context.get('errorMessage')
+                        error_context.get('message')
                         if isinstance(error_context, dict)
                         else 'LLM provider is not configured.'
                     )
@@ -208,21 +240,49 @@ def _derive_tags(titles: list[str]) -> list[str]:
 
 def _group_articles(articles: list) -> list[list]:
     groups: list[list] = []
-    for article in articles:
+    group_tokens: list[set[str]] = []
+    for article in sorted(
+        articles,
+        key=lambda candidate: candidate.processed_article_id,
+    ):
         article_tokens = set(tokenize_text(article.canonical_title))
-        matched_group: list | None = None
-        for group in groups:
-            group_tokens = set()
-            for group_article in group:
-                group_tokens.update(tokenize_text(group_article.canonical_title))
-            if article_tokens and len(article_tokens.intersection(group_tokens)) >= 2:
-                matched_group = group
+        matched_index: int | None = None
+        for group_index, tokens in enumerate(group_tokens):
+            if article_tokens and len(article_tokens.intersection(tokens)) >= 2:
+                matched_index = group_index
                 break
-        if matched_group is None:
+        if matched_index is None:
             groups.append([article])
+            group_tokens.append(set(article_tokens))
         else:
-            matched_group.append(article)
+            groups[matched_index].append(article)
+            group_tokens[matched_index].update(article_tokens)
     return groups
+
+
+def _rank_market_clusters(clusters: list[list]) -> list[list]:
+    ordered_clusters = [
+        sorted(
+            cluster_articles,
+            key=lambda article: (
+                article.published_at or datetime.min.replace(tzinfo=UTC),
+                article.processed_article_id,
+            ),
+            reverse=True,
+        )
+        for cluster_articles in clusters
+    ]
+    ordered_clusters.sort(
+        key=lambda cluster_articles: cluster_articles[0].processed_article_id
+    )
+    ordered_clusters.sort(
+        key=lambda cluster_articles: (
+            cluster_articles[0].published_at or datetime.min.replace(tzinfo=UTC)
+        ),
+        reverse=True,
+    )
+    ordered_clusters.sort(key=len, reverse=True)
+    return ordered_clusters
 
 
 async def _enrich_cluster(
@@ -273,6 +333,12 @@ async def _enrich_cluster(
             market_type=market_type, articles=payload
         )
     except Exception as exc:
+        log_safe_exception(
+            LOGGER,
+            logging.WARNING,
+            'Cluster enrichment provider request failed.',
+            exception=exc,
+        )
         fallback['error_context'] = _serialize_exception(exc)
         return fallback
 
@@ -299,7 +365,7 @@ async def _enrich_cluster(
         return fallback
     try:
         representative_index = int(result.get('representative_article_index', 0) or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         fallback['fallback_reason'] = 'llm_malformed_response'
         fallback['error_context'] = _serialize_malformed_response(
             'Cluster enrichment representative_article_index must be an integer.'
@@ -312,8 +378,7 @@ async def _enrich_cluster(
         'summary_short': result.get('summary_short') or fallback['summary_short'],
         'summary_long': result.get('summary_long') or fallback['summary_long'],
         'tags': tags or fallback['tags'],
-        'analysis_paragraphs': analysis_paragraphs
-        or fallback['analysis_paragraphs'],
+        'analysis_paragraphs': analysis_paragraphs or fallback['analysis_paragraphs'],
         'representative_article_id': articles[
             representative_index
         ].processed_article_id,

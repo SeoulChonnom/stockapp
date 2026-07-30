@@ -7,12 +7,14 @@ import os
 import socket
 from collections.abc import Callable
 from contextlib import suppress
+from time import perf_counter
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.batch.exceptions import BatchLeaseLostError
+from app.batch.logging import log_batch_lifecycle, log_safe_exception
 from app.batch.orchestrators.market_daily import MarketDailyBatchOrchestrator
 from app.core.settings import Settings, get_settings
 from app.db.enums import BatchRunMode
@@ -92,11 +94,51 @@ class DurableBatchWorker:
         while True:
             try:
                 processed = await self.run_once()
-            except Exception:
-                LOGGER.exception('Durable batch worker queue operation failed.')
+            except Exception as exc:
+                log_safe_exception(
+                    LOGGER,
+                    logging.ERROR,
+                    'Durable batch worker queue operation failed.',
+                    exception=exc,
+                )
                 processed = False
             if not processed:
                 await asyncio.sleep(self._settings.batch_worker_poll_interval_seconds)
+
+    async def run_until_idle(self) -> int:
+        """Drain jobs and wait for delayed retries or live leases to become actionable."""
+        processed_count = 0
+        while True:
+            try:
+                processed = await self.run_once()
+            except Exception as exc:
+                log_safe_exception(
+                    LOGGER,
+                    logging.ERROR,
+                    'Background batch queue drain failed.',
+                    exception=exc,
+                )
+                return processed_count
+            if processed:
+                processed_count += 1
+                continue
+
+            try:
+                delay_seconds = await self._seconds_until_next_actionable_job()
+            except Exception as exc:
+                log_safe_exception(
+                    LOGGER,
+                    logging.ERROR,
+                    'Background batch next-action lookup failed.',
+                    exception=exc,
+                )
+                return processed_count
+            if delay_seconds is None:
+                return processed_count
+            poll_seconds = self._settings.batch_worker_poll_interval_seconds
+            await asyncio.sleep(
+                poll_seconds if delay_seconds <= 0 else min(delay_seconds, poll_seconds)
+            )
 
     async def run_once(self) -> bool:
         """Recover expired leases and process at most one available job."""
@@ -105,17 +147,54 @@ class DurableBatchWorker:
         job = await self._claim_next_job(lease_token)
         if job is None:
             return False
+        attempt_started_at = perf_counter()
+        log_batch_lifecycle(
+            LOGGER,
+            logging.INFO,
+            event='started',
+            job_id=job.job_id,
+            page_id=_job_page_id(job),
+            reference_date=job.business_date,
+            stage='DISPATCH',
+        )
         try:
             await self._dispatch_with_heartbeat(job, lease_token)
-        except BatchLeaseLostError:
-            LOGGER.warning(
-                'Worker lease lost: worker_id=%s job_id=%s',
-                self.worker_id,
-                job.job_id,
+        except BatchLeaseLostError as exc:
+            log_batch_lifecycle(
+                LOGGER,
+                logging.WARNING,
+                event='failed',
+                job_id=job.job_id,
+                page_id=_job_page_id(job),
+                reference_date=job.business_date,
+                stage='DISPATCH',
+                duration_seconds=perf_counter() - attempt_started_at,
+                exception=exc,
             )
         except Exception as exc:
-            LOGGER.exception('Batch job attempt failed: job_id=%s', job.job_id)
+            log_batch_lifecycle(
+                LOGGER,
+                logging.ERROR,
+                event='failed',
+                job_id=job.job_id,
+                page_id=_job_page_id(job),
+                reference_date=job.business_date,
+                stage='DISPATCH',
+                duration_seconds=perf_counter() - attempt_started_at,
+                exception=exc,
+            )
             await self._release_failed_claim(job, lease_token, exc)
+        else:
+            log_batch_lifecycle(
+                LOGGER,
+                logging.INFO,
+                event='completed',
+                job_id=job.job_id,
+                page_id=_job_page_id(job),
+                reference_date=job.business_date,
+                stage='DISPATCH',
+                duration_seconds=perf_counter() - attempt_started_at,
+            )
         return True
 
     async def _recover_expired_claims(self) -> None:
@@ -140,6 +219,11 @@ class DurableBatchWorker:
             )
             await repository.commit()
             return job
+
+    async def _seconds_until_next_actionable_job(self) -> float | None:
+        async with self._session_maker() as session:
+            repository = self._repository_factory(session)
+            return await repository.seconds_until_next_actionable_job()
 
     async def _heartbeat(self, job_id: int, lease_token: UUID) -> bool:
         async with self._session_maker() as session:
@@ -232,8 +316,13 @@ class DurableBatchWorker:
             except TimeoutError:
                 try:
                     renewed = await self._heartbeat(job_id, lease_token)
-                except Exception:
-                    LOGGER.exception('Batch worker heartbeat failed: job_id=%s', job_id)
+                except Exception as exc:
+                    log_safe_exception(
+                        LOGGER,
+                        logging.ERROR,
+                        f'Batch worker heartbeat failed: job_id={job_id}.',
+                        exception=exc,
+                    )
                     lease_lost.set()
                     return
                 if not renewed:
@@ -243,6 +332,10 @@ class DurableBatchWorker:
 
 def _default_worker_id() -> str:
     return f'{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}'
+
+
+def _job_page_id(job: BatchJobRecord) -> int | None:
+    return job.page_id or getattr(job, 'source_page_id', None)
 
 
 async def _run() -> None:

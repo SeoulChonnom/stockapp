@@ -249,6 +249,8 @@ Authorization: Bearer {TOKEN}
 ### 처리 규칙
 
 - 요청은 `batch_job.status=PENDING`으로 영속화한 뒤 HTTP 202를 반환한다
+- HTTP 202 응답 후 FastAPI `BackgroundTasks`가 같은 API 프로세스의 durable
+  queue drain을 시작한다
 - 동일 `businessDate` 배치가 `PENDING` 또는 `RUNNING`이면 409 반환
 - 선택적 `Idempotency-Key` 헤더를 재사용하면 같은 요청의 기존 job을 반환한다
 - `businessDate`는 한국 시간(UTC+9) 기준 날짜를 사용한다

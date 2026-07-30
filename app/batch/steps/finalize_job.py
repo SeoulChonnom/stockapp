@@ -3,6 +3,10 @@ from __future__ import annotations
 from app.batch.models import BatchExecutionContext
 from app.batch.policies import determine_batch_status
 from app.batch.steps.base import BatchStep
+from app.core.public_diagnostics import (
+    sanitize_public_diagnostic,
+    sanitize_public_diagnostics,
+)
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 
@@ -17,6 +21,10 @@ class FinalizeJobStep(BatchStep):
         repository: BatchJobRepository,
         context: BatchExecutionContext,
     ) -> BatchExecutionContext:
+        context.partial_reasons = sanitize_public_diagnostics(context.partial_reasons)
+        context.warning_messages = sanitize_public_diagnostics(context.warning_messages)
+        context.partial_message = sanitize_public_diagnostic(context.partial_message)
+        context.error_message = sanitize_public_diagnostic(context.error_message)
         if not context.partial_message:
             diagnostics = list(
                 dict.fromkeys([*context.partial_reasons, *context.warning_messages])
@@ -28,7 +36,9 @@ class FinalizeJobStep(BatchStep):
                     f'Fallback processing was used {context.fallback_count} time(s).'
                 )
         status = determine_batch_status(context)
-        log_summary = ' '.join(context.log_messages) if context.log_messages else None
+        log_summary = sanitize_public_diagnostic(
+            ' '.join(context.log_messages) if context.log_messages else None
+        )
         await repository.mark_job_completed(
             job_id=context.job_id,
             status=status,

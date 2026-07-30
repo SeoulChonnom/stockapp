@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from uuid import uuid4
@@ -76,7 +77,9 @@ class FakeRepository:
 @pytest.mark.anyio
 async def test_market_daily_orchestrator_runs_all_steps_with_explicit_test_doubles(
     monkeypatch,
+    caplog,
 ):
+    caplog.set_level(logging.INFO, logger=orchestrator_module.__name__)
     fake_repository = FakeRepository(
         events=[],
         completed_statuses=[],
@@ -131,10 +134,23 @@ async def test_market_daily_orchestrator_runs_all_steps_with_explicit_test_doubl
     assert 'BUILD_PAGE_SNAPSHOT' in step_codes
     assert 'FINALIZE_JOB' in step_codes
     assert fake_repository.completed_statuses == ['SUCCESS']
+    completed_record = next(
+        record
+        for record in caplog.records
+        if record.batch_event == 'completed' and record.batch_stage == 'ORCHESTRATE'
+    )
+    assert completed_record.batch_job_id == 1001
+    assert completed_record.batch_page_id == 501
+    assert completed_record.batch_reference_date == date(2026, 3, 17)
+    assert completed_record.batch_duration_seconds >= 0
 
 
 @pytest.mark.anyio
-async def test_market_daily_orchestrator_marks_job_failed_when_step_raises(monkeypatch):
+async def test_market_daily_orchestrator_marks_job_failed_when_step_raises(
+    monkeypatch,
+    caplog,
+):
+    caplog.set_level(logging.ERROR, logger=orchestrator_module.__name__)
     fake_repository = FakeRepository(
         events=[],
         completed_statuses=[],
@@ -163,6 +179,15 @@ async def test_market_daily_orchestrator_marks_job_failed_when_step_raises(monke
     assert fake_repository.events[-1][0] == 'FAILED'
     assert fake_repository.events[-1][1].startswith('INTERNAL_BATCH_ERROR:')
     assert fake_repository.events[-1][2]['job_id'] == 1001
+    failure_record = next(
+        record
+        for record in caplog.records
+        if record.batch_event == 'failed' and record.batch_stage == 'FAILINGSTEP'
+    )
+    assert failure_record.batch_exception_class == 'TimeoutError'
+    assert failure_record.exc_info is None
+    assert 'test_market_daily_orchestrator.py' in failure_record.batch_traceback
+    assert 'provider timeout' not in caplog.text
 
 
 class RecordingSessionContext:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
@@ -52,10 +53,14 @@ def _job(job_id: int = 1001) -> BatchJobRecord:
 @dataclass
 class QueueState:
     claims: list[BatchJobRecord] = field(default_factory=list)
+    delayed_claim: BatchJobRecord | None = None
+    next_action_delays: list[float | None] = field(default_factory=list)
     released: list[tuple[int, UUID, str]] = field(default_factory=list)
     recovery_calls: int = 0
     recovered_job: BatchJobRecord | None = None
+    recovery_ready: bool = True
     recovery_done: bool = False
+    recovery_error: Exception | None = None
     commits: int = 0
 
 
@@ -65,7 +70,13 @@ class FakeQueueRepository:
 
     async def recover_expired_claims(self):
         self.state.recovery_calls += 1
-        if self.state.recovered_job is not None and not self.state.recovery_done:
+        if self.state.recovery_error is not None:
+            raise self.state.recovery_error
+        if (
+            self.state.recovered_job is not None
+            and self.state.recovery_ready
+            and not self.state.recovery_done
+        ):
             self.state.claims.append(self.state.recovered_job)
             self.state.recovery_done = True
             return BatchLeaseRecoveryResult(requeued_count=1, failed_count=0)
@@ -73,6 +84,16 @@ class FakeQueueRepository:
 
     async def claim_next_job(self, **_kwargs):
         return self.state.claims.pop(0) if self.state.claims else None
+
+    async def seconds_until_next_actionable_job(self):
+        if not self.state.next_action_delays:
+            return None
+        delay = self.state.next_action_delays.pop(0)
+        self.state.recovery_ready = True
+        if delay is not None and self.state.delayed_claim is not None:
+            self.state.claims.append(self.state.delayed_claim)
+            self.state.delayed_claim = None
+        return delay
 
     async def heartbeat_claim(self, **_kwargs):
         return True
@@ -134,7 +155,8 @@ def _worker(state: QueueState, dispatcher) -> DurableBatchWorker:
 
 
 @pytest.mark.anyio
-async def test_worker_dispatches_claimed_job_and_releases_failed_attempt():
+async def test_worker_dispatches_claimed_job_and_releases_failed_attempt(caplog):
+    caplog.set_level(logging.ERROR, logger='app.batch.worker')
     state = QueueState(claims=[_job()])
     dispatcher = RecordingDispatcher(error=TimeoutError('provider timeout'))
 
@@ -145,6 +167,18 @@ async def test_worker_dispatches_claimed_job_and_releases_failed_attempt():
     assert len(state.released) == 1
     assert state.released[0][0] == 1001
     assert state.released[0][2] == 'TimeoutError: provider timeout'
+    failure_record = next(
+        record
+        for record in caplog.records
+        if getattr(record, 'batch_event', None) == 'failed'
+    )
+    assert failure_record.batch_stage == 'DISPATCH'
+    assert failure_record.batch_job_id == 1001
+    assert failure_record.batch_reference_date == date(2026, 7, 29)
+    assert failure_record.batch_exception_class == 'TimeoutError'
+    assert failure_record.batch_duration_seconds >= 0
+    assert failure_record.batch_traceback
+    assert 'provider timeout' not in caplog.text
 
 
 @pytest.mark.anyio
@@ -169,6 +203,64 @@ async def test_process_restart_leaves_claim_for_lease_recovery_and_resume():
     assert processed is True
     assert state.recovery_done is True
     assert second_dispatcher.jobs == [1001]
+
+
+@pytest.mark.anyio
+async def test_background_drain_processes_all_available_jobs_until_idle():
+    state = QueueState(claims=[_job(1001), _job(1002)])
+    dispatcher = RecordingDispatcher()
+
+    processed_count = await _worker(state, dispatcher).run_until_idle()
+
+    assert processed_count == 2
+    assert dispatcher.jobs == [1001, 1002]
+    assert state.recovery_calls == 3
+
+
+@pytest.mark.anyio
+async def test_background_drain_waits_for_delayed_retry_job():
+    state = QueueState(
+        delayed_claim=_job(1001),
+        next_action_delays=[0.001],
+    )
+    dispatcher = RecordingDispatcher()
+
+    processed_count = await _worker(state, dispatcher).run_until_idle()
+
+    assert processed_count == 1
+    assert dispatcher.jobs == [1001]
+
+
+@pytest.mark.anyio
+async def test_background_drain_logs_queue_failure_without_exception_message(caplog):
+    state = QueueState(
+        recovery_error=RuntimeError('postgresql://admin:secret@db.example.com/stock'),
+    )
+    caplog.set_level(logging.ERROR, logger='app.batch.worker')
+
+    processed_count = await _worker(state, RecordingDispatcher()).run_until_idle()
+
+    assert processed_count == 0
+    assert 'exception_class=RuntimeError' in caplog.text
+    assert 'postgresql://' not in caplog.text
+    assert 'secret' not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_startup_drain_waits_for_live_lease_then_recovers_and_dispatches():
+    state = QueueState(
+        recovered_job=_job(1001),
+        recovery_ready=False,
+        next_action_delays=[0.001],
+    )
+    dispatcher = RecordingDispatcher()
+
+    processed_count = await _worker(state, dispatcher).run_until_idle()
+
+    assert processed_count == 1
+    assert state.recovery_done is True
+    assert state.recovery_calls >= 2
+    assert dispatcher.jobs == [1001]
 
 
 @pytest.mark.anyio

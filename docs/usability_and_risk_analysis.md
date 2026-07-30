@@ -10,7 +10,7 @@
 
 ### 배치 파이프라인 (일일 수집)
 
-`POST /stock/api/batch/market-daily` (ADMIN 권한) → `batch_job` 행 생성(PENDING) 및 HTTP 202 반환 → 별도 durable worker가 PostgreSQL queue에서 claim(RUNNING) → 8개 스텝을 순차 실행:
+`POST /stock/api/batch/market-daily` (ADMIN 권한) → `batch_job` 행 생성(PENDING) 및 HTTP 202 반환 → FastAPI `BackgroundTasks`가 같은 API 프로세스의 durable queue drain을 시작 → PostgreSQL queue에서 claim(RUNNING) → 스텝을 순차 실행:
 
 1. `CreateJobStep` — 컨텍스트 초기화
 2. `CollectNewsStep` — 네이버 뉴스 검색 API 수집
@@ -45,8 +45,9 @@
 ### 2-1. 배치 도중 프로세스 재시작 시 `RUNNING` 고착 — 해결됨
 
 - 위치: `app/batch/worker.py`, `app/db/repositories/batch_job_repo.py`
-- API는 작업을 PENDING으로 저장할 뿐 직접 실행하지 않는다. 별도 worker가
-  `FOR UPDATE SKIP LOCKED`로 작업을 원자적으로 claim한다.
+- API는 작업을 PENDING으로 저장한 뒤 HTTP 202 응답의 `BackgroundTasks`에서
+  관리되는 queue drain을 시작한다. drain은 `FOR UPDATE SKIP LOCKED`로 작업을
+  원자적으로 claim한다.
 - RUNNING 작업에는 worker owner, fencing token, heartbeat, 만료 시간이 저장된다.
   만료된 lease는 재시도 가능하면 PENDING으로 되돌리고, 최대 시도 횟수를 소진하면
   FAILED로 확정한다.
@@ -240,13 +241,13 @@ if settings.is_development and settings.cors_allowed_origins_list:
 
 | 원문 항목 | 최종 상태 | 반영 내용 | 검증 근거 |
 |---|---|---|---|
-| 2-1 RUNNING 고착 | 구현됨 | API는 PENDING job만 저장하고, PostgreSQL durable worker가 `SKIP LOCKED` claim, 30초 heartbeat/2분 lease, 만료 lease requeue, 최대 시도 초과 실패, step checkpoint resume를 수행한다. 기존 6시간 stale 처리는 queue lease 복구로 대체했다. | `app/batch/worker.py`, `app/db/repositories/batch_job_repo.py`, `db/migrations/20260729_04_batch_job_durable_queue.sql`; worker/repository/orchestrator tests |
+| 2-1 RUNNING 고착 | 구현됨 | API는 PENDING job을 저장하고 FastAPI `BackgroundTasks`가 in-process durable queue drain을 시작한다. drain은 `SKIP LOCKED` claim, 30초 heartbeat/2분 lease, 만료 lease requeue, 최대 시도 초과 실패, step checkpoint resume를 수행한다. 컨테이너 재시작 시 one-shot startup recovery가 기존 PENDING과 만료 lease를 회수한다. | `app/batch/background.py`, `app/batch/worker.py`, `app/db/repositories/batch_job_repo.py`, `db/migrations/20260729_04_batch_job_durable_queue.sql`; scheduler/worker/repository/orchestrator tests |
 | 2-2 LLM 응답 파싱 예외 | 구현됨 | 클러스터 enrich 결과와 AI summary 응답이 유효한 dict인지 확인하고, `tags`, `analysis_paragraphs`, 대표 기사 인덱스 등 malformed 값은 폴백과 WARN/오류 메타데이터로 처리한다. | `app/batch/steps/build_clusters.py`, `app/batch/steps/generate_ai_summaries.py`; `tests/batch/test_build_clusters_step.py`; 최종 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` 통과(147 passed, 1 skipped, 2 warnings) |
 | 2-3 공통 예외 핸들러 부재 | 구현됨 | `AppError`, 요청 검증 오류, 최후 `Exception` 핸들러가 모두 `ApiError` 봉투를 반환한다. 아카이브 `status`도 `Literal['READY','PARTIAL','FAILED']`로 제한한다. | `app/core/exceptions.py`, `app/domains/archive/router.py`; `tests/api/test_pages.py` |
 | 2-4 시크릿과 기본 DB 설정 | 완화됨 | strict production 설정 검증은 유지하면서, 오프라인 테스트는 명시적 테스트 설정으로 실행되도록 정리했다. Naver와 Gemini 키의 운영 fail-fast 범위는 별도 정책 판단이 필요하다. | `app/core/settings.py`; `tests/core/test_settings.py`; 최종 `UV_CACHE_DIR=/tmp/uv-cache uv run pytest` 통과(147 passed, 1 skipped, 2 warnings) |
 | 2-5 `rebuild_page_only` 뉴스 재수집 | 구현됨 | 뉴스 수집, 중복 제거, 클러스터 생성, AI 요약 단계가 `rebuild_page_only=true`에서 provider 호출을 건너뛴다. | `app/batch/steps/collect_news.py`, `dedupe_articles.py`, `build_clusters.py`, `generate_ai_summaries.py`; `tests/batch/test_remaining_batch_step_contracts.py` |
 | 3-1 LLM 타임아웃 없음 | 구현됨 | `asyncio.wait_for`와 `STOCKAPP_LLM_TIMEOUT_SECONDS`로 LLM 호출 상한을 둔다. timeout은 `LlmTimeoutError`로 표준화된다. | `app/core/llm.py`, `app/core/settings.py`; `tests/core/test_llm.py` |
-| 3-2 LLM/크롤링 순차 처리 | 완화됨 | 클러스터 enrich, AI summary 생성, 기사 본문 fetch에 semaphore 기반 제한 동시성을 적용했다. 외부 rate limit 운영값 튜닝은 남아 있다. | `app/batch/steps/build_clusters.py`, `generate_ai_summaries.py`, `dedupe_articles.py`; `tests/core/test_settings.py`, batch step tests |
+| 3-2 LLM/크롤링 순차 처리 | 완화됨 | 클러스터 enrich, AI summary 생성, 기사 본문 fetch에 semaphore 기반 제한 동시성을 적용했다. 클러스터 topology는 provider 설정과 무관하게 deterministic token grouping으로 계산하고, 기사 수·최신 발행 시각·stable article ID 순으로 시장별 최대 `STOCKAPP_BATCH_MAX_CLUSTERS_PER_MARKET`개(기본 12)만 persist/enrich하여 cluster LLM 호출 상한을 둔다. | `app/batch/steps/build_clusters.py`, `generate_ai_summaries.py`, `dedupe_articles.py`; `tests/core/test_settings.py`, batch step tests |
 | 3-3 동시 트리거 레이스 | 구현됨 | `create_job` 중 `IntegrityError`를 rollback 후 `BATCH_ALREADY_RUNNING` 409로 변환한다. | `app/db/repositories/batch_job_repo.py`, `app/domains/batches/service.py`; `tests/domains/test_batches_service.py`, `tests/repositories/test_batch_job_repo.py` |
 | 3-4 `sourceSummary` 유실 | 구현됨 | 대표 기사와 기사 목록 응답 모두 `sourceSummary`를 매핑한다. | `app/domains/clusters/assembler.py`; `tests/api/test_clusters.py`, `tests/domains/test_cluster_assembler.py`, `tests/domains/test_clusters_service.py` |
 | 3-5 타임존/시각 포맷 불일치 | 완화됨 | 페이지와 클러스터 assembler, page schema가 `isoformat_datetime`을 통해 timestamp를 정규화한다. 전체 API 문서 예시 동기화는 계속 관리가 필요하다. | `app/domains/pages/assembler.py`, `app/domains/clusters/assembler.py`, `app/schemas/page.py` |

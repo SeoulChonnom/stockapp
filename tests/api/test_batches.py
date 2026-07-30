@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest  # pyright: ignore[reportMissingImports]
 
 from tests.support import build_test_bearer_headers, load_module
@@ -18,9 +20,12 @@ class FakeBatchesService:
         self.detail_payload = detail_payload
         self.start_kwargs: dict | None = None
         self.retry_kwargs: dict | None = None
+        self.retry_created = True
+        self.lifecycle_events: list[str] = []
 
     async def start_market_daily_batch(self, **kwargs):
         self.start_kwargs = kwargs
+        self.lifecycle_events.append('job_committed')
         return self.run_payload
 
     async def list_jobs(self, **_kwargs):
@@ -46,7 +51,21 @@ class FakeBatchesService:
             'sourcePageId': 501,
             'idempotencyKey': kwargs['idempotency_key'],
             'startedAt': '2026-03-18T06:20:00+00:00',
+            '_created': self.retry_created,
         }
+
+
+class FakeBatchScheduler:
+    def __init__(self, lifecycle_events: list[str]):
+        self.drain_calls = 0
+        self.lifecycle_events = lifecycle_events
+        self.failure: Exception | None = None
+
+    def start_drain(self):
+        self.drain_calls += 1
+        self.lifecycle_events.append('drain_scheduled')
+        if self.failure is not None:
+            raise self.failure
 
 
 @pytest.fixture
@@ -61,9 +80,14 @@ def client(
         sample_batch_job_list_payload,
         sample_batch_job_detail_payload,
     )
+    fake_scheduler = FakeBatchScheduler(fake_service.lifecycle_events)
     app.dependency_overrides[batch_router_module.get_batches_service] = lambda: (
         fake_service
     )
+    app.dependency_overrides[batch_router_module.get_batch_scheduler] = lambda: (
+        fake_scheduler
+    )
+    fake_service.batch_scheduler = fake_scheduler
 
     with TestClient(app) as test_client:
         yield test_client, fake_service
@@ -94,6 +118,8 @@ def test_start_market_daily_batch_returns_job_handle(client, sample_batch_run_pa
     assert payload['status'] == 'PENDING'
     assert service.start_kwargs is not None
     assert service.start_kwargs['user_id'] == 'ADMIN-0001'
+    assert service.batch_scheduler.drain_calls == 1
+    assert service.lifecycle_events == ['job_committed', 'drain_scheduled']
 
 
 def test_start_market_daily_batch_preserves_non_uuid_subject(client):
@@ -112,6 +138,47 @@ def test_start_market_daily_batch_preserves_non_uuid_subject(client):
     assert service.start_kwargs is not None
     assert service.start_kwargs['user_id'] == 'USER-0001'
     assert service.start_kwargs['idempotency_key'] == 'market-daily-2026-03-17'
+    assert service.batch_scheduler.drain_calls == 1
+
+
+def test_start_market_daily_batch_idempotent_replay_does_not_start_new_drain(client):
+    test_client, service = client
+    service.run_payload['_created'] = False
+
+    response = test_client.post(
+        '/stock/api/batch/market-daily',
+        json={'businessDate': '2026-03-17', 'force': False, 'rebuildPageOnly': False},
+        headers={
+            **build_test_bearer_headers('ADMIN'),
+            'Idempotency-Key': 'market-daily-2026-03-17',
+        },
+    )
+
+    assert response.status_code == 202
+    assert '_created' not in response.json()['data']
+    assert service.batch_scheduler.drain_calls == 0
+
+
+def test_start_market_daily_batch_keeps_202_when_drain_scheduling_fails(
+    client,
+    caplog,
+):
+    test_client, service = client
+    service.batch_scheduler.failure = RuntimeError('sensitive scheduler detail')
+    caplog.set_level(
+        logging.ERROR,
+        logger='app.domains.batches.router',
+    )
+
+    response = test_client.post(
+        '/stock/api/batch/market-daily',
+        json={'businessDate': '2026-03-17', 'force': False, 'rebuildPageOnly': False},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 202
+    assert 'exception_class=RuntimeError' in caplog.text
+    assert 'sensitive scheduler detail' not in caplog.text
 
 
 def test_start_market_daily_batch_rejects_blank_idempotency_key(client):
@@ -128,6 +195,7 @@ def test_start_market_daily_batch_rejects_blank_idempotency_key(client):
 
     assert response.status_code == 422
     assert service.start_kwargs is None
+    assert service.batch_scheduler.drain_calls == 0
 
 
 def test_start_market_daily_batch_rejects_user_as_forbidden(client):
@@ -296,7 +364,7 @@ def test_get_batch_job_detail_returns_404_when_missing(client):
     assert response.status_code == 404
 
 
-def test_retry_ai_enqueues_idempotent_job_without_background_task(client):
+def test_retry_ai_enqueues_idempotent_job_and_drains_background_queue(client):
     test_client, service = client
 
     response = test_client.post(
@@ -318,6 +386,24 @@ def test_retry_ai_enqueues_idempotent_job_without_background_task(client):
         'user_id': 'ADMIN-0001',
         'idempotency_key': 'ai-retry-1001-request-1',
     }
+    assert service.batch_scheduler.drain_calls == 1
+
+
+def test_retry_ai_idempotent_replay_does_not_start_new_drain(client):
+    test_client, service = client
+    service.retry_created = False
+
+    response = test_client.post(
+        '/stock/api/batch/jobs/1001/retry-ai',
+        headers={
+            **build_test_bearer_headers('ADMIN'),
+            'Idempotency-Key': 'ai-retry-1001-request-1',
+        },
+    )
+
+    assert response.status_code == 202
+    assert '_created' not in response.json()['data']
+    assert service.batch_scheduler.drain_calls == 0
 
 
 def test_retry_ai_requires_admin(client):

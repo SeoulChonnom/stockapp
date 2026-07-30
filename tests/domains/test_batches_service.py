@@ -135,6 +135,7 @@ async def test_start_market_daily_batch_enqueues_pending_job():
     assert isinstance(result, dict)
     payload = jsonable(result)
     assert payload['jobId'] == 1001
+    assert payload['_created'] is True
     assert repository.created_params is not None
     assert repository.created_params.status == 'PENDING'
     assert repository.created_params.run_mode == 'FULL'
@@ -316,6 +317,7 @@ async def test_start_market_daily_batch_replays_same_idempotency_key():
     )
 
     assert result['jobId'] == 1001
+    assert result['_created'] is False
     assert repository.created_params is None
     assert repository.commits == 0
 
@@ -500,6 +502,7 @@ async def test_retry_ai_enqueues_pending_job_with_idempotency_key():
 
     assert result['jobId'] == 2001
     assert result['runMode'] == 'AI_RETRY'
+    assert result['_created'] is True
     assert enqueuer.enqueue_kwargs['idempotency_key'] == 'retry-key'
     assert repository.events[0]['step_code'] == 'AI_RETRY_ENQUEUE'
     assert enqueuer.commits == 1

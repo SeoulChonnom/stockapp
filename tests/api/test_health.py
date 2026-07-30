@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+from io import StringIO
+
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -15,7 +18,9 @@ settings_module = load_module('app.core.settings')
 
 @pytest.fixture(autouse=True)
 def configure_safe_app_startup(monkeypatch: pytest.MonkeyPatch, tmp_path):
-    monkeypatch.setitem(settings_module.Settings.model_config, 'env_file', tmp_path / '.env')
+    monkeypatch.setitem(
+        settings_module.Settings.model_config, 'env_file', tmp_path / '.env'
+    )
     monkeypatch.setenv('STOCKAPP_APP_ENV', 'production')
     monkeypatch.setenv(
         'STOCKAPP_DATABASE_URL',
@@ -109,6 +114,138 @@ def test_health_returns_error_envelope_when_database_unavailable():
         'message': 'Database is unavailable.',
     }
     assert payload['meta']['requestId'].startswith('req-')
+
+
+def test_startup_recovery_drains_durable_queue_once(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class FakeScheduler:
+        def __init__(self):
+            self.drain_calls = 0
+            self.shutdown_calls = 0
+
+        def start_drain(self):
+            self.drain_calls += 1
+
+        async def shutdown(self):
+            self.shutdown_calls += 1
+
+    scheduler = FakeScheduler()
+    monkeypatch.setenv('STOCKAPP_BATCH_STARTUP_RECOVERY_ENABLED', 'true')
+    settings_module.get_settings.cache_clear()
+    monkeypatch.setattr(
+        main_module,
+        'get_in_process_batch_scheduler',
+        lambda: scheduler,
+    )
+    app = main_module.create_app()
+
+    async def override_db_session():
+        yield HealthyDbSession()
+
+    app.dependency_overrides[health_module.get_db_session] = override_db_session
+
+    with TestClient(app) as client:
+        response = client.get('/stock/api/health')
+
+    assert response.status_code == 200
+    assert scheduler.drain_calls == 1
+    assert scheduler.shutdown_calls == 1
+
+
+def test_startup_recovery_can_be_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class FakeScheduler:
+        def __init__(self):
+            self.drain_calls = 0
+            self.shutdown_calls = 0
+
+        def start_drain(self):
+            self.drain_calls += 1
+
+        async def shutdown(self):
+            self.shutdown_calls += 1
+
+    scheduler = FakeScheduler()
+    monkeypatch.setenv('STOCKAPP_BATCH_STARTUP_RECOVERY_ENABLED', 'false')
+    settings_module.get_settings.cache_clear()
+    monkeypatch.setattr(
+        main_module,
+        'get_in_process_batch_scheduler',
+        lambda: scheduler,
+    )
+    app = main_module.create_app()
+
+    with TestClient(app):
+        pass
+
+    assert scheduler.drain_calls == 0
+    assert scheduler.shutdown_calls == 1
+
+
+def test_fastapi_lifespan_emits_one_batch_startup_log_per_app(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class FakeScheduler:
+        def start_drain(self):
+            raise AssertionError('startup recovery must be disabled')
+
+        async def shutdown(self):
+            return None
+
+    output = StringIO()
+    console_handler = logging.StreamHandler(output)
+    batch_logger = logging.getLogger('app.batch')
+    uvicorn_logger = logging.getLogger('uvicorn')
+    uvicorn_error_logger = logging.getLogger('uvicorn.error')
+    monkeypatch.setattr(batch_logger, 'handlers', [])
+    monkeypatch.setattr(batch_logger, 'propagate', True)
+    monkeypatch.setattr(uvicorn_logger, 'handlers', [console_handler])
+    monkeypatch.setattr(uvicorn_error_logger, 'handlers', [])
+    monkeypatch.setenv('STOCKAPP_BATCH_STARTUP_RECOVERY_ENABLED', 'false')
+    settings_module.get_settings.cache_clear()
+    monkeypatch.setattr(
+        main_module,
+        'get_in_process_batch_scheduler',
+        FakeScheduler,
+    )
+
+    with TestClient(main_module.create_app()):
+        pass
+    with TestClient(main_module.create_app()):
+        pass
+
+    assert output.getvalue().count('batch_runtime event=startup') == 2
+    assert batch_logger.handlers.count(console_handler) == 1
+
+
+def test_startup_recovery_failure_logs_safely_and_does_not_abort_app(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog,
+):
+    class FailingScheduler:
+        def start_drain(self):
+            raise RuntimeError('postgresql://admin:secret@db.example.com/stock')
+
+        async def shutdown(self):
+            return None
+
+    monkeypatch.setenv('STOCKAPP_BATCH_STARTUP_RECOVERY_ENABLED', 'true')
+    settings_module.get_settings.cache_clear()
+    monkeypatch.setattr(
+        main_module,
+        'get_in_process_batch_scheduler',
+        FailingScheduler,
+    )
+    caplog.set_level(logging.ERROR, logger='app.batch.runtime')
+
+    with TestClient(main_module.create_app()):
+        pass
+
+    assert 'exception_class=RuntimeError' in caplog.text
+    assert 'postgresql://' not in caplog.text
+    assert 'secret' not in caplog.text
 
 
 def test_ready_endpoint_is_removed():

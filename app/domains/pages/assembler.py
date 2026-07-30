@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import date, datetime
 from typing import Any
 
+from app.core.public_diagnostics import sanitize_public_diagnostic
 from app.core.timezone import isoformat_datetime
 from app.schemas.page import (
     ArticleLinkResponse,
@@ -46,7 +47,20 @@ def _as_date(value: Any) -> date:
 
 
 def assemble_daily_page_response(payload: dict[str, Any]) -> DailyPageResponse:
-    return DailyPageResponse.model_validate(payload)
+    safe_markets = []
+    for market in payload.get('markets', []):
+        metadata = dict(market.get('metadata') or {})
+        metadata['partialMessage'] = sanitize_public_diagnostic(
+            metadata.get('partialMessage')
+        )
+        safe_markets.append({**market, 'metadata': metadata})
+    return DailyPageResponse.model_validate(
+        {
+            **payload,
+            'partialMessage': sanitize_public_diagnostic(payload.get('partialMessage')),
+            'markets': safe_markets,
+        }
+    )
 
 
 def build_daily_page_payload(
@@ -129,7 +143,9 @@ def build_daily_page_payload(
                     processedNewsCount=market['processed_news_count'],
                     clusterCount=market['cluster_count'],
                     lastUpdatedAt=_as_required_iso(market['last_updated_at']),
-                    partialMessage=market.get('partial_message'),
+                    partialMessage=sanitize_public_diagnostic(
+                        market.get('partial_message')
+                    ),
                     sourceDate=market.get('actual_index_source_date'),
                     expectedSessionDate=market.get('expected_session_date'),
                     sessionCloseAt=_as_iso(market.get('session_close_at')),
@@ -148,7 +164,7 @@ def build_daily_page_payload(
         status=page['status'],
         globalHeadline=page.get('global_headline'),
         generatedAt=_as_required_iso(page['generated_at']),
-        partialMessage=page.get('partial_message'),
+        partialMessage=sanitize_public_diagnostic(page.get('partial_message')),
         markets=market_sections,
         metadata=PageMetadataResponse(
             rawNewsCount=page['raw_news_count'],
