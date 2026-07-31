@@ -31,8 +31,9 @@ class PagesService:
             business_date, version_no
         )
         if page is None:
-            if version_no is not None and await self._repo.exists_page_for_business_date(
-                business_date
+            if (
+                version_no is not None
+                and await self._repo.exists_page_for_business_date(business_date)
             ):
                 raise NotFoundError(
                     'PAGE_VERSION_NOT_FOUND',
@@ -54,7 +55,9 @@ class PagesService:
     async def _ensure_latest_flag(self, page: dict[str, Any]) -> dict[str, Any]:
         if 'is_latest' in page:
             return page
-        latest_version_no = await self._repo.get_latest_version_no(page['business_date'])
+        latest_version_no = await self._repo.get_latest_version_no(
+            page['business_date']
+        )
         return {**page, 'is_latest': latest_version_no == page['version_no']}
 
     async def _build_page(self, page: dict[str, Any]) -> dict[str, Any]:
@@ -66,9 +69,7 @@ class PagesService:
             self._repo.get_page_clusters(market_ids),
             self._repo.get_page_article_links(market_ids),
         )
-        return build_daily_page_payload(
-            page, markets, indices, clusters, article_links
-        )
+        return build_daily_page_payload(page, markets, indices, clusters, article_links)
 
 
 __all__ = ['PagesService']

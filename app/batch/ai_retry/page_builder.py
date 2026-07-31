@@ -259,9 +259,7 @@ def _build_page_issues(
 
 def _partial_message(issues: list[dict[str, Any]]) -> str | None:
     messages = [
-        message
-        for issue in issues
-        if isinstance(message := issue.get('message'), str)
+        message for issue in issues if isinstance(message := issue.get('message'), str)
     ]
     return '; '.join(messages[:3]) if messages else None
 

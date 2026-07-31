@@ -182,9 +182,7 @@ class NewsCollectionRunRepository(PostgresRepository):
                 error_message = EXCLUDED.error_message,
                 updated_at = now()
             """.format(
-                diagnostic_table=_qualified_table(
-                    'news_collection_keyword_diagnostic'
-                ),
+                diagnostic_table=_qualified_table('news_collection_keyword_diagnostic'),
                 market_type_enum=_qualified_table('market_type_enum'),
             )
         )
@@ -287,9 +285,7 @@ class NewsCollectionRunRepository(PostgresRepository):
             """.format(
                 run_table=_qualified_table('news_collection_run'),
                 job_table=_qualified_table('batch_job'),
-                diagnostic_table=_qualified_table(
-                    'news_collection_keyword_diagnostic'
-                ),
+                diagnostic_table=_qualified_table('news_collection_keyword_diagnostic'),
                 market_type_enum=_qualified_table('market_type_enum'),
             )
         )

@@ -64,9 +64,7 @@ class NaverNewsCollectionOrchestrator:
                 )
                 if not begun:
                     await job_repo.rollback()
-                    raise BatchLeaseLostError(
-                        'News collection worker lease was lost.'
-                    )
+                    raise BatchLeaseLostError('News collection worker lease was lost.')
 
             await job_repo.add_event(
                 job_id=job_id,
@@ -164,9 +162,7 @@ class NaverNewsCollectionOrchestrator:
                             job_id=job_id,
                             step_code='COLLECT_NAVER_NEWS',
                             level=EventLevel.WARN.value,
-                            message=(
-                                'Transient Naver news failure will be retried.'
-                            ),
+                            message=('Transient Naver news failure will be retried.'),
                             context_json={
                                 'runId': run.run_id,
                                 'keywordId': keyword.keyword_id,
@@ -179,9 +175,7 @@ class NaverNewsCollectionOrchestrator:
                         raise NaverRetryableError() from None
                     auth_failed = status_code in {401, 403}
                     error_code = (
-                        'NAVER_AUTH_FAILED'
-                        if auth_failed
-                        else 'NAVER_REQUEST_FAILED'
+                        'NAVER_AUTH_FAILED' if auth_failed else 'NAVER_REQUEST_FAILED'
                     )
                     log_safe_exception(
                         LOGGER,
@@ -214,8 +208,7 @@ class NaverNewsCollectionOrchestrator:
                         exception=exc,
                     )
                     partial_reasons.append(
-                        f'{keyword.market_type}/{keyword.keyword}: '
-                        'NAVER_REQUEST_FAILED'
+                        f'{keyword.market_type}/{keyword.keyword}: NAVER_REQUEST_FAILED'
                     )
                     await run_repo.upsert_keyword_diagnostic(
                         _failed_diagnostic(

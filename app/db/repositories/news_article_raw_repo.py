@@ -116,9 +116,7 @@ class NewsArticleRawRepository(PostgresRepository):
             ORDER BY published_at DESC, id ASC
             """.format(
                 raw_table=_qualified_table('news_article_raw'),
-                keyword_match_table=_qualified_table(
-                    'news_article_raw_keyword_match'
-                ),
+                keyword_match_table=_qualified_table('news_article_raw_keyword_match'),
                 market_type_enum=_qualified_table('market_type_enum'),
             )
         )

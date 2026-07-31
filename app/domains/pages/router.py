@@ -62,9 +62,7 @@ async def get_page_by_id(
     return ApiSuccess(data=data)
 
 
-def _set_historical_cache_headers(
-    response: Response, data: DailyPageResponse
-) -> None:
+def _set_historical_cache_headers(response: Response, data: DailyPageResponse) -> None:
     if data.status == 'READY' and not data.metadata.isLatest:
         response.headers['Cache-Control'] = 'public, max-age=300, immutable'
 

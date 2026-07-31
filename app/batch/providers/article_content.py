@@ -118,9 +118,7 @@ class ArticleContentProvider:
                         failure_details=failure_details,
                     )
             except Exception as exc:
-                failure_details.append(
-                    self._failure_detail(url, exc)
-                )
+                failure_details.append(self._failure_detail(url, exc))
                 continue
 
         return self._fallback_result(

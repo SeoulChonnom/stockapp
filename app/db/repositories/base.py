@@ -20,9 +20,7 @@ class PostgresRepository:
 
         allowed_fields = {field.name for field in fields(model_cls)}
         payload = {
-            str(key): value
-            for key, value in mapping.items()
-            if key in allowed_fields
+            str(key): value for key, value in mapping.items() if key in allowed_fields
         }
         return model_cls(**payload)
 

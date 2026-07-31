@@ -94,7 +94,9 @@ async def start_naver_news_collection(
         slot_end_at=payload.slotEndAt if payload is not None else None,
     )
     background_tasks.add_task(schedule_batch_drain, scheduler)
-    response_payload = {key: value for key, value in result.items() if key != '_created'}
+    response_payload = {
+        key: value for key, value in result.items() if key != '_created'
+    }
     return ApiSuccess(data=NewsCollectionRunResponse.model_validate(response_payload))
 
 

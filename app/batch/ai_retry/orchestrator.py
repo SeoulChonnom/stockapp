@@ -276,12 +276,8 @@ async def _generate_target(
     if market_type is None:
         raise ValueError(f'Retry target is missing a market type: {target.target_key}')
     if target.summary_type == 'MARKET_SUMMARY':
-        market_clusters = [
-            row for row in clusters if row['market_type'] == market_type
-        ]
-        market_indices = [
-            row for row in indices if row.market_type == market_type
-        ]
+        market_clusters = [row for row in clusters if row['market_type'] == market_type]
+        market_indices = [row for row in indices if row.market_type == market_type]
         return await _generate_market_summary(
             llm_provider,
             market_type=market_type,

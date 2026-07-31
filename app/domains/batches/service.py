@@ -370,7 +370,7 @@ def _validate_idempotent_replay(
         raise ConflictError(
             'IDEMPOTENCY_KEY_REUSED',
             'Idempotency-Key가 다른 배치 요청에 이미 사용되었습니다.',
-    )
+        )
 
 
 def resolve_completed_news_slot(now: datetime) -> tuple[datetime, datetime]:
@@ -420,9 +420,7 @@ def resolve_news_collection_slot(
                 'NEWS_SLOT_NOT_COMPLETED',
                 '아직 완료되지 않은 뉴스 수집 슬롯입니다.',
             )
-        earliest_end_at = latest_completed_end_at - timedelta(
-            days=max_backfill_days
-        )
+        earliest_end_at = latest_completed_end_at - timedelta(days=max_backfill_days)
         if window_end_at < earliest_end_at:
             raise ConflictError(
                 'NEWS_SLOT_OUT_OF_RANGE',
