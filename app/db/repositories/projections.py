@@ -178,6 +178,7 @@ class BatchJobCreateParams:
     triggered_by_user_id: str | None
     force_run: bool
     rebuild_page_only: bool
+    job_name: str = 'market_daily_batch'
     run_mode: str = 'FULL'
     source_job_id: int | None = None
     source_page_id: int | None = None
@@ -235,11 +236,51 @@ class NewsSearchKeywordUpdateParams:
 
 
 @dataclass(slots=True)
+class NewsCollectionRunRecord:
+    run_id: int
+    batch_job_id: int
+    provider_name: str
+    window_start_at: datetime
+    window_end_at: datetime
+    query_start_at: datetime
+    query_end_at: datetime
+    total_keyword_count: int
+    completed_keyword_count: int
+    fetched_count: int
+    matched_count: int
+    inserted_count: int
+    coverage_complete: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(slots=True)
+class NewsCollectionKeywordDiagnosticParams:
+    news_collection_run_id: int
+    keyword_id: int
+    provider_name: str
+    market_type: str
+    keyword: str
+    status: str
+    fetched_count: int
+    matched_count: int
+    inserted_count: int
+    coverage_complete: bool
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(slots=True)
+class NewsCoverageInterval:
+    window_start_at: datetime
+    window_end_at: datetime
+
+
+@dataclass(slots=True)
 class NewsArticleRawCreateParams:
     provider_name: str
     provider_article_key: str
     market_type: str
-    business_date: date
     search_keyword: str | None
     title: str
     publisher_name: str | None
@@ -247,6 +288,7 @@ class NewsArticleRawCreateParams:
     origin_link: str | None
     naver_link: str | None
     payload_json: Any
+    business_date: date | None = None
 
 
 @dataclass(slots=True)
@@ -255,7 +297,7 @@ class NewsArticleRawRecord:
     provider_name: str
     provider_article_key: str
     market_type: str
-    business_date: date
+    business_date: date | None
     search_keyword: str | None
     title: str
     publisher_name: str | None

@@ -160,6 +160,7 @@ class BatchJobRepository(PostgresRepository):
             FROM {batch_job_table}
             WHERE business_date = :business_date
               AND status IN ('PENDING', 'RUNNING')
+              AND run_mode IN ('FULL', 'PAGE_REBUILD')
             LIMIT 1
             """.format(batch_job_table=_qualified_table('batch_job'))
         ).bindparams(bindparam('business_date', business_date))
@@ -200,6 +201,7 @@ class BatchJobRepository(PostgresRepository):
         statement = text(
             """
             INSERT INTO {batch_job_table} (
+                job_name,
                 business_date,
                 status,
                 trigger_type,
@@ -213,6 +215,7 @@ class BatchJobRepository(PostgresRepository):
                 max_attempts
             )
             VALUES (
+                :job_name,
                 :business_date,
                 CAST(:status AS {status_enum}),
                 CAST(:trigger_type AS {trigger_enum}),
@@ -277,6 +280,7 @@ class BatchJobRepository(PostgresRepository):
             )
         ).bindparams(
             bindparam('business_date', params.business_date),
+            bindparam('job_name', params.job_name),
             bindparam('status', params.status),
             bindparam('trigger_type', params.trigger_type),
             bindparam('triggered_by_user_id', params.triggered_by_user_id),

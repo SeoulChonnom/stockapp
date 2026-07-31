@@ -164,6 +164,24 @@ class Settings(BaseSettings):
             'naver_news_timeout_seconds',
         ),
     )
+    naver_news_collection_overlap_minutes: int = Field(
+        default=10,
+        ge=0,
+        le=29,
+        validation_alias=AliasChoices(
+            'STOCKAPP_NAVER_NEWS_COLLECTION_OVERLAP_MINUTES',
+            'naver_news_collection_overlap_minutes',
+        ),
+    )
+    naver_news_collection_backfill_max_days: int = Field(
+        default=7,
+        ge=1,
+        le=30,
+        validation_alias=AliasChoices(
+            'STOCKAPP_NAVER_NEWS_COLLECTION_BACKFILL_MAX_DAYS',
+            'naver_news_collection_backfill_max_days',
+        ),
+    )
     article_crawl_timeout_seconds: float = Field(
         default=10.0,
         validation_alias=AliasChoices(
@@ -238,6 +256,47 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices(
             'STOCKAPP_LLM_REQUESTS_PER_MINUTE',
             'llm_requests_per_minute',
+        ),
+    )
+    llm_tokens_per_minute: int = Field(
+        default=250_000,
+        ge=1,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_TOKENS_PER_MINUTE',
+            'llm_tokens_per_minute',
+        ),
+    )
+    llm_quota_project_id: str = Field(
+        default='default',
+        min_length=1,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_QUOTA_PROJECT_ID',
+            'llm_quota_project_id',
+        ),
+    )
+    llm_retry_base_delay_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_RETRY_BASE_DELAY_SECONDS',
+            'llm_retry_base_delay_seconds',
+        ),
+    )
+    llm_retry_max_delay_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_RETRY_MAX_DELAY_SECONDS',
+            'llm_retry_max_delay_seconds',
+        ),
+    )
+    llm_retry_jitter_ratio: float = Field(
+        default=0.2,
+        ge=0,
+        le=1,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_RETRY_JITTER_RATIO',
+            'llm_retry_jitter_ratio',
         ),
     )
     gemini_api_key: str | None = Field(

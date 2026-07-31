@@ -18,6 +18,7 @@ settings_module = load_module('app.core.settings')
 @pytest.fixture(autouse=True)
 def reset_loop_llm_rate_limiters(monkeypatch):
     monkeypatch.setattr(llm_module, '_loop_llm_rate_limiters', WeakKeyDictionary())
+    monkeypatch.setattr(llm_module, '_loop_llm_token_limiters', WeakKeyDictionary())
 
 
 class FakeClock:
@@ -81,6 +82,118 @@ async def test_rate_limiter_releases_queue_lock_when_waiter_is_cancelled():
 
     clock.now = 10.0
     await asyncio.wait_for(limiter.acquire(), timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_token_limiter_reserves_concurrent_inputs_and_recovers_window():
+    clock = FakeClock()
+    limiter = llm_module.AsyncSlidingWindowTokenLimiter(
+        100,
+        window_seconds=10.0,
+        clock=clock.monotonic,
+        sleeper=clock.sleep,
+    )
+
+    first, second = await asyncio.gather(limiter.acquire(60), limiter.acquire(40))
+    third = await limiter.acquire(1)
+
+    assert first.token_count == 60
+    assert second.token_count == 40
+    assert third.timestamp == 10.0
+    assert clock.sleep_calls == [10.0]
+
+
+@pytest.mark.asyncio
+async def test_token_limiter_reconciles_estimate_with_actual_usage():
+    clock = FakeClock()
+    limiter = llm_module.AsyncSlidingWindowTokenLimiter(
+        100,
+        window_seconds=10.0,
+        clock=clock.monotonic,
+        sleeper=clock.sleep,
+    )
+    reservation = await limiter.acquire(80)
+
+    await limiter.reconcile(reservation, 20)
+    await limiter.acquire(80)
+
+    assert reservation.token_count == 20
+    assert clock.sleep_calls == []
+
+
+@pytest.mark.asyncio
+async def test_token_limiters_are_scoped_by_project_and_model():
+    same_scope = llm_module._get_loop_llm_token_limiter(
+        100,
+        project_id='project-a',
+        model_name='model-a',
+    )
+
+    assert (
+        llm_module._get_loop_llm_token_limiter(
+            100,
+            project_id='project-a',
+            model_name='model-a',
+        )
+        is same_scope
+    )
+    assert (
+        llm_module._get_loop_llm_token_limiter(
+            100,
+            project_id='project-b',
+            model_name='model-a',
+        )
+        is not same_scope
+    )
+    assert (
+        llm_module._get_loop_llm_token_limiter(
+            100,
+            project_id='project-a',
+            model_name='model-b',
+        )
+        is not same_scope
+    )
+
+
+@pytest.mark.asyncio
+async def test_gemini_client_reserves_estimate_and_reconciles_actual_usage(monkeypatch):
+    class NoopRateLimiter:
+        async def acquire(self) -> None:
+            return None
+
+    class RecordingTokenLimiter:
+        def __init__(self) -> None:
+            self.estimated: list[int] = []
+            self.reconciled: list[tuple[int, int]] = []
+
+        async def acquire(self, token_count: int):
+            self.estimated.append(token_count)
+            return llm_module.TokenReservation(0.0, token_count)
+
+        async def reconcile(self, reservation, actual_token_count: int) -> None:
+            self.reconciled.append((reservation.token_count, actual_token_count))
+
+    class RespondingModel:
+        async def ainvoke(self, _messages):
+            return SimpleNamespace(
+                content='{"ok": true}',
+                usage_metadata={'input_tokens': 37},
+            )
+
+    token_limiter = RecordingTokenLimiter()
+    client = llm_module.GeminiJsonClient(
+        settings_module.Settings(app_env='development', gemini_api_key='test-key'),
+        rate_limiter=NoopRateLimiter(),
+        token_limiter=token_limiter,
+    )
+    monkeypatch.setattr(client, '_build_model', lambda: RespondingModel())
+
+    result = await client.invoke_json(system_prompt='system', user_prompt='사용자 입력')
+
+    expected_estimate = llm_module.estimate_input_tokens('system', '사용자 입력')
+    assert result == {'ok': True}
+    assert token_limiter.estimated == [expected_estimate]
+    assert token_limiter.reconciled == [(expected_estimate, 37)]
 
 
 @pytest.mark.asyncio
@@ -160,7 +273,7 @@ async def test_gemini_json_clients_share_event_loop_rate_limit(monkeypatch):
     monkeypatch.setitem(
         llm_module._loop_llm_rate_limiters,
         running_loop,
-        (2, shared_limiter),
+        {('default', settings_module.Settings().llm_model): (2, shared_limiter)},
     )
     settings = settings_module.Settings(
         app_env='development',
@@ -176,7 +289,14 @@ async def test_gemini_json_clients_share_event_loop_rate_limit(monkeypatch):
     await second_client.invoke_json(system_prompt='system', user_prompt='second')
     await first_client.invoke_json(system_prompt='system', user_prompt='third')
 
-    assert llm_module._get_loop_llm_rate_limiter(2) is shared_limiter
+    assert (
+        llm_module._get_loop_llm_rate_limiter(
+            2,
+            project_id=settings.llm_quota_project_id,
+            model_name=settings.llm_model,
+        )
+        is shared_limiter
+    )
     assert clock.sleep_calls == [10.0]
 
 
@@ -207,16 +327,32 @@ async def test_gemini_rate_limiter_rejects_mismatched_config_in_same_loop():
         llm_module._get_loop_llm_rate_limiter(3)
 
 
-def test_gemini_retry_delay_caps_provider_and_exponential_waits():
+def test_gemini_retry_after_reads_headers_and_retry_info():
     provider_error = RuntimeError('provider throttled')
     provider_error.response = SimpleNamespace(headers={'Retry-After': '999'})
+    retry_info_error = RuntimeError('provider throttled')
+    retry_info_error.error_details = [
+        SimpleNamespace(retry_delay=SimpleNamespace(seconds=7, nanos=500_000_000))
+    ]
+    sdk_error = RuntimeError('provider throttled')
+    sdk_error.details = {
+        'error': {
+            'details': [
+                {
+                    '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                    'retryDelay': '12.25s',
+                }
+            ]
+        }
+    }
 
-    assert llm_module._retry_delay_seconds(provider_error, 1) == 60.0
-    assert llm_module._retry_delay_seconds(RuntimeError('transient'), 10) == 8.0
+    assert llm_module._retry_after_seconds(provider_error) == 999.0
+    assert llm_module._retry_after_seconds(retry_info_error) == 7.5
+    assert llm_module._retry_after_seconds(sdk_error) == 12.25
 
 
 @pytest.mark.asyncio
-async def test_gemini_json_client_rate_limits_every_transient_retry(monkeypatch):
+async def test_gemini_json_client_surfaces_transient_error_without_sleep(monkeypatch):
     class CountingLimiter:
         def __init__(self) -> None:
             self.acquire_count = 0
@@ -232,28 +368,19 @@ async def test_gemini_json_client_rate_limits_every_transient_retry(monkeypatch)
             )
             super().__init__(f'provider status {status_code}')
 
-    class RetryingModel:
+    class FailingModel:
         def __init__(self) -> None:
             self.call_count = 0
 
         async def ainvoke(self, _messages):
             self.call_count += 1
-            if self.call_count == 1:
-                try:
-                    raise ProviderError(429, retry_after='3')
-                except ProviderError as exc:
-                    raise RuntimeError('wrapped provider error') from exc
-            if self.call_count == 2:
-                raise ProviderError(503)
-            return SimpleNamespace(content='{"ok": true}')
+            try:
+                raise ProviderError(429, retry_after='3')
+            except ProviderError as exc:
+                raise RuntimeError('wrapped provider error') from exc
 
     limiter = CountingLimiter()
-    sleep_calls = []
-
-    async def fake_sleep(seconds: float) -> None:
-        sleep_calls.append(seconds)
-
-    model = RetryingModel()
+    model = FailingModel()
     client = llm_module.GeminiJsonClient(
         settings_module.Settings(
             app_env='development',
@@ -261,19 +388,19 @@ async def test_gemini_json_client_rate_limits_every_transient_retry(monkeypatch)
             llm_max_retries=2,
         ),
         rate_limiter=limiter,
-        retry_sleeper=fake_sleep,
     )
     monkeypatch.setattr(client, '_build_model', lambda: model)
-    result = await client.invoke_json(system_prompt='system', user_prompt='user')
 
-    assert result == {'ok': True}
-    assert model.call_count == 3
-    assert limiter.acquire_count == 3
-    assert sleep_calls == [3.0, 2.0]
+    with pytest.raises(llm_module.LlmRetryableError) as exc_info:
+        await client.invoke_json(system_prompt='system', user_prompt='user')
+
+    assert exc_info.value.retry_after_seconds == 3.0
+    assert model.call_count == 1
+    assert limiter.acquire_count == 1
 
 
 @pytest.mark.asyncio
-async def test_gemini_json_client_retries_timeout_with_fresh_rate_limit_slot(
+async def test_gemini_json_client_surfaces_timeout_for_durable_retry(
     monkeypatch,
 ):
     class CountingLimiter:
@@ -283,23 +410,16 @@ async def test_gemini_json_client_retries_timeout_with_fresh_rate_limit_slot(
         async def acquire(self) -> None:
             self.acquire_count += 1
 
-    class TimeoutThenSuccessModel:
+    class TimeoutModel:
         def __init__(self) -> None:
             self.call_count = 0
 
         async def ainvoke(self, _messages):
             self.call_count += 1
-            if self.call_count == 1:
-                await asyncio.sleep(1)
-            return SimpleNamespace(content='{"ok": true}')
+            await asyncio.sleep(1)
 
     limiter = CountingLimiter()
-    sleep_calls = []
-
-    async def fake_sleep(seconds: float) -> None:
-        sleep_calls.append(seconds)
-
-    model = TimeoutThenSuccessModel()
+    model = TimeoutModel()
     client = llm_module.GeminiJsonClient(
         settings_module.Settings(
             app_env='development',
@@ -308,16 +428,14 @@ async def test_gemini_json_client_retries_timeout_with_fresh_rate_limit_slot(
             llm_timeout_seconds=0.001,
         ),
         rate_limiter=limiter,
-        retry_sleeper=fake_sleep,
     )
     monkeypatch.setattr(client, '_build_model', lambda: model)
 
-    result = await client.invoke_json(system_prompt='system', user_prompt='user')
+    with pytest.raises(llm_module.LlmTimeoutError):
+        await client.invoke_json(system_prompt='system', user_prompt='user')
 
-    assert result == {'ok': True}
-    assert model.call_count == 2
-    assert limiter.acquire_count == 2
-    assert sleep_calls == [1.0]
+    assert model.call_count == 1
+    assert limiter.acquire_count == 1
 
 
 @pytest.mark.asyncio
@@ -329,7 +447,7 @@ async def test_gemini_json_client_retries_timeout_with_fresh_rate_limit_slot(
     ],
     ids=['connect-error', 'read-timeout'],
 )
-async def test_gemini_json_client_retries_transient_transport_errors(
+async def test_gemini_json_client_defers_transient_transport_errors(
     transport_error,
     monkeypatch,
 ):
@@ -340,26 +458,19 @@ async def test_gemini_json_client_retries_transient_transport_errors(
         async def acquire(self) -> None:
             self.acquire_count += 1
 
-    class TransportThenSuccessModel:
+    class FailingTransportModel:
         def __init__(self) -> None:
             self.call_count = 0
 
         async def ainvoke(self, _messages):
             self.call_count += 1
-            if self.call_count == 1:
-                try:
-                    raise transport_error
-                except httpx.TransportError as exc:
-                    raise RuntimeError('wrapped transport error') from exc
-            return SimpleNamespace(content='{"ok": true}')
+            try:
+                raise transport_error
+            except httpx.TransportError as exc:
+                raise RuntimeError('wrapped transport error') from exc
 
     limiter = CountingLimiter()
-    sleep_calls = []
-
-    async def fake_sleep(seconds: float) -> None:
-        sleep_calls.append(seconds)
-
-    model = TransportThenSuccessModel()
+    model = FailingTransportModel()
     client = llm_module.GeminiJsonClient(
         settings_module.Settings(
             app_env='development',
@@ -367,20 +478,20 @@ async def test_gemini_json_client_retries_transient_transport_errors(
             llm_max_retries=1,
         ),
         rate_limiter=limiter,
-        retry_sleeper=fake_sleep,
     )
     monkeypatch.setattr(client, '_build_model', lambda: model)
 
-    result = await client.invoke_json(system_prompt='system', user_prompt='user')
+    with pytest.raises(llm_module.LlmRetryableError):
+        await client.invoke_json(system_prompt='system', user_prompt='user')
 
-    assert result == {'ok': True}
-    assert model.call_count == 2
-    assert limiter.acquire_count == 2
-    assert sleep_calls == [1.0]
+    assert model.call_count == 1
+    assert limiter.acquire_count == 1
 
 
 @pytest.mark.asyncio
-async def test_gemini_json_client_exhausts_transient_transport_retries(monkeypatch):
+async def test_gemini_json_client_converts_final_transient_error_to_fallback_input(
+    monkeypatch,
+):
     class CountingLimiter:
         def __init__(self) -> None:
             self.acquire_count = 0
@@ -397,11 +508,6 @@ async def test_gemini_json_client_exhausts_transient_transport_retries(monkeypat
             raise httpx.ConnectError('connection reset')
 
     limiter = CountingLimiter()
-    sleep_calls = []
-
-    async def fake_sleep(seconds: float) -> None:
-        sleep_calls.append(seconds)
-
     model = FailingTransportModel()
     client = llm_module.GeminiJsonClient(
         settings_module.Settings(
@@ -410,16 +516,15 @@ async def test_gemini_json_client_exhausts_transient_transport_retries(monkeypat
             llm_max_retries=1,
         ),
         rate_limiter=limiter,
-        retry_sleeper=fake_sleep,
     )
     monkeypatch.setattr(client, '_build_model', lambda: model)
 
-    with pytest.raises(httpx.ConnectError, match='connection reset'):
-        await client.invoke_json(system_prompt='system', user_prompt='user')
+    with llm_module.llm_retry_exhausted_mode():
+        with pytest.raises(llm_module.LlmRetryExhaustedError):
+            await client.invoke_json(system_prompt='system', user_prompt='user')
 
-    assert model.call_count == 2
-    assert limiter.acquire_count == 2
-    assert sleep_calls == [1.0]
+    assert model.call_count == 1
+    assert limiter.acquire_count == 1
 
 
 @pytest.mark.asyncio

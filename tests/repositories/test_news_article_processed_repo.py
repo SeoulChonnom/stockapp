@@ -71,7 +71,10 @@ async def test_get_or_create_processed_article_inserts_when_missing():
     assert jsonable(result)['processed_article_id'] == 4001
     sql = normalize_sql(session.statements[0])
     assert 'news_article_processed' in sql
-    assert 'on conflict (business_date, dedupe_hash) do nothing' in sql.lower()
+    assert (
+        'on conflict (business_date, market_type, dedupe_hash) do nothing'
+        in sql.lower()
+    )
 
 
 @pytest.mark.anyio
@@ -123,9 +126,11 @@ async def test_get_or_create_processed_article_reuses_hash_only_within_date():
     assert result.processed_article_id == 4002
     fallback_sql = ' '.join(str(session.statements[1]).split()).lower()
     assert 'business_date = :business_date' in fallback_sql
+    assert 'market_type = cast(:market_type as stock.market_type_enum)' in fallback_sql
     assert 'dedupe_hash = :dedupe_hash' in fallback_sql
     assert session.parameters[1] == {
         'business_date': business_date,
+        'market_type': 'US',
         'dedupe_hash': 'a' * 64,
     }
 

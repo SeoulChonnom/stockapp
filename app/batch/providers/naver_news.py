@@ -10,6 +10,7 @@ from html import unescape
 import certifi
 import httpx
 
+from app.batch.normalizers import canonicalize_link, normalize_title
 from app.core.settings import Settings, get_settings
 from app.core.timezone import KST
 from app.db.repositories.projections import (
@@ -44,7 +45,7 @@ class NaverNewsProvider:
         self,
         *,
         keyword_record: NewsSearchKeywordRecord,
-        business_date: date,
+        business_date: date | None = None,
         window_start_at: datetime | None = None,
         window_end_at: datetime | None = None,
     ) -> NaverCollectedKeywordResult:
@@ -129,7 +130,7 @@ class NaverNewsProvider:
         *,
         items: list[dict],
         keyword_record: NewsSearchKeywordRecord,
-        business_date: date,
+        business_date: date | None,
         window_start_at: datetime,
         window_end_at: datetime,
     ) -> tuple[list[NewsArticleRawCreateParams], bool]:
@@ -170,11 +171,15 @@ class NaverNewsProvider:
     @staticmethod
     def _normalize_window(
         *,
-        business_date: date,
+        business_date: date | None,
         window_start_at: datetime | None,
         window_end_at: datetime | None,
     ) -> tuple[datetime, datetime]:
         if window_start_at is None and window_end_at is None:
+            if business_date is None:
+                raise ValueError(
+                    'A business date or both news window boundaries are required.'
+                )
             window_start_at = datetime.combine(business_date, time.min, tzinfo=KST)
             window_end_at = window_start_at + timedelta(days=1)
         if window_start_at is None or window_end_at is None:
@@ -187,17 +192,19 @@ class NaverNewsProvider:
 
     @staticmethod
     def _build_provider_article_key(item: dict, published_at: datetime) -> str:
-        origin_link = item.get('originallink') or ''
-        naver_link = item.get('link') or ''
-        title = item.get('title') or ''
-        fingerprint = '|'.join(
-            [
-                origin_link.strip(),
-                naver_link.strip(),
-                title.strip(),
-                published_at.isoformat(),
-            ]
+        stable_link = canonicalize_link(item.get('originallink')) or canonicalize_link(
+            item.get('link')
         )
+        if stable_link:
+            fingerprint = f'link|{stable_link}'
+        else:
+            fingerprint = '|'.join(
+                [
+                    'fallback',
+                    normalize_title(item.get('title')),
+                    published_at.isoformat(),
+                ]
+            )
         return sha256(fingerprint.encode('utf-8')).hexdigest()
 
     @staticmethod

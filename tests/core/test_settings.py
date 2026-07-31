@@ -247,6 +247,32 @@ def test_settings_rejects_negative_llm_max_retries():
         settings_module.Settings(llm_max_retries=-1)
 
 
+def test_settings_loads_llm_tpm_and_durable_retry_policy_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv('STOCKAPP_LLM_TOKENS_PER_MINUTE', '12345')
+    monkeypatch.setenv('STOCKAPP_LLM_QUOTA_PROJECT_ID', 'project-a')
+    monkeypatch.setenv('STOCKAPP_LLM_RETRY_BASE_DELAY_SECONDS', '7.5')
+    monkeypatch.setenv('STOCKAPP_LLM_RETRY_MAX_DELAY_SECONDS', '90')
+    monkeypatch.setenv('STOCKAPP_LLM_RETRY_JITTER_RATIO', '0.3')
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.llm_tokens_per_minute == 12345
+    assert settings.llm_quota_project_id == 'project-a'
+    assert settings.llm_retry_base_delay_seconds == 7.5
+    assert settings.llm_retry_max_delay_seconds == 90
+    assert settings.llm_retry_jitter_ratio == 0.3
+
+
+@pytest.mark.parametrize('tokens_per_minute', [0, -1])
+def test_settings_rejects_non_positive_llm_tokens_per_minute(
+    tokens_per_minute: int,
+):
+    with pytest.raises(ValidationError, match='llm_tokens_per_minute'):
+        settings_module.Settings(llm_tokens_per_minute=tokens_per_minute)
+
+
 def test_settings_loads_durable_worker_timing_from_env(
     monkeypatch: pytest.MonkeyPatch,
 ):

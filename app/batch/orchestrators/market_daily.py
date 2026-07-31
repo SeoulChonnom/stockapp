@@ -15,7 +15,6 @@ from app.batch.steps import (
     BuildClustersStep,
     BuildPageSnapshotStep,
     CollectMarketIndicesStep,
-    CollectNewsStep,
     CreateJobStep,
     DedupeArticlesStep,
     FinalizeJobStep,
@@ -41,7 +40,6 @@ class MarketDailyBatchOrchestrator:
         self._steps: list[BatchStep] = [
             CreateJobStep(),
             PrepareMarketContextsStep(),
-            CollectNewsStep(),
             DedupeArticlesStep(),
             BuildClustersStep(),
             CollectMarketIndicesStep(),

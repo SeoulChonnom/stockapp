@@ -27,6 +27,9 @@ DATE_DEDUPE_MIGRATION = (
 MARKET_SESSION_MIGRATION = (
     MIGRATIONS_DIRECTORY / '20260729_05_market_session_context_source_date.sql'
 )
+INCREMENTAL_NEWS_MIGRATION = (
+    MIGRATIONS_DIRECTORY / '20260731_07_incremental_news_collection.sql'
+)
 
 
 def _execute_file(connection, path: Path) -> None:
@@ -77,10 +80,89 @@ def test_migration_files_execute_whole_and_are_idempotent(postgres_connection):
         """
     ).fetchall()
 
-    assert constraints == [('UNIQUE (business_date, dedupe_hash)',)]
+    assert constraints == [
+        ('UNIQUE (business_date, market_type, dedupe_hash)',)
+    ]
     assert keywords == [
         ('KR', '코스피', True),
         ('US', '미국 증시', True),
+    ]
+
+
+def test_incremental_news_migration_transfers_duplicate_keyword_relationships(
+    postgres_connection,
+):
+    postgres_connection.execute(
+        """
+        ALTER TABLE stock.news_article_raw
+            DROP CONSTRAINT uq_news_article_raw_provider_key;
+        ALTER TABLE stock.news_article_raw
+            ADD CONSTRAINT uq_news_article_raw_business_provider_key
+            UNIQUE (business_date, provider_name, provider_article_key);
+
+        INSERT INTO stock.news_article_raw (
+            provider_name,
+            provider_article_key,
+            market_type,
+            business_date,
+            search_keyword,
+            title,
+            published_at,
+            origin_link
+        )
+        VALUES
+            (
+                'NAVER_NEWS',
+                'shared-key',
+                'KR',
+                DATE '2026-07-30',
+                '코스피',
+                'Shared article',
+                TIMESTAMPTZ '2026-07-30 01:00:00+00',
+                'https://example.com/shared'
+            ),
+            (
+                'NAVER_NEWS',
+                'shared-key',
+                'US',
+                DATE '2026-07-31',
+                '미국 증시',
+                'Shared article',
+                TIMESTAMPTZ '2026-07-30 01:00:00+00',
+                'https://example.com/shared'
+            );
+        """
+    )
+
+    _execute_file(postgres_connection, INCREMENTAL_NEWS_MIGRATION)
+    _execute_file(postgres_connection, INCREMENTAL_NEWS_MIGRATION)
+
+    raw_rows = postgres_connection.execute(
+        """
+        SELECT id, provider_article_key
+        FROM stock.news_article_raw
+        WHERE provider_name = 'NAVER_NEWS'
+          AND provider_article_key = 'shared-key'
+        """
+    ).fetchall()
+    relationships = postgres_connection.execute(
+        """
+        SELECT keyword.market_type::text, keyword.keyword
+        FROM stock.news_article_raw_keyword_match keyword_match
+        JOIN stock.news_search_keyword keyword
+          ON keyword.id = keyword_match.keyword_id
+        JOIN stock.news_article_raw raw
+          ON raw.id = keyword_match.raw_article_id
+        WHERE raw.provider_name = 'NAVER_NEWS'
+          AND raw.provider_article_key = 'shared-key'
+        ORDER BY keyword.market_type
+        """
+    ).fetchall()
+
+    assert len(raw_rows) == 1
+    assert relationships == [
+        ('US', '미국 증시'),
+        ('KR', '코스피'),
     ]
 
 
@@ -578,9 +660,9 @@ def test_market_session_migration_upgrades_legacy_contract_idempotently(
             DROP COLUMN session_close_at;
 
         ALTER TABLE stock.news_article_raw
-            DROP CONSTRAINT uq_news_article_raw_business_provider_key,
-            ADD CONSTRAINT uq_news_article_raw_provider_key
-                UNIQUE (provider_name, provider_article_key);
+            DROP CONSTRAINT uq_news_article_raw_provider_key,
+            ADD CONSTRAINT uq_news_article_raw_business_provider_key
+                UNIQUE (business_date, provider_name, provider_article_key);
 
         INSERT INTO stock.market_index_daily (
             business_date,

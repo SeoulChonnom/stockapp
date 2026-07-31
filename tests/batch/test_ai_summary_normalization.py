@@ -6,6 +6,7 @@ from app.batch.steps.generate_ai_summaries import (
     _generate_cluster_detail_summary,
     _generate_market_summary,
 )
+from app.core.llm import LlmRetryableError, LlmRetryExhaustedError
 
 
 class StringListLlmProvider:
@@ -102,3 +103,39 @@ async def test_market_summary_keeps_structured_non_string_list_as_fallback():
     assert result['status'] == 'FALLBACK'
     assert result['fallback_used'] is True
     assert result['metadata_json']['reason'] == 'llm_malformed_response'
+
+
+@pytest.mark.anyio
+async def test_market_summary_propagates_retryable_error_to_durable_worker():
+    class RetryableProvider(StringListLlmProvider):
+        async def summarize_market(self, **_kwargs) -> dict:
+            raise LlmRetryableError(retry_after_seconds=30)
+
+    with pytest.raises(LlmRetryableError):
+        await _generate_market_summary(
+            RetryableProvider(),
+            market_type='US',
+            clusters=[],
+            indices=[],
+        )
+
+
+@pytest.mark.anyio
+async def test_market_summary_uses_fallback_after_durable_retries_exhausted():
+    class ExhaustedProvider(StringListLlmProvider):
+        async def summarize_market(self, **_kwargs) -> dict:
+            raise LlmRetryExhaustedError('sanitized terminal error')
+
+    result = await _generate_market_summary(
+        ExhaustedProvider(),
+        market_type='US',
+        clusters=[],
+        indices=[],
+    )
+
+    assert result['status'] == 'FALLBACK'
+    assert result['fallback_used'] is True
+    assert result['error_message'] == (
+        'AI provider request failed; fallback content was used.'
+    )
+    assert 'sanitized terminal error' not in repr(result)

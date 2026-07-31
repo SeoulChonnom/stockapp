@@ -52,12 +52,12 @@ def test_keyword_migration_renames_legacy_provider_and_restores_seeds():
     assert 'AND (NOT is_active OR priority > 10)' in migration_sql
 
 
-def test_processed_article_schema_dedupes_hash_within_business_date():
+def test_processed_article_schema_dedupes_hash_within_business_date_and_market():
     schema_sql = _read_sql(SCHEMA_SQL)
 
     assert re.search(
         r'CONSTRAINT uq_news_article_processed_business_date_dedupe_hash '
-        r'UNIQUE \(business_date, dedupe_hash\)',
+        r'UNIQUE \(business_date, market_type, dedupe_hash\)',
         schema_sql,
     )
     assert not re.search(
@@ -94,10 +94,7 @@ def test_processed_article_migration_replaces_global_unique_constraint():
 def test_durable_queue_schema_has_claim_and_fencing_contract():
     schema_sql = _read_sql(SCHEMA_SQL)
 
-    assert (
-        "CREATE TYPE batch_run_mode_enum AS ENUM ('FULL', 'PAGE_REBUILD', 'AI_RETRY')"
-        in schema_sql
-    )
+    assert 'NEWS_COLLECTION' in schema_sql
     for column in (
         'idempotency_key TEXT NULL',
         'queued_at TIMESTAMPTZ NOT NULL DEFAULT now()',
@@ -108,6 +105,40 @@ def test_durable_queue_schema_has_claim_and_fencing_contract():
         assert column in schema_sql
     assert "WHERE status = 'PENDING'" in schema_sql
     assert "WHERE status = 'RUNNING'" in schema_sql
+
+
+def test_incremental_news_schema_has_slot_diagnostics_and_global_raw_dedupe():
+    schema_sql = _read_sql(SCHEMA_SQL)
+
+    assert 'CREATE TABLE news_collection_run' in schema_sql
+    assert 'UNIQUE (provider_name, window_start_at, window_end_at)' in schema_sql
+    assert 'CREATE TABLE news_collection_keyword_diagnostic' in schema_sql
+    assert 'UNIQUE (provider_name, provider_article_key)' in schema_sql
+    assert 'business_date DATE NULL' in schema_sql
+    assert 'idx_news_article_raw_market_published' in schema_sql
+    assert 'CREATE TABLE news_article_raw_keyword_match' in schema_sql
+
+
+def test_incremental_news_migration_is_idempotent_and_decouples_market_jobs():
+    migration_sql = _read_sql(
+        MIGRATIONS_DIRECTORY / '20260731_07_incremental_news_collection.sql'
+    )
+
+    assert "ADD VALUE IF NOT EXISTS 'NEWS_COLLECTION'" in migration_sql
+    assert 'CREATE TABLE IF NOT EXISTS stock.news_collection_run' in migration_sql
+    assert (
+        'CREATE TABLE IF NOT EXISTS '
+        'stock.news_collection_keyword_diagnostic' in migration_sql
+    )
+    assert "run_mode IN ('FULL', 'PAGE_REBUILD')" in migration_sql
+    assert 'PARTITION BY provider_name, provider_article_key' in migration_sql
+    assert 'ALTER COLUMN business_date DROP NOT NULL' in migration_sql
+    relationship_insert = migration_sql.index(
+        'INSERT INTO stock.news_article_raw_keyword_match'
+    )
+    duplicate_delete = migration_sql.index('DELETE FROM stock.news_article_raw raw')
+    assert relationship_insert < duplicate_delete
+    assert 'UNIQUE (business_date, market_type, dedupe_hash)' in migration_sql
 
 
 def test_durable_queue_migration_is_idempotent_and_uses_partial_indexes():

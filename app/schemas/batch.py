@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.core.timezone import KST
 
 
 class BatchRunRequest(BaseModel):
@@ -18,6 +20,39 @@ class BatchRunResponse(BaseModel):
     status: str
     startedAt: datetime | str
     queuedAt: datetime | str | None = None
+
+
+class NewsCollectionRunRequest(BaseModel):
+    slotEndAt: datetime | None = None
+
+    @field_validator('slotEndAt')
+    @classmethod
+    def validate_slot_end_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError('slotEndAt must include a timezone offset.')
+        local_value = value.astimezone(KST)
+        if (
+            local_value.minute not in {0, 30}
+            or local_value.second != 0
+            or local_value.microsecond != 0
+        ):
+            raise ValueError('slotEndAt must align to a KST 30-minute boundary.')
+        return value
+
+
+class NewsCollectionRunResponse(BaseModel):
+    jobId: int
+    runId: int
+    jobName: str
+    status: str
+    providerName: str
+    windowStartAt: datetime | str
+    windowEndAt: datetime | str
+    queryStartAt: datetime | str
+    queryEndAt: datetime | str
+    queuedAt: datetime | str
 
 
 class AiRetryRunResponse(BaseModel):
@@ -124,4 +159,6 @@ __all__ = [
     'BatchJobsPaginationResponse',
     'BatchRunRequest',
     'BatchRunResponse',
+    'NewsCollectionRunRequest',
+    'NewsCollectionRunResponse',
 ]

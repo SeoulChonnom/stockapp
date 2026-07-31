@@ -2,14 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Awaitable, Callable
+from functools import partial
+from typing import Any, TypedDict, cast
 
 from app.batch.ai_summary_targets import build_ai_summary_target_key
 from app.batch.logging import log_safe_exception
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
 from app.batch.steps.base import BatchStep, require_repository_session
+from app.batch.steps.target_progress import (
+    DurableTargetProgress,
+    TargetCall,
+    run_target_calls,
+)
+from app.core.llm import LlmRetryableError
 from app.core.public_diagnostics import (
     AI_PROVIDER_FAILURE_MESSAGE,
     AI_PROVIDER_INVALID_RESPONSE_MESSAGE,
@@ -24,6 +31,14 @@ from app.db.repositories.market_index_repo import MarketIndexRepository
 from app.db.repositories.projections import AiSummaryCreateParams
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _SummaryJob(TypedDict):
+    summary_type: str
+    market_type: str | None
+    cluster_id: int | None
+    target_key: str
+    generate: Callable[[], Awaitable[dict[str, Any]]]
 
 
 def _llm_error_metadata(exc: Exception) -> dict[str, str]:
@@ -167,6 +182,11 @@ class GenerateAiSummariesStep(BatchStep):
 
         concurrency_limit = getattr(llm_provider, 'concurrency_limit', 1)
         semaphore = asyncio.Semaphore(concurrency_limit)
+        progress = await DurableTargetProgress.load(
+            repository,
+            job_id=context.job_id,
+            step_code=self.step_code,
+        )
 
         async def bounded_generate(callable_, *args, **kwargs) -> dict:
             async with semaphore:
@@ -179,33 +199,54 @@ class GenerateAiSummariesStep(BatchStep):
         for index in indices:
             indices_by_market.setdefault(index.market_type, []).append(index)
 
-        summary_jobs: list[dict[str, Any]] = [
-            {
-                'summary_type': AiSummaryType.GLOBAL_HEADLINE.value,
-                'market_type': None,
-                'cluster_id': None,
-                'payload': bounded_generate(
-                    _generate_global_headline,
-                    llm_provider,
-                    clusters,
-                    indices,
-                ),
-            }
-        ]
-        for market_type, market_clusters in by_market.items():
+        summary_jobs: list[_SummaryJob] = []
+
+        def add_summary_job(
+            *,
+            summary_type: str,
+            market_type: str | None,
+            cluster_id: int | None,
+            generate: Callable[[], Awaitable[dict[str, Any]]],
+        ) -> None:
             summary_jobs.append(
                 {
-                    'summary_type': AiSummaryType.MARKET_SUMMARY.value,
+                    'summary_type': summary_type,
                     'market_type': market_type,
-                    'cluster_id': None,
-                    'payload': bounded_generate(
-                        _generate_market_summary,
-                        llm_provider,
+                    'cluster_id': cluster_id,
+                    'target_key': build_ai_summary_target_key(
+                        summary_type,
                         market_type=market_type,
-                        clusters=market_clusters,
-                        indices=indices_by_market.get(market_type, []),
+                        cluster_id=cluster_id,
                     ),
+                    'generate': generate,
                 }
+            )
+
+        add_summary_job(
+            summary_type=AiSummaryType.GLOBAL_HEADLINE.value,
+            market_type=None,
+            cluster_id=None,
+            generate=partial(
+                bounded_generate,
+                _generate_global_headline,
+                llm_provider,
+                clusters,
+                indices,
+            ),
+        )
+        for market_type, market_clusters in by_market.items():
+            add_summary_job(
+                summary_type=AiSummaryType.MARKET_SUMMARY.value,
+                market_type=market_type,
+                cluster_id=None,
+                generate=partial(
+                    bounded_generate,
+                    _generate_market_summary,
+                    llm_provider,
+                    market_type=market_type,
+                    clusters=market_clusters,
+                    indices=indices_by_market.get(market_type, []),
+                ),
             )
             for cluster in market_clusters:
                 cluster_articles = await cluster_repo.get_cluster_articles(
@@ -214,71 +255,69 @@ class GenerateAiSummariesStep(BatchStep):
                 processed_articles = await cluster_repo.get_processed_articles(
                     [row['processed_article_id'] for row in cluster_articles]
                 )
-                summary_jobs.append(
-                    {
-                        'summary_type': AiSummaryType.CLUSTER_CARD_SUMMARY.value,
-                        'market_type': market_type,
-                        'cluster_id': cluster['id'],
-                        'payload': bounded_generate(
-                            _generate_cluster_card_summary,
-                            llm_provider,
-                            market_type,
-                            cluster,
-                            processed_articles,
-                        ),
-                    }
-                )
-                summary_jobs.append(
-                    {
-                        'summary_type': AiSummaryType.CLUSTER_DETAIL_ANALYSIS.value,
-                        'market_type': market_type,
-                        'cluster_id': cluster['id'],
-                        'payload': bounded_generate(
-                            _generate_cluster_detail_summary,
-                            llm_provider,
-                            market_type,
-                            cluster,
-                            processed_articles,
-                        ),
-                    }
-                )
-
-        payloads = await asyncio.gather(
-            *(summary_job['payload'] for summary_job in summary_jobs)
-        )
-        context.ai_target_count = len(summary_jobs)
-        context.ai_attempted_count = len(payloads)
-        context.ai_success_count = 0
-        context.ai_fallback_count = 0
-        context.ai_failed_count = 0
-        step_fallback_count = 0
-        fallback_details: list[dict[str, Any]] = []
-        for summary_job, payload in zip(summary_jobs, payloads, strict=True):
-            await summary_repo.insert_summary(
-                AiSummaryCreateParams(
-                    batch_job_id=context.job_id,
-                    summary_type=summary_job['summary_type'],
-                    business_date=context.business_date,
-                    market_type=summary_job['market_type'],
-                    cluster_id=summary_job['cluster_id'],
-                    title=payload.get('title'),
-                    body=payload.get('body'),
-                    paragraphs_json=payload.get('paragraphs', []),
-                    model_name=payload.get('model_name'),
-                    prompt_version=PROMPT_VERSION,
-                    status=payload['status'],
-                    fallback_used=payload['fallback_used'],
-                    error_message=payload.get('error_message'),
-                    metadata_json=payload.get('metadata_json', {}),
-                    target_key=build_ai_summary_target_key(
-                        summary_job['summary_type'],
-                        market_type=summary_job['market_type'],
-                        cluster_id=summary_job['cluster_id'],
+                add_summary_job(
+                    summary_type=AiSummaryType.CLUSTER_CARD_SUMMARY.value,
+                    market_type=market_type,
+                    cluster_id=cluster['id'],
+                    generate=partial(
+                        bounded_generate,
+                        _generate_cluster_card_summary,
+                        llm_provider,
+                        market_type,
+                        cluster,
+                        processed_articles,
                     ),
                 )
+                add_summary_job(
+                    summary_type=AiSummaryType.CLUSTER_DETAIL_ANALYSIS.value,
+                    market_type=market_type,
+                    cluster_id=cluster['id'],
+                    generate=partial(
+                        bounded_generate,
+                        _generate_cluster_detail_summary,
+                        llm_provider,
+                        market_type,
+                        cluster,
+                        processed_articles,
+                    ),
+                )
+
+        context.ai_target_count = len(summary_jobs)
+        summary_jobs_by_key = {
+            summary_job['target_key']: summary_job for summary_job in summary_jobs
+        }
+        fallback_details: list[dict[str, Any]] = []
+
+        async def persist_result(target_key: str, payload: dict[str, Any]) -> None:
+            summary_job = summary_jobs_by_key[target_key]
+            create_params = AiSummaryCreateParams(
+                batch_job_id=context.job_id,
+                summary_type=summary_job['summary_type'],
+                business_date=context.business_date,
+                market_type=summary_job['market_type'],
+                cluster_id=summary_job['cluster_id'],
+                title=payload.get('title'),
+                body=payload.get('body'),
+                paragraphs_json=payload.get('paragraphs', []),
+                model_name=payload.get('model_name'),
+                prompt_version=PROMPT_VERSION,
+                status=payload['status'],
+                fallback_used=payload['fallback_used'],
+                error_message=payload.get('error_message'),
+                metadata_json=payload.get('metadata_json', {}),
+                target_key=target_key,
             )
+            upsert = getattr(summary_repo, 'upsert_retry_summary', None)
+            if callable(upsert):
+                typed_upsert = cast(
+                    Callable[[AiSummaryCreateParams], Awaitable[Any]],
+                    upsert,
+                )
+                await typed_upsert(create_params)
+            else:
+                await summary_repo.insert_summary(create_params)
+
             context.generated_summary_count += 1
-            context.fallback_count += int(payload['fallback_used'])
             if (
                 payload['status'] == AiSummaryStatus.SUCCESS.value
                 and not payload['fallback_used']
@@ -288,8 +327,8 @@ class GenerateAiSummariesStep(BatchStep):
                 context.ai_failed_count += 1
             else:
                 context.ai_fallback_count += 1
+            context.fallback_count += int(payload['fallback_used'])
             if payload['fallback_used']:
-                step_fallback_count += 1
                 metadata = payload.get('metadata_json', {})
                 error = metadata.get('error') if isinstance(metadata, dict) else None
                 diagnostic = (
@@ -306,27 +345,45 @@ class GenerateAiSummariesStep(BatchStep):
                 )
                 if partial_reason not in context.partial_reasons:
                     context.partial_reasons.append(partial_reason)
-                fallback_details.append(
-                    {
-                        'summaryType': summary_job['summary_type'],
-                        'marketType': summary_job['market_type'],
-                        'clusterId': summary_job['cluster_id'],
-                        'reason': metadata.get('reason')
-                        if isinstance(metadata, dict)
-                        else None,
-                        'error': error,
-                        'message': payload.get('error_message'),
-                    }
+                fallback_detail = {
+                    'summaryType': summary_job['summary_type'],
+                    'marketType': summary_job['market_type'],
+                    'clusterId': summary_job['cluster_id'],
+                    'reason': metadata.get('reason')
+                    if isinstance(metadata, dict)
+                    else None,
+                    'error': error,
+                    'message': payload.get('error_message'),
+                }
+                fallback_details.append(fallback_detail)
+                await repository.add_event(
+                    job_id=context.job_id,
+                    step_code=self.step_code,
+                    level=EventLevel.INFO.value,
+                    message='AI summary target generated with fallback response.',
+                    context_json=fallback_detail,
                 )
+            await progress.commit_target(target_key, context)
 
-        if step_fallback_count:
+        pending_calls = [
+            TargetCall(
+                target_key=summary_job['target_key'],
+                invoke=summary_job['generate'],
+            )
+            for summary_job in summary_jobs
+            if summary_job['target_key'] not in progress.completed_targets
+        ]
+        await run_target_calls(pending_calls, on_result=persist_result)
+        context.ai_attempted_count = context.ai_target_count
+
+        if fallback_details:
             await repository.add_event(
                 job_id=context.job_id,
                 step_code=self.step_code,
                 level=EventLevel.WARN.value,
                 message='AI summaries generated with fallback responses.',
                 context_json={
-                    'fallbackCount': step_fallback_count,
+                    'fallbackCount': len(fallback_details),
                     'fallbackDetails': fallback_details,
                 },
             )
@@ -383,6 +440,8 @@ async def _generate_global_headline(
             'model_name': model_name,
             'metadata_json': {'reason': 'llm'},
         }
+    except LlmRetryableError:
+        raise
     except Exception as exc:
         log_safe_exception(
             LOGGER,
@@ -476,6 +535,8 @@ async def _generate_market_summary(
                 or fallback['metadata_json']['outlook'],
             },
         }
+    except LlmRetryableError:
+        raise
     except Exception as exc:
         log_safe_exception(
             LOGGER,
@@ -528,6 +589,8 @@ async def _generate_cluster_card_summary(
             'model_name': model_name,
             'metadata_json': {'reason': 'llm'},
         }
+    except LlmRetryableError:
+        raise
     except Exception as exc:
         log_safe_exception(
             LOGGER,
@@ -595,6 +658,8 @@ async def _generate_cluster_detail_summary(
             'model_name': model_name,
             'metadata_json': {'reason': 'llm'},
         }
+    except LlmRetryableError:
+        raise
     except Exception as exc:
         log_safe_exception(
             LOGGER,

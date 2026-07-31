@@ -70,9 +70,22 @@ class EmptyRawRepo:
     def __init__(self, session):
         _ = session
 
-    async def list_articles_by_business_date(self, business_date, *, market_type=None):
-        _ = (business_date, market_type)
+    async def list_articles_by_window(self, **_kwargs):
         return []
+
+
+class EmptyMarketContextRepo:
+    def __init__(self, session):
+        _ = session
+
+    async def list_for_job(self, job_id):
+        _ = job_id
+        return []
+
+
+class EmptyCollectionRunRepo:
+    def __init__(self, session):
+        _ = session
 
 
 class UnusedProcessedRepo:
@@ -111,6 +124,8 @@ def build_step(step_cls):
             raw_repo_factory=EmptyRawRepo,
             processed_repo_factory=UnusedProcessedRepo,
             content_provider_factory=lambda: object(),
+            market_context_repo_factory=EmptyMarketContextRepo,
+            collection_run_repo_factory=EmptyCollectionRunRepo,
         )
     if step_cls is BuildClustersStep:
         return step_cls(

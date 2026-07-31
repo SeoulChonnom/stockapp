@@ -28,6 +28,23 @@ class FakeBatchesService:
         self.lifecycle_events.append('job_committed')
         return self.run_payload
 
+    async def start_naver_news_collection(self, **kwargs):
+        self.start_kwargs = kwargs
+        self.lifecycle_events.append('job_committed')
+        return {
+            'jobId': 3001,
+            'runId': 41,
+            'jobName': 'naver_news_collection',
+            'status': 'PENDING',
+            'providerName': 'NAVER_NEWS',
+            'windowStartAt': '2026-07-31T09:30:00+09:00',
+            'windowEndAt': '2026-07-31T10:00:00+09:00',
+            'queryStartAt': '2026-07-31T09:20:00+09:00',
+            'queryEndAt': '2026-07-31T10:00:00+09:00',
+            'queuedAt': '2026-07-31T10:00:03+09:00',
+            '_created': self.retry_created,
+        }
+
     async def list_jobs(self, **_kwargs):
         return self.list_payload
 
@@ -120,6 +137,102 @@ def test_start_market_daily_batch_returns_job_handle(client, sample_batch_run_pa
     assert service.start_kwargs['user_id'] == 'ADMIN-0001'
     assert service.batch_scheduler.drain_calls == 1
     assert service.lifecycle_events == ['job_committed', 'drain_scheduled']
+
+
+def test_start_naver_news_collection_returns_aligned_job_handle(client):
+    test_client, service = client
+
+    response = test_client.post(
+        '/stock/api/batch/news-collection',
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 202
+    payload = response.json()['data']
+    assert payload['jobName'] == 'naver_news_collection'
+    assert payload['windowStartAt'] == '2026-07-31T09:30:00+09:00'
+    assert payload['windowEndAt'] == '2026-07-31T10:00:00+09:00'
+    assert service.start_kwargs == {
+        'user_id': 'ADMIN-0001',
+        'slot_end_at': None,
+    }
+    assert service.batch_scheduler.drain_calls == 1
+
+
+def test_start_naver_news_collection_replay_coalesces_drain(client):
+    test_client, service = client
+    service.retry_created = False
+
+    response = test_client.post(
+        '/stock/api/batch/news-collection',
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 202
+    assert service.batch_scheduler.drain_calls == 1
+
+
+def test_start_naver_news_collection_accepts_historical_aligned_slot(client):
+    test_client, service = client
+
+    response = test_client.post(
+        '/stock/api/batch/news-collection',
+        json={'slotEndAt': '2026-07-30T23:30:00+09:00'},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 202
+    assert service.start_kwargs is not None
+    assert service.start_kwargs['slot_end_at'].isoformat() == (
+        '2026-07-30T23:30:00+09:00'
+    )
+    assert service.batch_scheduler.drain_calls == 1
+
+
+@pytest.mark.parametrize(
+    'slot_end_at',
+    [
+        '2026-07-30T23:17:00+09:00',
+        '2026-07-30T23:30:00',
+    ],
+)
+def test_start_naver_news_collection_rejects_invalid_slot(client, slot_end_at):
+    test_client, service = client
+
+    response = test_client.post(
+        '/stock/api/batch/news-collection',
+        json={'slotEndAt': slot_end_at},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 422
+    assert service.start_kwargs is None
+    assert service.batch_scheduler.drain_calls == 0
+
+
+def test_start_naver_news_collection_rejects_user_as_forbidden(client):
+    test_client, service = client
+
+    response = test_client.post(
+        '/stock/api/batch/news-collection',
+        headers=build_test_bearer_headers('USER'),
+    )
+
+    assert response.status_code == 403
+    assert response.json()['error']['code'] == 'AUTH_FORBIDDEN'
+    assert service.start_kwargs is None
+    assert service.batch_scheduler.drain_calls == 0
+
+
+def test_start_naver_news_collection_rejects_missing_token(client):
+    test_client, service = client
+
+    response = test_client.post('/stock/api/batch/news-collection')
+
+    assert response.status_code == 401
+    assert response.json()['error']['code'] == 'AUTH_MISSING_BEARER_TOKEN'
+    assert service.start_kwargs is None
+    assert service.batch_scheduler.drain_calls == 0
 
 
 def test_start_market_daily_batch_preserves_non_uuid_subject(client):

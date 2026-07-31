@@ -24,6 +24,7 @@ class BatchRunMode(StrEnum):
     FULL = 'FULL'
     PAGE_REBUILD = 'PAGE_REBUILD'
     AI_RETRY = 'AI_RETRY'
+    NEWS_COLLECTION = 'NEWS_COLLECTION'
 
 
 class BatchTriggerType(StrEnum):

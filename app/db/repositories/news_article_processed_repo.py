@@ -22,6 +22,7 @@ class NewsArticleProcessedRepository(PostgresRepository):
     async def get_processed_by_dedupe_hash(
         self,
         business_date: date,
+        market_type: str,
         dedupe_hash: str,
     ) -> NewsArticleProcessedRecord | None:
         statement = text(
@@ -43,13 +44,18 @@ class NewsArticleProcessedRepository(PostgresRepository):
                 updated_at
             FROM {processed_table}
             WHERE business_date = :business_date
+              AND market_type = CAST(:market_type AS {market_type_enum})
               AND dedupe_hash = :dedupe_hash
-            """.format(processed_table=_qualified_table('news_article_processed'))
+            """.format(
+                processed_table=_qualified_table('news_article_processed'),
+                market_type_enum=_qualified_table('market_type_enum'),
+            )
         )
         result = await self.session.execute(
             statement,
             {
                 'business_date': business_date,
+                'market_type': market_type,
                 'dedupe_hash': dedupe_hash,
             },
         )
@@ -145,7 +151,7 @@ class NewsArticleProcessedRepository(PostgresRepository):
                 :article_body_excerpt,
                 CAST(:content_json AS JSONB)
             )
-            ON CONFLICT (business_date, dedupe_hash) DO NOTHING
+            ON CONFLICT (business_date, market_type, dedupe_hash) DO NOTHING
             RETURNING
                 id AS processed_article_id,
                 business_date,
@@ -188,6 +194,7 @@ class NewsArticleProcessedRepository(PostgresRepository):
 
         existing = await self.get_processed_by_dedupe_hash(
             params.business_date,
+            params.market_type,
             params.dedupe_hash,
         )
         if existing is None:

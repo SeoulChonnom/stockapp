@@ -10,6 +10,7 @@ from uuid import UUID
 import pytest
 
 from app.batch.worker import BatchJobDispatcher, DurableBatchWorker
+from app.core.llm import LlmRetryableError
 from app.db.repositories.projections import (
     BatchJobRecord,
     BatchLeaseRecoveryResult,
@@ -30,7 +31,12 @@ class FakeSessionMaker:
         return FakeSession()
 
 
-def _job(job_id: int = 1001) -> BatchJobRecord:
+def _job(
+    job_id: int = 1001,
+    *,
+    attempt_count: int = 0,
+    max_attempts: int = 3,
+) -> BatchJobRecord:
     now = datetime(2026, 7, 29, 0, 0, tzinfo=UTC)
     return BatchJobRecord(
         job_id=job_id,
@@ -47,6 +53,8 @@ def _job(job_id: int = 1001) -> BatchJobRecord:
         page_id=None,
         page_version_no=None,
         run_mode='FULL',
+        attempt_count=attempt_count,
+        max_attempts=max_attempts,
     )
 
 
@@ -56,6 +64,7 @@ class QueueState:
     delayed_claim: BatchJobRecord | None = None
     next_action_delays: list[float | None] = field(default_factory=list)
     released: list[tuple[int, UUID, str]] = field(default_factory=list)
+    release_options: list[dict] = field(default_factory=list)
     recovery_calls: int = 0
     recovered_job: BatchJobRecord | None = None
     recovery_ready: bool = True
@@ -104,9 +113,10 @@ class FakeQueueRepository:
         job_id,
         lease_token,
         error_message,
-        **_kwargs,
+        **kwargs,
     ):
         self.state.released.append((job_id, lease_token, error_message))
+        self.state.release_options.append(kwargs)
         return 'PENDING'
 
     async def commit(self):
@@ -141,6 +151,10 @@ def _settings():
         batch_worker_heartbeat_seconds=30,
         batch_worker_lease_seconds=120,
         batch_worker_retry_delay_seconds=0,
+        llm_retry_base_delay_seconds=5.0,
+        llm_retry_max_delay_seconds=300.0,
+        llm_retry_jitter_ratio=0.2,
+        llm_max_retries=2,
     )
 
 
@@ -151,6 +165,7 @@ def _worker(state: QueueState, dispatcher) -> DurableBatchWorker:
         settings=_settings(),
         worker_id='worker-test',
         repository_factory=lambda _session: FakeQueueRepository(state),
+        retry_jitter_random=lambda: 0.5,
     )
 
 
@@ -179,6 +194,81 @@ async def test_worker_dispatches_claimed_job_and_releases_failed_attempt(caplog)
     assert failure_record.batch_duration_seconds >= 0
     assert failure_record.batch_traceback
     assert 'provider timeout' not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_worker_persists_retry_after_without_blocking_or_leaking_details(caplog):
+    state = QueueState(claims=[_job(attempt_count=1)])
+    dispatcher = RecordingDispatcher(error=LlmRetryableError(retry_after_seconds=17.2))
+    caplog.set_level(logging.WARNING, logger='app.batch.worker')
+
+    processed = await asyncio.wait_for(
+        _worker(state, dispatcher).run_once(),
+        timeout=0.1,
+    )
+
+    assert processed is True
+    assert dispatcher.jobs == [1001]
+    assert state.released[0][2] == ('Temporary LLM provider failure; retry scheduled.')
+    assert state.release_options[0] == {
+        'error_code': 'LLM_TRANSIENT_RETRY',
+        'retry_delay_seconds': 18,
+    }
+    assert 'provider' not in caplog.text.lower()
+
+
+@pytest.mark.anyio
+async def test_worker_uses_exponential_backoff_with_bounded_jitter():
+    state = QueueState(claims=[_job(attempt_count=2, max_attempts=4)])
+    dispatcher = RecordingDispatcher(error=LlmRetryableError())
+
+    await _worker(state, dispatcher).run_once()
+
+    # 5 * 2^(2-1) plus 10% deterministic jitter.
+    assert state.release_options[0]['retry_delay_seconds'] == 11
+
+
+@pytest.mark.anyio
+async def test_worker_final_attempt_reexecutes_in_deterministic_fallback_mode():
+    class FinalFallbackDispatcher:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def dispatch(self, job, lease_token):
+            _ = (job, lease_token)
+            self.calls += 1
+            if self.calls == 1:
+                raise LlmRetryableError()
+
+    state = QueueState(claims=[_job(attempt_count=3, max_attempts=3)])
+    dispatcher = FinalFallbackDispatcher()
+
+    processed = await _worker(state, dispatcher).run_once()
+
+    assert processed is True
+    assert dispatcher.calls == 2
+    assert state.released == []
+
+
+@pytest.mark.anyio
+async def test_delayed_llm_retry_survives_worker_restart_and_resumes():
+    state = QueueState(
+        claims=[_job(attempt_count=1)],
+        delayed_claim=_job(attempt_count=2),
+        next_action_delays=[0.0],
+    )
+    first_dispatcher = RecordingDispatcher(
+        error=LlmRetryableError(retry_after_seconds=0)
+    )
+
+    assert await _worker(state, first_dispatcher).run_once() is True
+    assert state.release_options[0]['retry_delay_seconds'] == 0
+
+    resumed_dispatcher = RecordingDispatcher()
+    resumed_count = await _worker(state, resumed_dispatcher).run_until_idle()
+
+    assert resumed_count == 1
+    assert resumed_dispatcher.jobs == [1001]
 
 
 @pytest.mark.anyio
@@ -277,16 +367,21 @@ async def test_dispatcher_routes_full_and_ai_retry_run_modes():
     dispatcher = BatchJobDispatcher(
         market_daily_factory=lambda: Orchestrator('market'),
         ai_retry_factory=lambda: Orchestrator('ai-retry'),
+        news_collection_factory=lambda: Orchestrator('news-collection'),
     )
     full_job = _job(1001)
     ai_retry_job = _job(1002)
     ai_retry_job.run_mode = 'AI_RETRY'
+    news_collection_job = _job(1003)
+    news_collection_job.run_mode = 'NEWS_COLLECTION'
     lease_token = UUID('00000000-0000-0000-0000-000000000123')
 
     await dispatcher.dispatch(full_job, lease_token)
     await dispatcher.dispatch(ai_retry_job, lease_token)
+    await dispatcher.dispatch(news_collection_job, lease_token)
 
     assert calls == [
         ('market', 1001, lease_token),
         ('ai-retry', 1002, lease_token),
+        ('news-collection', 1003, lease_token),
     ]

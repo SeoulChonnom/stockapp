@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest  # pyright: ignore[reportMissingImports]
 
+from app.core.llm import LlmRetryableError
 from tests.support import BUSINESS_DATE, RecordingAsyncSession, load_module
 
 build_clusters_module = load_module('app.batch.steps.build_clusters')
@@ -258,6 +259,42 @@ async def test_build_clusters_records_llm_fallback_error_context(monkeypatch):
     assert 'secret-token' not in serialized
     assert 'RetryInfo' not in serialized
     assert 'googleapis.com' not in serialized
+
+
+@pytest.mark.anyio
+async def test_build_clusters_propagates_retryable_llm_error(monkeypatch):
+    session = RecordingAsyncSession()
+    fake_repository = FakeBatchRepository(session=session, events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    class RetryableLlmProvider:
+        concurrency_limit = 1
+
+        def is_configured(self):
+            return True
+
+        async def enrich_cluster(self, **_kwargs):
+            raise LlmRetryableError(retry_after_seconds=30)
+
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsArticleProcessedRepository', FakeProcessedRepo
+    )
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
+    )
+    monkeypatch.setattr(
+        build_clusters_module,
+        'BatchLlmProvider',
+        RetryableLlmProvider,
+    )
+
+    with pytest.raises(LlmRetryableError):
+        await BuildClustersStep().run(fake_repository, context)
     assert all('secret-token' not in reason for reason in context.partial_reasons)
 
 

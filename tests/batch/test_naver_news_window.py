@@ -60,6 +60,40 @@ def test_naver_window_is_start_inclusive_and_end_exclusive():
     assert {article.business_date for article in articles} == {date(2026, 7, 29)}
 
 
+def test_provider_article_key_uses_canonical_link_before_highlighted_title():
+    published_at = datetime(2026, 7, 28, 20, 0, tzinfo=UTC)
+    first_key = NaverNewsProvider._build_provider_article_key(
+        {
+            'title': '<b>미국 증시</b> 상승',
+            'originallink': 'HTTPS://EXAMPLE.COM/news/1/',
+        },
+        published_at,
+    )
+    second_key = NaverNewsProvider._build_provider_article_key(
+        {
+            'title': '미국 <b>증시 상승</b>',
+            'originallink': 'https://example.com/news/1',
+        },
+        published_at,
+    )
+
+    assert first_key == second_key
+
+
+def test_provider_article_key_fallback_cleans_highlighted_title():
+    published_at = datetime(2026, 7, 28, 20, 0, tzinfo=UTC)
+    first_key = NaverNewsProvider._build_provider_article_key(
+        {'title': '<b>미국 증시</b> &amp; 환율'},
+        published_at,
+    )
+    second_key = NaverNewsProvider._build_provider_article_key(
+        {'title': '미국 증시 & 환율'},
+        published_at,
+    )
+
+    assert first_key == second_key
+
+
 @pytest.mark.anyio
 async def test_naver_pagination_cap_marks_coverage_incomplete(monkeypatch):
     monkeypatch.setattr(naver_module, '_NAVER_PAGE_SIZE', 2)

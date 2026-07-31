@@ -38,6 +38,8 @@ from app.schemas.batch import (
     BatchJobListResponse,
     BatchRunRequest,
     BatchRunResponse,
+    NewsCollectionRunRequest,
+    NewsCollectionRunResponse,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -73,6 +75,27 @@ BatchSchedulerDep = Annotated[
     InProcessBatchScheduler,
     Depends(get_batch_scheduler),
 ]
+
+
+@router.post(
+    '/news-collection',
+    response_model=ApiSuccess[NewsCollectionRunResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def start_naver_news_collection(
+    background_tasks: BackgroundTasks,
+    current_user: AdminDep,
+    service: BatchesServiceDep,
+    scheduler: BatchSchedulerDep,
+    payload: NewsCollectionRunRequest | None = None,
+) -> ApiSuccess[NewsCollectionRunResponse]:
+    result = await service.start_naver_news_collection(
+        user_id=current_user.user_id,
+        slot_end_at=payload.slotEndAt if payload is not None else None,
+    )
+    background_tasks.add_task(schedule_batch_drain, scheduler)
+    response_payload = {key: value for key, value in result.items() if key != '_created'}
+    return ApiSuccess(data=NewsCollectionRunResponse.model_validate(response_payload))
 
 
 @router.post(

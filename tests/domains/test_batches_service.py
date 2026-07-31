@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from types import SimpleNamespace
 
 import pytest  # pyright: ignore[reportMissingImports]
 from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
@@ -42,6 +43,7 @@ class FakeBatchJobRepository:
         self.rollbacks = 0
         self.create_error: Exception | None = None
         self.idempotent_job = None
+        self.session = object()
 
     async def get_job_by_idempotency_key(self, idempotency_key):
         _ = idempotency_key
@@ -100,6 +102,181 @@ class FakeAiRetryEnqueuer:
 
     async def commit(self):
         self.commits += 1
+
+
+class FakeNewsCollectionRunRepository:
+    def __init__(self, existing_run=None):
+        self.existing_run = existing_run
+        self.created_kwargs = None
+
+    async def get_by_window(self, **_kwargs):
+        return self.existing_run
+
+    async def create_run(self, **kwargs):
+        self.created_kwargs = kwargs
+        self.existing_run = SimpleNamespace(
+            run_id=41,
+            batch_job_id=kwargs['batch_job_id'],
+            provider_name=kwargs['provider_name'],
+            window_start_at=kwargs['window_start_at'],
+            window_end_at=kwargs['window_end_at'],
+            query_start_at=kwargs['query_start_at'],
+            query_end_at=kwargs['query_end_at'],
+        )
+        return self.existing_run
+
+
+@pytest.mark.anyio
+async def test_start_naver_news_collection_aligns_slot_and_enqueues_once():
+    created_job = BatchJobRecord(
+        job_id=3001,
+        job_name='naver_news_collection',
+        business_date=date(2026, 7, 31),
+        status='PENDING',
+        started_at=datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+        ended_at=None,
+        duration_seconds=None,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+        queued_at=datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+    )
+    batch_repo = FakeBatchJobRepository(created_job=created_job)
+    run_repo = FakeNewsCollectionRunRepository()
+    service = BatchesService(
+        batch_repo,
+        news_collection_repository=run_repo,
+        now_factory=lambda: datetime(2026, 7, 31, 1, 3, 12, tzinfo=UTC),
+    )
+
+    result = await service.start_naver_news_collection(user_id='cron-admin')
+
+    assert result['_created'] is True
+    assert result['windowStartAt'].isoformat() == '2026-07-31T09:30:00+09:00'
+    assert result['windowEndAt'].isoformat() == '2026-07-31T10:00:00+09:00'
+    assert result['queryStartAt'].isoformat() == '2026-07-31T09:20:00+09:00'
+    assert batch_repo.created_params.job_name == 'naver_news_collection'
+    assert batch_repo.created_params.run_mode == 'NEWS_COLLECTION'
+    assert batch_repo.commits == 1
+
+
+@pytest.mark.anyio
+async def test_start_naver_news_collection_reuses_same_slot_without_new_job():
+    existing_run = SimpleNamespace(
+        run_id=41,
+        batch_job_id=3001,
+        provider_name='NAVER_NEWS',
+        window_start_at=datetime(2026, 7, 31, 0, 30, tzinfo=UTC),
+        window_end_at=datetime(2026, 7, 31, 1, 0, tzinfo=UTC),
+        query_start_at=datetime(2026, 7, 31, 0, 20, tzinfo=UTC),
+        query_end_at=datetime(2026, 7, 31, 1, 0, tzinfo=UTC),
+    )
+    existing_job = BatchJobRecord(
+        job_id=3001,
+        job_name='naver_news_collection',
+        business_date=date(2026, 7, 31),
+        status='RUNNING',
+        started_at=datetime(2026, 7, 31, 1, 0, tzinfo=UTC),
+        ended_at=None,
+        duration_seconds=None,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+    )
+    batch_repo = FakeBatchJobRepository(detailed_job=existing_job)
+    service = BatchesService(
+        batch_repo,
+        news_collection_repository=FakeNewsCollectionRunRepository(existing_run),
+        now_factory=lambda: datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+    )
+
+    result = await service.start_naver_news_collection(user_id='cron-admin')
+
+    assert result['_created'] is False
+    assert result['jobId'] == 3001
+    assert batch_repo.created_params is None
+
+
+@pytest.mark.anyio
+async def test_start_naver_news_collection_accepts_bounded_historical_slot():
+    created_job = BatchJobRecord(
+        job_id=3002,
+        job_name='naver_news_collection',
+        business_date=date(2026, 7, 30),
+        status='PENDING',
+        started_at=datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+        ended_at=None,
+        duration_seconds=None,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+    )
+    batch_repo = FakeBatchJobRepository(created_job=created_job)
+    run_repo = FakeNewsCollectionRunRepository()
+    service = BatchesService(
+        batch_repo,
+        news_collection_repository=run_repo,
+        now_factory=lambda: datetime(2026, 7, 31, 1, 3, 12, tzinfo=UTC),
+    )
+
+    result = await service.start_naver_news_collection(
+        user_id='cron-admin',
+        slot_end_at=datetime(
+            2026, 7, 30, 23, 30, tzinfo=batches_service_module.KST
+        ),
+    )
+
+    assert result['windowStartAt'].isoformat() == '2026-07-30T23:00:00+09:00'
+    assert result['windowEndAt'].isoformat() == '2026-07-30T23:30:00+09:00'
+    assert run_repo.created_kwargs['window_end_at'] == datetime(
+        2026, 7, 30, 23, 30, tzinfo=batches_service_module.KST
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ('slot_end_at', 'expected_code'),
+    [
+        (
+            datetime(2026, 7, 31, 1, 30, tzinfo=UTC),
+            'NEWS_SLOT_NOT_COMPLETED',
+        ),
+        (
+            datetime(2026, 7, 23, 1, 0, tzinfo=UTC),
+            'NEWS_SLOT_OUT_OF_RANGE',
+        ),
+        (
+            datetime(2026, 7, 31, 0, 17, tzinfo=UTC),
+            'NEWS_SLOT_INVALID',
+        ),
+    ],
+)
+async def test_start_naver_news_collection_rejects_invalid_historical_slot(
+    slot_end_at,
+    expected_code,
+):
+    service = BatchesService(
+        FakeBatchJobRepository(),
+        news_collection_repository=FakeNewsCollectionRunRepository(),
+        now_factory=lambda: datetime(2026, 7, 31, 1, 3, 12, tzinfo=UTC),
+    )
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_naver_news_collection(
+            user_id='cron-admin',
+            slot_end_at=slot_end_at,
+        )
+
+    assert exc_info.value.code == expected_code
 
 
 @pytest.mark.anyio

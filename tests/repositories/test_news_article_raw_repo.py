@@ -34,7 +34,7 @@ async def test_list_articles_by_business_date_filters_business_date(
 
 
 @pytest.mark.anyio
-async def test_insert_articles_deduplicates_within_business_date(
+async def test_insert_articles_deduplicates_globally_by_provider_key(
     sample_raw_article_rows,
 ):
     article = sample_raw_article_rows[0]
@@ -60,4 +60,24 @@ async def test_insert_articles_deduplicates_within_business_date(
     )
 
     sql = normalize_sql(session.statements[0]).lower()
-    assert 'on conflict (business_date, provider_name, provider_article_key)' in sql
+    assert 'on conflict (provider_name, provider_article_key)' in sql
+
+
+@pytest.mark.anyio
+async def test_list_articles_by_window_filters_market_and_published_time(
+    sample_raw_article_rows,
+):
+    session = RecordingAsyncSession(results=[DummyResult(sample_raw_article_rows)])
+    repo = NewsArticleRawRepository(session)
+
+    await repo.list_articles_by_window(
+        market_type='US',
+        window_start_at=sample_raw_article_rows[0]['published_at'],
+        window_end_at=sample_raw_article_rows[0]['published_at'],
+    )
+
+    sql = normalize_sql(session.statements[0]).lower()
+    assert 'published_at >= null' in sql
+    assert 'published_at < null' in sql
+    assert 'market_type = cast(null as stock.market_type_enum)' in sql
+    assert 'cast(null as stock.market_type_enum) as market_type' in sql

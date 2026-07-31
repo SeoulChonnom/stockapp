@@ -8,7 +8,12 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TYPE market_type_enum AS ENUM ('US', 'KR');
 CREATE TYPE page_status_enum AS ENUM ('READY', 'PARTIAL', 'FAILED');
 CREATE TYPE batch_job_status_enum AS ENUM ('PENDING', 'RUNNING', 'SUCCESS', 'PARTIAL', 'FAILED');
-CREATE TYPE batch_run_mode_enum AS ENUM ('FULL', 'PAGE_REBUILD', 'AI_RETRY');
+CREATE TYPE batch_run_mode_enum AS ENUM (
+    'FULL',
+    'PAGE_REBUILD',
+    'AI_RETRY',
+    'NEWS_COLLECTION'
+);
 CREATE TYPE batch_trigger_type_enum AS ENUM ('SCHEDULED', 'MANUAL', 'ADMIN_REBUILD');
 CREATE TYPE ai_summary_status_enum AS ENUM ('SUCCESS', 'FAILED', 'FALLBACK');
 CREATE TYPE ai_summary_type_enum AS ENUM (
@@ -102,9 +107,10 @@ CREATE TABLE batch_job (
         CHECK (jsonb_typeof(checkpoint_json) = 'object')
 );
 
-CREATE UNIQUE INDEX uq_batch_job_one_active_per_day
+CREATE UNIQUE INDEX uq_batch_job_one_active_market_daily_per_day
     ON batch_job (business_date)
-    WHERE status IN ('PENDING', 'RUNNING');
+    WHERE status IN ('PENDING', 'RUNNING')
+      AND run_mode IN ('FULL', 'PAGE_REBUILD');
 
 CREATE INDEX idx_batch_job_list
     ON batch_job (business_date DESC, started_at DESC);
@@ -211,12 +217,90 @@ VALUES
     ('NAVER_NEWS', 'KR', '코스피', TRUE, 10)
 ON CONFLICT DO NOTHING;
 
+CREATE TABLE news_collection_run (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    batch_job_id BIGINT NOT NULL
+        REFERENCES batch_job(id) ON DELETE CASCADE,
+    provider_name TEXT NOT NULL,
+    window_start_at TIMESTAMPTZ NOT NULL,
+    window_end_at TIMESTAMPTZ NOT NULL,
+    query_start_at TIMESTAMPTZ NOT NULL,
+    query_end_at TIMESTAMPTZ NOT NULL,
+    total_keyword_count INTEGER NOT NULL DEFAULT 0,
+    completed_keyword_count INTEGER NOT NULL DEFAULT 0,
+    fetched_count INTEGER NOT NULL DEFAULT 0,
+    matched_count INTEGER NOT NULL DEFAULT 0,
+    inserted_count INTEGER NOT NULL DEFAULT 0,
+    coverage_complete BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_news_collection_run_batch_job UNIQUE (batch_job_id),
+    CONSTRAINT uq_news_collection_run_provider_window
+        UNIQUE (provider_name, window_start_at, window_end_at),
+    CONSTRAINT chk_news_collection_run_window
+        CHECK (window_start_at < window_end_at),
+    CONSTRAINT chk_news_collection_run_query_window
+        CHECK (
+            query_start_at <= window_start_at
+            AND query_end_at = window_end_at
+        ),
+    CONSTRAINT chk_news_collection_run_counts
+        CHECK (
+            total_keyword_count >= 0
+            AND completed_keyword_count >= 0
+            AND completed_keyword_count <= total_keyword_count
+            AND fetched_count >= 0
+            AND matched_count >= 0
+            AND inserted_count >= 0
+        )
+);
+
+CREATE INDEX idx_news_collection_run_window
+    ON news_collection_run (provider_name, window_start_at, window_end_at);
+
+CREATE TABLE news_collection_keyword_diagnostic (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    news_collection_run_id BIGINT NOT NULL
+        REFERENCES news_collection_run(id) ON DELETE CASCADE,
+    keyword_id BIGINT NOT NULL
+        REFERENCES news_search_keyword(id) ON DELETE RESTRICT,
+    provider_name TEXT NOT NULL,
+    market_type market_type_enum NOT NULL,
+    keyword TEXT NOT NULL,
+    status TEXT NOT NULL,
+    fetched_count INTEGER NOT NULL DEFAULT 0,
+    matched_count INTEGER NOT NULL DEFAULT 0,
+    inserted_count INTEGER NOT NULL DEFAULT 0,
+    coverage_complete BOOLEAN NOT NULL DEFAULT FALSE,
+    error_code TEXT NULL,
+    error_message TEXT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_news_collection_keyword_diagnostic
+        UNIQUE (news_collection_run_id, keyword_id),
+    CONSTRAINT chk_news_collection_keyword_diagnostic_status
+        CHECK (status IN ('SUCCESS', 'FAILED')),
+    CONSTRAINT chk_news_collection_keyword_diagnostic_counts
+        CHECK (
+            fetched_count >= 0
+            AND matched_count >= 0
+            AND inserted_count >= 0
+        )
+);
+
+CREATE INDEX idx_news_collection_keyword_diagnostic_market
+    ON news_collection_keyword_diagnostic (
+        news_collection_run_id,
+        market_type,
+        coverage_complete
+    );
+
 CREATE TABLE news_article_raw (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     provider_name TEXT NOT NULL,
     provider_article_key TEXT NOT NULL,
     market_type market_type_enum NOT NULL,
-    business_date DATE NOT NULL,
+    business_date DATE NULL,
     search_keyword TEXT NULL,
     title TEXT NOT NULL,
     publisher_name TEXT NULL,
@@ -226,12 +310,25 @@ CREATE TABLE news_article_raw (
     payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     collected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uq_news_article_raw_business_provider_key
-        UNIQUE (business_date, provider_name, provider_article_key)
+    CONSTRAINT uq_news_article_raw_provider_key
+        UNIQUE (provider_name, provider_article_key)
 );
 
-CREATE INDEX idx_news_article_raw_business_market
-    ON news_article_raw (business_date, market_type, published_at DESC);
+CREATE INDEX idx_news_article_raw_market_published
+    ON news_article_raw (market_type, published_at DESC);
+
+CREATE TABLE news_article_raw_keyword_match (
+    raw_article_id BIGINT NOT NULL
+        REFERENCES news_article_raw(id) ON DELETE CASCADE,
+    keyword_id BIGINT NOT NULL
+        REFERENCES news_search_keyword(id) ON DELETE RESTRICT,
+    market_type market_type_enum NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (raw_article_id, keyword_id)
+);
+
+CREATE INDEX idx_news_article_raw_keyword_match_market
+    ON news_article_raw_keyword_match (market_type, raw_article_id);
 
 CREATE TABLE news_article_processed (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -249,7 +346,7 @@ CREATE TABLE news_article_processed (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_news_article_processed_business_date_dedupe_hash
-        UNIQUE (business_date, dedupe_hash)
+        UNIQUE (business_date, market_type, dedupe_hash)
 );
 
 CREATE INDEX idx_news_article_processed_business_market

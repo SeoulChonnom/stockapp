@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from datetime import date
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
 
+from app.batch.providers.naver_news import NAVER_NEWS_PROVIDER_NAME
 from app.core.exceptions import ConflictError, NotFoundError
-from app.core.timezone import get_business_date
+from app.core.settings import get_settings
+from app.core.timezone import KST, get_business_date
 from app.db.enums import BatchJobStatus, BatchRunMode, BatchTriggerType
 from app.db.repositories.ai_retry_repo import (
     AiRetryEnqueuePort,
@@ -13,7 +16,12 @@ from app.db.repositories.ai_retry_repo import (
     PostgresAiRetryRepository,
 )
 from app.db.repositories.batch_job_repo import BatchJobRepository
-from app.db.repositories.projections import BatchJobCreateParams
+from app.db.repositories.news_collection_run_repo import NewsCollectionRunRepository
+from app.db.repositories.projections import (
+    BatchJobCreateParams,
+    BatchJobRecord,
+    NewsCollectionRunRecord,
+)
 from app.domains.batches.assembler import (
     build_batch_job_detail_payload,
     build_batch_job_list_payload,
@@ -28,10 +36,103 @@ class BatchesService:
         *,
         max_attempts: int = 3,
         ai_retry_enqueuer: AiRetryEnqueuePort | None = None,
+        news_collection_repository: NewsCollectionRunRepository | None = None,
+        now_factory: Callable[[], datetime] | None = None,
     ) -> None:
         self._repo = repository
         self._max_attempts = max_attempts
         self._ai_retry_enqueuer = ai_retry_enqueuer
+        self._news_collection_repo = news_collection_repository
+        self._now_factory = now_factory or (lambda: datetime.now(UTC))
+
+    async def start_naver_news_collection(
+        self,
+        *,
+        user_id: str | None,
+        slot_end_at: datetime | None = None,
+    ) -> dict[str, object]:
+        settings = get_settings()
+        window_start_at, window_end_at = resolve_news_collection_slot(
+            now=self._now_factory(),
+            requested_slot_end_at=slot_end_at,
+            max_backfill_days=settings.naver_news_collection_backfill_max_days,
+        )
+        query_start_at = window_start_at - timedelta(
+            minutes=settings.naver_news_collection_overlap_minutes
+        )
+        run_repo = self._news_collection_repo or NewsCollectionRunRepository(
+            self._repo.session
+        )
+        existing_run = await run_repo.get_by_window(
+            provider_name=NAVER_NEWS_PROVIDER_NAME,
+            window_start_at=window_start_at,
+            window_end_at=window_end_at,
+        )
+        if existing_run is not None:
+            existing_job = await self._repo.get_job_by_id(existing_run.batch_job_id)
+            if existing_job is None:
+                raise RuntimeError(
+                    'News collection run references a missing batch job.'
+                )
+            return _build_news_collection_payload(existing_job, existing_run, False)
+
+        idempotency_key = (
+            f'naver-news:{window_start_at.isoformat()}:{window_end_at.isoformat()}'
+        )
+        try:
+            job = await self._repo.create_job(
+                BatchJobCreateParams(
+                    job_name='naver_news_collection',
+                    business_date=window_end_at.astimezone(KST).date(),
+                    status=BatchJobStatus.PENDING.value,
+                    trigger_type=BatchTriggerType.SCHEDULED.value,
+                    triggered_by_user_id=user_id,
+                    force_run=False,
+                    rebuild_page_only=False,
+                    run_mode=BatchRunMode.NEWS_COLLECTION.value,
+                    idempotency_key=idempotency_key,
+                    max_attempts=self._max_attempts,
+                )
+            )
+            run = await run_repo.create_run(
+                batch_job_id=job.job_id,
+                provider_name=NAVER_NEWS_PROVIDER_NAME,
+                window_start_at=window_start_at,
+                window_end_at=window_end_at,
+                query_start_at=query_start_at,
+                query_end_at=window_end_at,
+            )
+        except IntegrityError as exc:
+            await self._repo.rollback()
+            existing_run = await run_repo.get_by_window(
+                provider_name=NAVER_NEWS_PROVIDER_NAME,
+                window_start_at=window_start_at,
+                window_end_at=window_end_at,
+            )
+            if existing_run is None:
+                raise
+            existing_job = await self._repo.get_job_by_id(existing_run.batch_job_id)
+            if existing_job is None:
+                raise RuntimeError(
+                    'News collection run references a missing batch job.'
+                ) from exc
+            return _build_news_collection_payload(existing_job, existing_run, False)
+
+        await self._repo.add_event(
+            job_id=job.job_id,
+            step_code='NEWS_COLLECTION_ENQUEUE',
+            level='INFO',
+            message='Naver incremental news collection requested.',
+            context_json={
+                'providerName': NAVER_NEWS_PROVIDER_NAME,
+                'windowStartAt': window_start_at.isoformat(),
+                'windowEndAt': window_end_at.isoformat(),
+                'queryStartAt': query_start_at.isoformat(),
+                'queryEndAt': window_end_at.isoformat(),
+            },
+        )
+        await self._repo.commit()
+        return _build_news_collection_payload(job, run, True)
 
     async def list_jobs(
         self,
@@ -269,7 +370,85 @@ def _validate_idempotent_replay(
         raise ConflictError(
             'IDEMPOTENCY_KEY_REUSED',
             'Idempotency-Key가 다른 배치 요청에 이미 사용되었습니다.',
+    )
+
+
+def resolve_completed_news_slot(now: datetime) -> tuple[datetime, datetime]:
+    if now.tzinfo is None:
+        raise ValueError('News collection clock must be timezone-aware.')
+    local_now = now.astimezone(KST)
+    aligned_minute = 30 if local_now.minute >= 30 else 0
+    window_end_at = local_now.replace(
+        minute=aligned_minute,
+        second=0,
+        microsecond=0,
+    )
+    window_start_at = window_end_at - timedelta(minutes=30)
+    return window_start_at, window_end_at
+
+
+def resolve_news_collection_slot(
+    *,
+    now: datetime,
+    requested_slot_end_at: datetime | None,
+    max_backfill_days: int,
+) -> tuple[datetime, datetime]:
+    _, latest_completed_end_at = resolve_completed_news_slot(now)
+    if requested_slot_end_at is None:
+        window_end_at = latest_completed_end_at
+    else:
+        if (
+            requested_slot_end_at.tzinfo is None
+            or requested_slot_end_at.utcoffset() is None
+        ):
+            raise ConflictError(
+                'NEWS_SLOT_INVALID',
+                '뉴스 수집 슬롯 종료 시각에는 시간대 정보가 필요합니다.',
+            )
+        window_end_at = requested_slot_end_at.astimezone(KST)
+        if (
+            window_end_at.minute not in {0, 30}
+            or window_end_at.second != 0
+            or window_end_at.microsecond != 0
+        ):
+            raise ConflictError(
+                'NEWS_SLOT_INVALID',
+                '뉴스 수집 슬롯은 KST 기준 30분 경계에 맞아야 합니다.',
+            )
+        if window_end_at > latest_completed_end_at:
+            raise ConflictError(
+                'NEWS_SLOT_NOT_COMPLETED',
+                '아직 완료되지 않은 뉴스 수집 슬롯입니다.',
+            )
+        earliest_end_at = latest_completed_end_at - timedelta(
+            days=max_backfill_days
         )
+        if window_end_at < earliest_end_at:
+            raise ConflictError(
+                'NEWS_SLOT_OUT_OF_RANGE',
+                f'뉴스 수집 슬롯은 최근 {max_backfill_days}일 이내여야 합니다.',
+            )
+    return window_end_at - timedelta(minutes=30), window_end_at
+
+
+def _build_news_collection_payload(
+    job: BatchJobRecord,
+    run: NewsCollectionRunRecord,
+    created: bool,
+) -> dict[str, object]:
+    return {
+        'jobId': job.job_id,
+        'runId': run.run_id,
+        'jobName': job.job_name,
+        'status': job.status,
+        'providerName': run.provider_name,
+        'windowStartAt': run.window_start_at,
+        'windowEndAt': run.window_end_at,
+        'queryStartAt': run.query_start_at,
+        'queryEndAt': run.query_end_at,
+        'queuedAt': job.queued_at or job.started_at,
+        '_created': created,
+    }
 
 
 __all__ = [

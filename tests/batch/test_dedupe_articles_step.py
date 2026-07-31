@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -29,8 +31,7 @@ class FakeRawRepo:
     def __init__(self, session):
         _ = session
 
-    async def list_articles_by_business_date(self, business_date, *, market_type=None):
-        _ = (business_date, market_type)
+    async def list_articles_by_window(self, **_kwargs):
         return [
             projections_module.NewsArticleRawRecord(
                 raw_article_id=1,
@@ -68,6 +69,38 @@ class FakeRawRepo:
                 collected_at='2026-03-18T06:12:10+00:00',
                 created_at='2026-03-18T06:12:10+00:00',
             ),
+        ]
+
+
+class FakeMarketContextRepo:
+    def __init__(self, session):
+        _ = session
+        self.coverage_updates = []
+
+    async def list_for_job(self, job_id):
+        _ = job_id
+        return [
+            SimpleNamespace(
+                market_type='US',
+                news_window_start_at=datetime(2026, 3, 17, tzinfo=UTC),
+                news_window_end_at=datetime(2026, 3, 18, tzinfo=UTC),
+            )
+        ]
+
+    async def set_news_coverage_complete(self, **kwargs):
+        self.coverage_updates.append(kwargs)
+
+
+class FakeCollectionRunRepo:
+    def __init__(self, session):
+        _ = session
+
+    async def list_complete_intervals(self, **kwargs):
+        return [
+            projections_module.NewsCoverageInterval(
+                window_start_at=kwargs['window_start_at'],
+                window_end_at=kwargs['window_end_at'],
+            )
         ]
 
 
@@ -134,7 +167,11 @@ async def test_dedupe_articles_updates_processed_count_and_logs(monkeypatch):
         dedupe_module, 'NewsArticleProcessedRepository', FakeProcessedRepo
     )
 
-    step = DedupeArticlesStep(content_provider_factory=FakeContentProvider)
+    step = DedupeArticlesStep(
+        content_provider_factory=FakeContentProvider,
+        market_context_repo_factory=FakeMarketContextRepo,
+        collection_run_repo_factory=FakeCollectionRunRepo,
+    )
     updated_context = await step.run(fake_repository, context)
 
     assert updated_context.processed_news_count == 1
@@ -147,10 +184,7 @@ async def test_dedupe_articles_bounds_content_fetches_and_keeps_partial_results(
         def __init__(self, session):
             _ = session
 
-        async def list_articles_by_business_date(
-            self, business_date, *, market_type=None
-        ):
-            _ = (business_date, market_type)
+        async def list_articles_by_window(self, **_kwargs):
             return [
                 projections_module.NewsArticleRawRecord(
                     raw_article_id=index,
@@ -212,6 +246,8 @@ async def test_dedupe_articles_bounds_content_fetches_and_keeps_partial_results(
         raw_repo_factory=ManyRawRepo,
         processed_repo_factory=lambda session: processed_repo,
         content_provider_factory=lambda: provider,
+        market_context_repo_factory=FakeMarketContextRepo,
+        collection_run_repo_factory=FakeCollectionRunRepo,
         settings=Settings(
             app_env='development',
             article_crawl_concurrency_limit=2,
@@ -239,3 +275,113 @@ async def test_dedupe_articles_bounds_content_fetches_and_keeps_partial_results(
             'Article content fetch recorded provider failure.',
         )
     ]
+
+
+@pytest.mark.anyio
+async def test_dedupe_articles_marks_batch_partial_when_ingestion_has_gap():
+    class EmptyCoverageRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_complete_intervals(self, **_kwargs):
+            return []
+
+    repository = FakeBatchRepository(session=RecordingAsyncSession(), events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await DedupeArticlesStep(
+        raw_repo_factory=FakeRawRepo,
+        processed_repo_factory=FakeProcessedRepo,
+        content_provider_factory=FakeContentProvider,
+        market_context_repo_factory=FakeMarketContextRepo,
+        collection_run_repo_factory=EmptyCoverageRepo,
+    ).run(repository, context)
+
+    assert context.raw_news_count == 2
+    assert context.partial_reasons == ['US news ingestion coverage is incomplete.']
+
+
+@pytest.mark.anyio
+async def test_dedupe_articles_preserves_same_raw_article_in_both_markets():
+    class SharedRawRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_articles_by_window(self, **kwargs):
+            market_type = kwargs['market_type']
+            return [
+                projections_module.NewsArticleRawRecord(
+                    raw_article_id=77,
+                    provider_name='NAVER_NEWS',
+                    provider_article_key='shared-provider-key',
+                    market_type=market_type,
+                    business_date=None,
+                    search_keyword=(
+                        '코스피' if market_type == 'KR' else '미국 증시'
+                    ),
+                    title='글로벌 증시 동반 상승',
+                    publisher_name='테스트뉴스',
+                    published_at=datetime(2026, 3, 17, 1, 0, tzinfo=UTC),
+                    origin_link='https://example.com/shared',
+                    naver_link=None,
+                    payload_json={'description': '양국 시장에 관련된 기사'},
+                    collected_at='2026-03-17T01:01:00+00:00',
+                    created_at='2026-03-17T01:01:00+00:00',
+                )
+            ]
+
+    class BothMarketContextRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_for_job(self, job_id):
+            _ = job_id
+            return [
+                SimpleNamespace(
+                    market_type=market_type,
+                    news_window_start_at=datetime(2026, 3, 17, tzinfo=UTC),
+                    news_window_end_at=datetime(2026, 3, 18, tzinfo=UTC),
+                )
+                for market_type in ('KR', 'US')
+            ]
+
+        async def set_news_coverage_complete(self, **_kwargs):
+            return None
+
+    class CountingContentProvider(FakeContentProvider):
+        def __init__(self):
+            self.calls = 0
+
+        async def fetch_article_content(self, **kwargs):
+            self.calls += 1
+            return await super().fetch_article_content(**kwargs)
+
+    repository = FakeBatchRepository(session=RecordingAsyncSession(), events=[])
+    processed_repo = FakeProcessedRepo(repository.session)
+    content_provider = CountingContentProvider()
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await DedupeArticlesStep(
+        raw_repo_factory=SharedRawRepo,
+        processed_repo_factory=lambda session: processed_repo,
+        content_provider_factory=lambda: content_provider,
+        market_context_repo_factory=BothMarketContextRepo,
+        collection_run_repo_factory=FakeCollectionRunRepo,
+    ).run(repository, context)
+
+    assert context.raw_news_count == 1
+    assert context.processed_news_count == 2
+    assert [item.market_type for item in processed_repo.created] == ['KR', 'US']
+    assert len(processed_repo.mappings) == 2
+    assert {item.raw_article_id for item in processed_repo.mappings} == {77}
+    assert content_provider.calls == 1
