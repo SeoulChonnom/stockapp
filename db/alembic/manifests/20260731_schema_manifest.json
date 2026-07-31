@@ -1,0 +1,3833 @@
+{
+  "columns": [
+    {
+      "column_name": "attempt_no",
+      "data_type": "integer",
+      "default_expression": "1",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "batch_job_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "body",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "business_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "cluster_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "error_message",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "fallback_used",
+      "data_type": "boolean",
+      "default_expression": "false",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "generated_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "market_type",
+      "data_type": "market_type_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "metadata_json",
+      "data_type": "jsonb",
+      "default_expression": "'{}'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "model_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "paragraphs_json",
+      "data_type": "jsonb",
+      "default_expression": "'[]'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "prompt_version",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "source_summary_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "status",
+      "data_type": "ai_summary_status_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "summary_type",
+      "data_type": "ai_summary_type_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "target_key",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "title",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "ai_summary"
+    },
+    {
+      "column_name": "ai_attempted_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "ai_failed_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "ai_fallback_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "ai_recovered_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "ai_success_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "ai_target_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "attempt_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "available_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "business_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "checkpoint_json",
+      "data_type": "jsonb",
+      "default_expression": "'{}'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "cluster_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "current_step",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "duration_seconds",
+      "data_type": "integer",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "ended_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "error_code",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "error_message",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "force_run",
+      "data_type": "boolean",
+      "default_expression": "false",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "heartbeat_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "idempotency_key",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "job_name",
+      "data_type": "text",
+      "default_expression": "'market_daily_batch'::text",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "lease_expires_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "lease_owner",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "lease_token",
+      "data_type": "uuid",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "log_summary",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "market_scope",
+      "data_type": "character varying(20)",
+      "default_expression": "'GLOBAL'::character varying",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "max_attempts",
+      "data_type": "integer",
+      "default_expression": "3",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "page_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "page_version_no",
+      "data_type": "integer",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "partial_message",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "processed_news_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "queued_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "raw_news_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "rebuild_page_only",
+      "data_type": "boolean",
+      "default_expression": "false",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "run_mode",
+      "data_type": "batch_run_mode_enum",
+      "default_expression": "'FULL'::batch_run_mode_enum",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "source_job_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "source_page_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "started_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "status",
+      "data_type": "batch_job_status_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "trigger_type",
+      "data_type": "batch_trigger_type_enum",
+      "default_expression": "'SCHEDULED'::batch_trigger_type_enum",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "triggered_by_user_id",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job"
+    },
+    {
+      "column_name": "batch_job_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_event"
+    },
+    {
+      "column_name": "context_json",
+      "data_type": "jsonb",
+      "default_expression": "'{}'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_event"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_event"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "batch_job_event"
+    },
+    {
+      "column_name": "level",
+      "data_type": "event_level_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_event"
+    },
+    {
+      "column_name": "message",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_event"
+    },
+    {
+      "column_name": "step_code",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_event"
+    },
+    {
+      "column_name": "actual_index_source_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "column_name": "batch_job_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "column_name": "expected_session_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "column_name": "market_type",
+      "data_type": "market_type_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "column_name": "news_coverage_complete",
+      "data_type": "boolean",
+      "default_expression": "false",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "column_name": "news_window_end_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "column_name": "news_window_start_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "column_name": "session_close_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "column_name": "batch_job_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "business_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "cluster_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "generated_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "global_headline",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "last_updated_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "metadata_json",
+      "data_type": "jsonb",
+      "default_expression": "'{}'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "page_title",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "partial_message",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "processed_news_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "raw_news_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "status",
+      "data_type": "page_status_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "version_no",
+      "data_type": "integer",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page"
+    },
+    {
+      "column_name": "cluster_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "cluster_title",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "cluster_uid",
+      "data_type": "uuid",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "display_order",
+      "data_type": "integer",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "naver_link",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "origin_link",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "page_market_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "processed_article_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "published_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "publisher_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "title",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "column_name": "actual_index_source_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "analysis_background_json",
+      "data_type": "jsonb",
+      "default_expression": "'[]'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "analysis_key_themes_json",
+      "data_type": "jsonb",
+      "default_expression": "'[]'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "analysis_outlook",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "cluster_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "display_order",
+      "data_type": "smallint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "expected_session_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "last_updated_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "market_label",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "market_type",
+      "data_type": "market_type_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "metadata_json",
+      "data_type": "jsonb",
+      "default_expression": "'{}'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "news_coverage_complete",
+      "data_type": "boolean",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "news_window_end_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "news_window_start_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "page_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "partial_message",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "processed_news_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "raw_news_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "session_close_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "summary_body",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "summary_title",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "column_name": "article_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "cluster_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "cluster_uid",
+      "data_type": "uuid",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "display_order",
+      "data_type": "smallint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "page_market_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "representative_article_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "representative_naver_link",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "representative_origin_link",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "representative_published_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "representative_publisher_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "representative_title",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "summary",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "tags_json",
+      "data_type": "jsonb",
+      "default_expression": "'[]'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "title",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "column_name": "change_percent",
+      "data_type": "numeric(10,4)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "change_value",
+      "data_type": "numeric(20,4)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "close_price",
+      "data_type": "numeric(20,4)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "currency_code",
+      "data_type": "character(3)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "display_order",
+      "data_type": "smallint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "expected_session_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "high_price",
+      "data_type": "numeric(20,4)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "index_code",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "index_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "low_price",
+      "data_type": "numeric(20,4)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "market_index_daily_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "page_market_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "session_close_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "source_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "column_name": "business_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "change_percent",
+      "data_type": "numeric(10,4)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "change_value",
+      "data_type": "numeric(20,4)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "close_price",
+      "data_type": "numeric(20,4)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "collected_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "currency_code",
+      "data_type": "character(3)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "expected_session_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "high_price",
+      "data_type": "numeric(20,4)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "index_code",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "index_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "low_price",
+      "data_type": "numeric(20,4)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "market_type",
+      "data_type": "market_type_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "provider_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "session_close_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "source_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "market_index_daily"
+    },
+    {
+      "column_name": "article_body_excerpt",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "business_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "canonical_title",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "content_json",
+      "data_type": "jsonb",
+      "default_expression": "'{}'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "dedupe_hash",
+      "data_type": "character(64)",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "market_type",
+      "data_type": "market_type_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "naver_link",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "origin_link",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "published_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "publisher_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "source_summary",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_processed"
+    },
+    {
+      "column_name": "business_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "collected_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "market_type",
+      "data_type": "market_type_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "naver_link",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "origin_link",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "payload_json",
+      "data_type": "jsonb",
+      "default_expression": "'{}'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "provider_article_key",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "provider_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "published_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "publisher_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "search_keyword",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "title",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw_keyword_match"
+    },
+    {
+      "column_name": "keyword_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw_keyword_match"
+    },
+    {
+      "column_name": "market_type",
+      "data_type": "market_type_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw_keyword_match"
+    },
+    {
+      "column_name": "raw_article_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw_keyword_match"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw_processed_map"
+    },
+    {
+      "column_name": "processed_article_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw_processed_map"
+    },
+    {
+      "column_name": "raw_article_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_article_raw_processed_map"
+    },
+    {
+      "column_name": "analysis_paragraphs_json",
+      "data_type": "jsonb",
+      "default_expression": "'[]'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "article_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "business_date",
+      "data_type": "date",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "cluster_rank",
+      "data_type": "integer",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "cluster_uid",
+      "data_type": "uuid",
+      "default_expression": "gen_random_uuid()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "market_type",
+      "data_type": "market_type_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "representative_article_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "summary_long",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "summary_short",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "tags_json",
+      "data_type": "jsonb",
+      "default_expression": "'[]'::jsonb",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "title",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster"
+    },
+    {
+      "column_name": "article_rank",
+      "data_type": "integer",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster_article"
+    },
+    {
+      "column_name": "cluster_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster_article"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster_article"
+    },
+    {
+      "column_name": "processed_article_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_cluster_article"
+    },
+    {
+      "column_name": "coverage_complete",
+      "data_type": "boolean",
+      "default_expression": "false",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "error_code",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "error_message",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": false,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "fetched_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "inserted_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "keyword",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "keyword_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "market_type",
+      "data_type": "market_type_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "matched_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "news_collection_run_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "provider_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "status",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "column_name": "batch_job_id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "completed_keyword_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "coverage_complete",
+      "data_type": "boolean",
+      "default_expression": "false",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "fetched_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "inserted_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "matched_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "provider_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "query_end_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "query_start_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "total_keyword_count",
+      "data_type": "integer",
+      "default_expression": "0",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "window_end_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "window_start_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_collection_run"
+    },
+    {
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_search_keyword"
+    },
+    {
+      "column_name": "id",
+      "data_type": "bigint",
+      "default_expression": "",
+      "identity_kind": "a",
+      "not_null": true,
+      "table_name": "news_search_keyword"
+    },
+    {
+      "column_name": "is_active",
+      "data_type": "boolean",
+      "default_expression": "true",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_search_keyword"
+    },
+    {
+      "column_name": "keyword",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_search_keyword"
+    },
+    {
+      "column_name": "market_type",
+      "data_type": "market_type_enum",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_search_keyword"
+    },
+    {
+      "column_name": "priority",
+      "data_type": "integer",
+      "default_expression": "100",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_search_keyword"
+    },
+    {
+      "column_name": "provider_name",
+      "data_type": "text",
+      "default_expression": "",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_search_keyword"
+    },
+    {
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "default_expression": "now()",
+      "identity_kind": "",
+      "not_null": true,
+      "table_name": "news_search_keyword"
+    }
+  ],
+  "constraints": [
+    {
+      "constraint_name": "ai_summary_batch_job_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (batch_job_id) REFERENCES batch_job(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "ai_summary",
+      "validated": true
+    },
+    {
+      "constraint_name": "ai_summary_cluster_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (cluster_id) REFERENCES news_cluster(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "ai_summary",
+      "validated": true
+    },
+    {
+      "constraint_name": "ai_summary_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "ai_summary",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_ai_summary_attempt_positive",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (attempt_no > 0)",
+      "initially_deferred": false,
+      "table_name": "ai_summary",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_ai_summary_target_key_not_blank",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (length(btrim(target_key)) > 0)",
+      "initially_deferred": false,
+      "table_name": "ai_summary",
+      "validated": true
+    },
+    {
+      "constraint_name": "fk_ai_summary_source_summary",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (source_summary_id) REFERENCES ai_summary(id) ON DELETE SET NULL",
+      "initially_deferred": false,
+      "table_name": "ai_summary",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_ai_summary_job_target",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (batch_job_id, target_key)",
+      "initially_deferred": false,
+      "table_name": "ai_summary",
+      "validated": true
+    },
+    {
+      "constraint_name": "batch_job_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_batch_job_ai_counts_non_negative",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (ai_target_count >= 0 AND ai_attempted_count >= 0 AND ai_success_count >= 0 AND ai_fallback_count >= 0 AND ai_failed_count >= 0 AND ai_recovered_count >= 0)",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_batch_job_attempts",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (attempt_count >= 0 AND max_attempts > 0 AND attempt_count <= max_attempts)",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_batch_job_checkpoint_object",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (jsonb_typeof(checkpoint_json) = 'object'::text)",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_batch_job_counts_non_negative",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (raw_news_count >= 0 AND processed_news_count >= 0 AND cluster_count >= 0)",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_batch_job_duration_non_negative",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (duration_seconds IS NULL OR duration_seconds >= 0)",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_batch_job_ended_after_started",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (ended_at IS NULL OR ended_at >= started_at)",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_batch_job_idempotency_key",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (idempotency_key IS NULL OR length(btrim(idempotency_key)) >= 1 AND length(btrim(idempotency_key)) <= 200)",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_batch_job_market_scope",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (market_scope::text = 'GLOBAL'::text)",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "fk_batch_job_page",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (page_id) REFERENCES market_daily_page(id) ON DELETE SET NULL",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "fk_batch_job_source_job",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (source_job_id) REFERENCES batch_job(id) ON DELETE SET NULL",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "fk_batch_job_source_page",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (source_page_id) REFERENCES market_daily_page(id) ON DELETE SET NULL",
+      "initially_deferred": false,
+      "table_name": "batch_job",
+      "validated": true
+    },
+    {
+      "constraint_name": "batch_job_event_batch_job_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (batch_job_id) REFERENCES batch_job(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "batch_job_event",
+      "validated": true
+    },
+    {
+      "constraint_name": "batch_job_event_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "batch_job_event",
+      "validated": true
+    },
+    {
+      "constraint_name": "batch_job_market_context_batch_job_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (batch_job_id) REFERENCES batch_job(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "batch_job_market_context",
+      "validated": true
+    },
+    {
+      "constraint_name": "batch_job_market_context_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "batch_job_market_context",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_batch_job_market_context_news_window",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (news_window_start_at <= news_window_end_at)",
+      "initially_deferred": false,
+      "table_name": "batch_job_market_context",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_batch_job_market_context_source_not_future",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (actual_index_source_date IS NULL OR actual_index_source_date <= expected_session_date)",
+      "initially_deferred": false,
+      "table_name": "batch_job_market_context",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_batch_job_market_context_job_market",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (batch_job_id, market_type)",
+      "initially_deferred": false,
+      "table_name": "batch_job_market_context",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_daily_page_counts_non_negative",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (raw_news_count >= 0 AND processed_news_count >= 0 AND cluster_count >= 0)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_daily_page_version_positive",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (version_no > 0)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_batch_job_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (batch_job_id) REFERENCES batch_job(id) ON DELETE RESTRICT",
+      "initially_deferred": false,
+      "table_name": "market_daily_page",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_market_daily_page_business_version",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (business_date, version_no)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_daily_page_article_link_order_positive",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (display_order > 0)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_article_link",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_article_link_cluster_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (cluster_id) REFERENCES news_cluster(id) ON DELETE SET NULL",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_article_link",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_article_link_page_market_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (page_market_id) REFERENCES market_daily_page_market(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_article_link",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_article_link_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_article_link",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_article_link_processed_article_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (processed_article_id) REFERENCES news_article_processed(id) ON DELETE SET NULL",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_article_link",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_market_daily_page_article_link_order",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (page_market_id, display_order)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_article_link",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_daily_page_market_counts_non_negative",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (raw_news_count >= 0 AND processed_news_count >= 0 AND cluster_count >= 0)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_daily_page_market_news_window",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (news_window_start_at IS NULL OR news_window_end_at IS NULL OR news_window_start_at <= news_window_end_at)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_daily_page_market_order_positive",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (display_order > 0)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_daily_page_market_source_not_future",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (actual_index_source_date IS NULL OR expected_session_date IS NULL OR actual_index_source_date <= expected_session_date)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_market_page_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (page_id) REFERENCES market_daily_page(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_market_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_market_daily_page_market_order",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (page_id, display_order)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_market_daily_page_market_type",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (page_id, market_type)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_daily_page_market_cluster_article_count_non_negative",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (article_count >= 0)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_daily_page_market_cluster_order_positive",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (display_order > 0)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_market_cluster_cluster_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (cluster_id) REFERENCES news_cluster(id) ON DELETE SET NULL",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_market_cluster_page_market_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (page_market_id) REFERENCES market_daily_page_market(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_market_cluster_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_market_cluster_representative_article_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (representative_article_id) REFERENCES news_article_processed(id) ON DELETE SET NULL",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_market_daily_page_market_cluster_order",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (page_market_id, display_order)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_daily_page_market_index_order_positive",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (display_order > 0)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_index",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_daily_page_market_index_source_not_future",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (source_date IS NULL OR expected_session_date IS NULL OR source_date <= expected_session_date)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_index",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_market_index_market_index_daily_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (market_index_daily_id) REFERENCES market_index_daily(id) ON DELETE SET NULL",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_index",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_market_index_page_market_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (page_market_id) REFERENCES market_daily_page_market(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_index",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_daily_page_market_index_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_index",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_market_daily_page_market_index_order",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (page_market_id, display_order)",
+      "initially_deferred": false,
+      "table_name": "market_daily_page_market_index",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_market_index_daily_source_not_future",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (source_date <= expected_session_date)",
+      "initially_deferred": false,
+      "table_name": "market_index_daily",
+      "validated": true
+    },
+    {
+      "constraint_name": "market_index_daily_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "market_index_daily",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_market_index_daily",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (business_date, market_type, index_code)",
+      "initially_deferred": false,
+      "table_name": "market_index_daily",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_article_processed_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "news_article_processed",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_news_article_processed_business_date_dedupe_hash",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (business_date, market_type, dedupe_hash)",
+      "initially_deferred": false,
+      "table_name": "news_article_processed",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_article_raw_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "news_article_raw",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_news_article_raw_provider_key",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (provider_name, provider_article_key)",
+      "initially_deferred": false,
+      "table_name": "news_article_raw",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_article_raw_keyword_match_keyword_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (keyword_id) REFERENCES news_search_keyword(id) ON DELETE RESTRICT",
+      "initially_deferred": false,
+      "table_name": "news_article_raw_keyword_match",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_article_raw_keyword_match_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (raw_article_id, keyword_id)",
+      "initially_deferred": false,
+      "table_name": "news_article_raw_keyword_match",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_article_raw_keyword_match_raw_article_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (raw_article_id) REFERENCES news_article_raw(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "news_article_raw_keyword_match",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_article_raw_processed_map_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (raw_article_id, processed_article_id)",
+      "initially_deferred": false,
+      "table_name": "news_article_raw_processed_map",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_article_raw_processed_map_processed_article_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (processed_article_id) REFERENCES news_article_processed(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "news_article_raw_processed_map",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_article_raw_processed_map_raw_article_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (raw_article_id) REFERENCES news_article_raw(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "news_article_raw_processed_map",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_news_cluster_article_count_non_negative",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (article_count >= 0)",
+      "initially_deferred": false,
+      "table_name": "news_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_news_cluster_rank_positive",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (cluster_rank > 0)",
+      "initially_deferred": false,
+      "table_name": "news_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "fk_news_cluster_representative_membership",
+      "constraint_type": "f",
+      "deferrable": true,
+      "definition": "FOREIGN KEY (id, representative_article_id) REFERENCES news_cluster_article(cluster_id, processed_article_id) DEFERRABLE INITIALLY DEFERRED",
+      "initially_deferred": true,
+      "table_name": "news_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_cluster_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "news_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_news_cluster_rank",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (business_date, market_type, cluster_rank)",
+      "initially_deferred": false,
+      "table_name": "news_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_news_cluster_uid",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (cluster_uid)",
+      "initially_deferred": false,
+      "table_name": "news_cluster",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_news_cluster_article_rank_positive",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (article_rank > 0)",
+      "initially_deferred": false,
+      "table_name": "news_cluster_article",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_cluster_article_cluster_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (cluster_id) REFERENCES news_cluster(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "news_cluster_article",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_cluster_article_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (cluster_id, processed_article_id)",
+      "initially_deferred": false,
+      "table_name": "news_cluster_article",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_cluster_article_processed_article_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (processed_article_id) REFERENCES news_article_processed(id) ON DELETE RESTRICT",
+      "initially_deferred": false,
+      "table_name": "news_cluster_article",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_news_cluster_article_rank",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (cluster_id, article_rank)",
+      "initially_deferred": false,
+      "table_name": "news_cluster_article",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_news_collection_keyword_diagnostic_counts",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (fetched_count >= 0 AND matched_count >= 0 AND inserted_count >= 0)",
+      "initially_deferred": false,
+      "table_name": "news_collection_keyword_diagnostic",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_news_collection_keyword_diagnostic_status",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (status = ANY (ARRAY['SUCCESS'::text, 'FAILED'::text]))",
+      "initially_deferred": false,
+      "table_name": "news_collection_keyword_diagnostic",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_collection_keyword_diagnostic_keyword_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (keyword_id) REFERENCES news_search_keyword(id) ON DELETE RESTRICT",
+      "initially_deferred": false,
+      "table_name": "news_collection_keyword_diagnostic",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_collection_keyword_diagnostic_news_collection_run_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (news_collection_run_id) REFERENCES news_collection_run(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "news_collection_keyword_diagnostic",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_collection_keyword_diagnostic_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "news_collection_keyword_diagnostic",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_news_collection_keyword_diagnostic",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (news_collection_run_id, keyword_id)",
+      "initially_deferred": false,
+      "table_name": "news_collection_keyword_diagnostic",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_news_collection_run_counts",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (total_keyword_count >= 0 AND completed_keyword_count >= 0 AND completed_keyword_count <= total_keyword_count AND fetched_count >= 0 AND matched_count >= 0 AND inserted_count >= 0)",
+      "initially_deferred": false,
+      "table_name": "news_collection_run",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_news_collection_run_query_window",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (query_start_at <= window_start_at AND query_end_at = window_end_at)",
+      "initially_deferred": false,
+      "table_name": "news_collection_run",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_news_collection_run_window",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (window_start_at < window_end_at)",
+      "initially_deferred": false,
+      "table_name": "news_collection_run",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_collection_run_batch_job_id_fkey",
+      "constraint_type": "f",
+      "deferrable": false,
+      "definition": "FOREIGN KEY (batch_job_id) REFERENCES batch_job(id) ON DELETE CASCADE",
+      "initially_deferred": false,
+      "table_name": "news_collection_run",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_collection_run_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "news_collection_run",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_news_collection_run_batch_job",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (batch_job_id)",
+      "initially_deferred": false,
+      "table_name": "news_collection_run",
+      "validated": true
+    },
+    {
+      "constraint_name": "uq_news_collection_run_provider_window",
+      "constraint_type": "u",
+      "deferrable": false,
+      "definition": "UNIQUE (provider_name, window_start_at, window_end_at)",
+      "initially_deferred": false,
+      "table_name": "news_collection_run",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_news_search_keyword_keyword_not_blank",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (length(btrim(keyword)) > 0)",
+      "initially_deferred": false,
+      "table_name": "news_search_keyword",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_news_search_keyword_priority_positive",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (priority > 0)",
+      "initially_deferred": false,
+      "table_name": "news_search_keyword",
+      "validated": true
+    },
+    {
+      "constraint_name": "chk_news_search_keyword_provider_name_not_blank",
+      "constraint_type": "c",
+      "deferrable": false,
+      "definition": "CHECK (length(btrim(provider_name)) > 0)",
+      "initially_deferred": false,
+      "table_name": "news_search_keyword",
+      "validated": true
+    },
+    {
+      "constraint_name": "news_search_keyword_pkey",
+      "constraint_type": "p",
+      "deferrable": false,
+      "definition": "PRIMARY KEY (id)",
+      "initially_deferred": false,
+      "table_name": "news_search_keyword",
+      "validated": true
+    }
+  ],
+  "enums": [
+    {
+      "enum_name": "ai_summary_status_enum",
+      "label": "SUCCESS",
+      "sort_order": 1.0
+    },
+    {
+      "enum_name": "ai_summary_status_enum",
+      "label": "FAILED",
+      "sort_order": 2.0
+    },
+    {
+      "enum_name": "ai_summary_status_enum",
+      "label": "FALLBACK",
+      "sort_order": 3.0
+    },
+    {
+      "enum_name": "ai_summary_type_enum",
+      "label": "GLOBAL_HEADLINE",
+      "sort_order": 1.0
+    },
+    {
+      "enum_name": "ai_summary_type_enum",
+      "label": "MARKET_SUMMARY",
+      "sort_order": 2.0
+    },
+    {
+      "enum_name": "ai_summary_type_enum",
+      "label": "CLUSTER_CARD_SUMMARY",
+      "sort_order": 3.0
+    },
+    {
+      "enum_name": "ai_summary_type_enum",
+      "label": "CLUSTER_DETAIL_ANALYSIS",
+      "sort_order": 4.0
+    },
+    {
+      "enum_name": "batch_job_status_enum",
+      "label": "PENDING",
+      "sort_order": 1.0
+    },
+    {
+      "enum_name": "batch_job_status_enum",
+      "label": "RUNNING",
+      "sort_order": 2.0
+    },
+    {
+      "enum_name": "batch_job_status_enum",
+      "label": "SUCCESS",
+      "sort_order": 3.0
+    },
+    {
+      "enum_name": "batch_job_status_enum",
+      "label": "PARTIAL",
+      "sort_order": 4.0
+    },
+    {
+      "enum_name": "batch_job_status_enum",
+      "label": "FAILED",
+      "sort_order": 5.0
+    },
+    {
+      "enum_name": "batch_run_mode_enum",
+      "label": "FULL",
+      "sort_order": 1.0
+    },
+    {
+      "enum_name": "batch_run_mode_enum",
+      "label": "PAGE_REBUILD",
+      "sort_order": 2.0
+    },
+    {
+      "enum_name": "batch_run_mode_enum",
+      "label": "AI_RETRY",
+      "sort_order": 3.0
+    },
+    {
+      "enum_name": "batch_run_mode_enum",
+      "label": "NEWS_COLLECTION",
+      "sort_order": 4.0
+    },
+    {
+      "enum_name": "batch_trigger_type_enum",
+      "label": "SCHEDULED",
+      "sort_order": 1.0
+    },
+    {
+      "enum_name": "batch_trigger_type_enum",
+      "label": "MANUAL",
+      "sort_order": 2.0
+    },
+    {
+      "enum_name": "batch_trigger_type_enum",
+      "label": "ADMIN_REBUILD",
+      "sort_order": 3.0
+    },
+    {
+      "enum_name": "event_level_enum",
+      "label": "INFO",
+      "sort_order": 1.0
+    },
+    {
+      "enum_name": "event_level_enum",
+      "label": "WARN",
+      "sort_order": 2.0
+    },
+    {
+      "enum_name": "event_level_enum",
+      "label": "ERROR",
+      "sort_order": 3.0
+    },
+    {
+      "enum_name": "market_type_enum",
+      "label": "US",
+      "sort_order": 1.0
+    },
+    {
+      "enum_name": "market_type_enum",
+      "label": "KR",
+      "sort_order": 2.0
+    },
+    {
+      "enum_name": "page_status_enum",
+      "label": "READY",
+      "sort_order": 1.0
+    },
+    {
+      "enum_name": "page_status_enum",
+      "label": "PARTIAL",
+      "sort_order": 2.0
+    },
+    {
+      "enum_name": "page_status_enum",
+      "label": "FAILED",
+      "sort_order": 3.0
+    }
+  ],
+  "format": 1,
+  "functions": [
+    {
+      "arguments": "",
+      "definition": "CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $function$ BEGIN NEW.updated_at = now(); RETURN NEW; END; $function$",
+      "function_kind": "f",
+      "function_name": "set_updated_at",
+      "result_type": "trigger"
+    }
+  ],
+  "indexes": [
+    {
+      "definition": "CREATE UNIQUE INDEX ai_summary_pkey ON ai_summary USING btree (id)",
+      "index_name": "ai_summary_pkey",
+      "primary_index": true,
+      "table_name": "ai_summary",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_ai_summary_batch_job ON ai_summary USING btree (batch_job_id)",
+      "index_name": "idx_ai_summary_batch_job",
+      "primary_index": false,
+      "table_name": "ai_summary",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_ai_summary_cluster ON ai_summary USING btree (cluster_id)",
+      "index_name": "idx_ai_summary_cluster",
+      "primary_index": false,
+      "table_name": "ai_summary",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_ai_summary_lookup ON ai_summary USING btree (business_date, summary_type, market_type, generated_at DESC)",
+      "index_name": "idx_ai_summary_lookup",
+      "primary_index": false,
+      "table_name": "ai_summary",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_ai_summary_source_summary ON ai_summary USING btree (source_summary_id)",
+      "index_name": "idx_ai_summary_source_summary",
+      "primary_index": false,
+      "table_name": "ai_summary",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_ai_summary_target_effective ON ai_summary USING btree (target_key, attempt_no DESC, generated_at DESC)",
+      "index_name": "idx_ai_summary_target_effective",
+      "primary_index": false,
+      "table_name": "ai_summary",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_ai_summary_job_target ON ai_summary USING btree (batch_job_id, target_key)",
+      "index_name": "uq_ai_summary_job_target",
+      "primary_index": false,
+      "table_name": "ai_summary",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX batch_job_pkey ON batch_job USING btree (id)",
+      "index_name": "batch_job_pkey",
+      "primary_index": true,
+      "table_name": "batch_job",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_batch_job_expired_lease ON batch_job USING btree (lease_expires_at, id) WHERE status = 'RUNNING'::batch_job_status_enum",
+      "index_name": "idx_batch_job_expired_lease",
+      "primary_index": false,
+      "table_name": "batch_job",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_batch_job_list ON batch_job USING btree (business_date DESC, started_at DESC)",
+      "index_name": "idx_batch_job_list",
+      "primary_index": false,
+      "table_name": "batch_job",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_batch_job_page_id ON batch_job USING btree (page_id)",
+      "index_name": "idx_batch_job_page_id",
+      "primary_index": false,
+      "table_name": "batch_job",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_batch_job_pending_claim ON batch_job USING btree (available_at, queued_at, id) WHERE status = 'PENDING'::batch_job_status_enum",
+      "index_name": "idx_batch_job_pending_claim",
+      "primary_index": false,
+      "table_name": "batch_job",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_batch_job_source_job_id ON batch_job USING btree (source_job_id)",
+      "index_name": "idx_batch_job_source_job_id",
+      "primary_index": false,
+      "table_name": "batch_job",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_batch_job_source_page_id ON batch_job USING btree (source_page_id)",
+      "index_name": "idx_batch_job_source_page_id",
+      "primary_index": false,
+      "table_name": "batch_job",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_batch_job_status_started_at ON batch_job USING btree (status, started_at DESC)",
+      "index_name": "idx_batch_job_status_started_at",
+      "primary_index": false,
+      "table_name": "batch_job",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_batch_job_idempotency_key ON batch_job USING btree (idempotency_key) WHERE idempotency_key IS NOT NULL",
+      "index_name": "uq_batch_job_idempotency_key",
+      "primary_index": false,
+      "table_name": "batch_job",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_batch_job_one_active_market_daily_per_day ON batch_job USING btree (business_date) WHERE (status = ANY (ARRAY['PENDING'::batch_job_status_enum, 'RUNNING'::batch_job_status_enum])) AND (run_mode = ANY (ARRAY['FULL'::batch_run_mode_enum, 'PAGE_REBUILD'::batch_run_mode_enum]))",
+      "index_name": "uq_batch_job_one_active_market_daily_per_day",
+      "primary_index": false,
+      "table_name": "batch_job",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX batch_job_event_pkey ON batch_job_event USING btree (id)",
+      "index_name": "batch_job_event_pkey",
+      "primary_index": true,
+      "table_name": "batch_job_event",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_batch_job_event_job_created ON batch_job_event USING btree (batch_job_id, created_at)",
+      "index_name": "idx_batch_job_event_job_created",
+      "primary_index": false,
+      "table_name": "batch_job_event",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX batch_job_market_context_pkey ON batch_job_market_context USING btree (id)",
+      "index_name": "batch_job_market_context_pkey",
+      "primary_index": true,
+      "table_name": "batch_job_market_context",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_batch_job_market_context_coverage ON batch_job_market_context USING btree (market_type, news_window_end_at DESC) WHERE news_coverage_complete",
+      "index_name": "idx_batch_job_market_context_coverage",
+      "primary_index": false,
+      "table_name": "batch_job_market_context",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_batch_job_market_context_job_market ON batch_job_market_context USING btree (batch_job_id, market_type)",
+      "index_name": "uq_batch_job_market_context_job_market",
+      "primary_index": false,
+      "table_name": "batch_job_market_context",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_archive_cover ON market_daily_page USING btree (business_date DESC, generated_at DESC) INCLUDE (id, page_title, global_headline, status, partial_message)",
+      "index_name": "idx_market_daily_page_archive_cover",
+      "primary_index": false,
+      "table_name": "market_daily_page",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_batch_job ON market_daily_page USING btree (batch_job_id)",
+      "index_name": "idx_market_daily_page_batch_job",
+      "primary_index": false,
+      "table_name": "market_daily_page",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_latest ON market_daily_page USING btree (business_date DESC, version_no DESC)",
+      "index_name": "idx_market_daily_page_latest",
+      "primary_index": false,
+      "table_name": "market_daily_page",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_status_generated ON market_daily_page USING btree (status, generated_at DESC)",
+      "index_name": "idx_market_daily_page_status_generated",
+      "primary_index": false,
+      "table_name": "market_daily_page",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX market_daily_page_pkey ON market_daily_page USING btree (id)",
+      "index_name": "market_daily_page_pkey",
+      "primary_index": true,
+      "table_name": "market_daily_page",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_market_daily_page_business_version ON market_daily_page USING btree (business_date, version_no)",
+      "index_name": "uq_market_daily_page_business_version",
+      "primary_index": false,
+      "table_name": "market_daily_page",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_article_link_cluster ON market_daily_page_article_link USING btree (cluster_id)",
+      "index_name": "idx_market_daily_page_article_link_cluster",
+      "primary_index": false,
+      "table_name": "market_daily_page_article_link",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_article_link_market ON market_daily_page_article_link USING btree (page_market_id, display_order)",
+      "index_name": "idx_market_daily_page_article_link_market",
+      "primary_index": false,
+      "table_name": "market_daily_page_article_link",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_article_link_processed ON market_daily_page_article_link USING btree (processed_article_id)",
+      "index_name": "idx_market_daily_page_article_link_processed",
+      "primary_index": false,
+      "table_name": "market_daily_page_article_link",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX market_daily_page_article_link_pkey ON market_daily_page_article_link USING btree (id)",
+      "index_name": "market_daily_page_article_link_pkey",
+      "primary_index": true,
+      "table_name": "market_daily_page_article_link",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_market_daily_page_article_link_order ON market_daily_page_article_link USING btree (page_market_id, display_order)",
+      "index_name": "uq_market_daily_page_article_link_order",
+      "primary_index": false,
+      "table_name": "market_daily_page_article_link",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_market_page ON market_daily_page_market USING btree (page_id, display_order)",
+      "index_name": "idx_market_daily_page_market_page",
+      "primary_index": false,
+      "table_name": "market_daily_page_market",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX market_daily_page_market_pkey ON market_daily_page_market USING btree (id)",
+      "index_name": "market_daily_page_market_pkey",
+      "primary_index": true,
+      "table_name": "market_daily_page_market",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_market_daily_page_market_order ON market_daily_page_market USING btree (page_id, display_order)",
+      "index_name": "uq_market_daily_page_market_order",
+      "primary_index": false,
+      "table_name": "market_daily_page_market",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_market_daily_page_market_type ON market_daily_page_market USING btree (page_id, market_type)",
+      "index_name": "uq_market_daily_page_market_type",
+      "primary_index": false,
+      "table_name": "market_daily_page_market",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_market_cluster_cluster_id ON market_daily_page_market_cluster USING btree (cluster_id)",
+      "index_name": "idx_market_daily_page_market_cluster_cluster_id",
+      "primary_index": false,
+      "table_name": "market_daily_page_market_cluster",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_market_cluster_market ON market_daily_page_market_cluster USING btree (page_market_id, display_order)",
+      "index_name": "idx_market_daily_page_market_cluster_market",
+      "primary_index": false,
+      "table_name": "market_daily_page_market_cluster",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_market_cluster_rep_article ON market_daily_page_market_cluster USING btree (representative_article_id)",
+      "index_name": "idx_market_daily_page_market_cluster_rep_article",
+      "primary_index": false,
+      "table_name": "market_daily_page_market_cluster",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_market_cluster_uid ON market_daily_page_market_cluster USING btree (cluster_uid)",
+      "index_name": "idx_market_daily_page_market_cluster_uid",
+      "primary_index": false,
+      "table_name": "market_daily_page_market_cluster",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX market_daily_page_market_cluster_pkey ON market_daily_page_market_cluster USING btree (id)",
+      "index_name": "market_daily_page_market_cluster_pkey",
+      "primary_index": true,
+      "table_name": "market_daily_page_market_cluster",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_market_daily_page_market_cluster_order ON market_daily_page_market_cluster USING btree (page_market_id, display_order)",
+      "index_name": "uq_market_daily_page_market_cluster_order",
+      "primary_index": false,
+      "table_name": "market_daily_page_market_cluster",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_market_index_market ON market_daily_page_market_index USING btree (page_market_id, display_order)",
+      "index_name": "idx_market_daily_page_market_index_market",
+      "primary_index": false,
+      "table_name": "market_daily_page_market_index",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE INDEX idx_market_daily_page_market_index_source ON market_daily_page_market_index USING btree (market_index_daily_id)",
+      "index_name": "idx_market_daily_page_market_index_source",
+      "primary_index": false,
+      "table_name": "market_daily_page_market_index",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX market_daily_page_market_index_pkey ON market_daily_page_market_index USING btree (id)",
+      "index_name": "market_daily_page_market_index_pkey",
+      "primary_index": true,
+      "table_name": "market_daily_page_market_index",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_market_daily_page_market_index_order ON market_daily_page_market_index USING btree (page_market_id, display_order)",
+      "index_name": "uq_market_daily_page_market_index_order",
+      "primary_index": false,
+      "table_name": "market_daily_page_market_index",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_market_index_daily_business_market ON market_index_daily USING btree (business_date, market_type)",
+      "index_name": "idx_market_index_daily_business_market",
+      "primary_index": false,
+      "table_name": "market_index_daily",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX market_index_daily_pkey ON market_index_daily USING btree (id)",
+      "index_name": "market_index_daily_pkey",
+      "primary_index": true,
+      "table_name": "market_index_daily",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_market_index_daily ON market_index_daily USING btree (business_date, market_type, index_code)",
+      "index_name": "uq_market_index_daily",
+      "primary_index": false,
+      "table_name": "market_index_daily",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_news_article_processed_business_market ON news_article_processed USING btree (business_date, market_type, published_at DESC)",
+      "index_name": "idx_news_article_processed_business_market",
+      "primary_index": false,
+      "table_name": "news_article_processed",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX news_article_processed_pkey ON news_article_processed USING btree (id)",
+      "index_name": "news_article_processed_pkey",
+      "primary_index": true,
+      "table_name": "news_article_processed",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_news_article_processed_business_date_dedupe_hash ON news_article_processed USING btree (business_date, market_type, dedupe_hash)",
+      "index_name": "uq_news_article_processed_business_date_dedupe_hash",
+      "primary_index": false,
+      "table_name": "news_article_processed",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_news_article_raw_market_published ON news_article_raw USING btree (market_type, published_at DESC)",
+      "index_name": "idx_news_article_raw_market_published",
+      "primary_index": false,
+      "table_name": "news_article_raw",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX news_article_raw_pkey ON news_article_raw USING btree (id)",
+      "index_name": "news_article_raw_pkey",
+      "primary_index": true,
+      "table_name": "news_article_raw",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_news_article_raw_provider_key ON news_article_raw USING btree (provider_name, provider_article_key)",
+      "index_name": "uq_news_article_raw_provider_key",
+      "primary_index": false,
+      "table_name": "news_article_raw",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_news_article_raw_keyword_match_market ON news_article_raw_keyword_match USING btree (market_type, raw_article_id)",
+      "index_name": "idx_news_article_raw_keyword_match_market",
+      "primary_index": false,
+      "table_name": "news_article_raw_keyword_match",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX news_article_raw_keyword_match_pkey ON news_article_raw_keyword_match USING btree (raw_article_id, keyword_id)",
+      "index_name": "news_article_raw_keyword_match_pkey",
+      "primary_index": true,
+      "table_name": "news_article_raw_keyword_match",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_news_article_raw_processed_map_processed ON news_article_raw_processed_map USING btree (processed_article_id)",
+      "index_name": "idx_news_article_raw_processed_map_processed",
+      "primary_index": false,
+      "table_name": "news_article_raw_processed_map",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX news_article_raw_processed_map_pkey ON news_article_raw_processed_map USING btree (raw_article_id, processed_article_id)",
+      "index_name": "news_article_raw_processed_map_pkey",
+      "primary_index": true,
+      "table_name": "news_article_raw_processed_map",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_news_cluster_business_market ON news_cluster USING btree (business_date, market_type, cluster_rank)",
+      "index_name": "idx_news_cluster_business_market",
+      "primary_index": false,
+      "table_name": "news_cluster",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX news_cluster_pkey ON news_cluster USING btree (id)",
+      "index_name": "news_cluster_pkey",
+      "primary_index": true,
+      "table_name": "news_cluster",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_news_cluster_rank ON news_cluster USING btree (business_date, market_type, cluster_rank)",
+      "index_name": "uq_news_cluster_rank",
+      "primary_index": false,
+      "table_name": "news_cluster",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_news_cluster_uid ON news_cluster USING btree (cluster_uid)",
+      "index_name": "uq_news_cluster_uid",
+      "primary_index": false,
+      "table_name": "news_cluster",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_news_cluster_article_processed ON news_cluster_article USING btree (processed_article_id)",
+      "index_name": "idx_news_cluster_article_processed",
+      "primary_index": false,
+      "table_name": "news_cluster_article",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX news_cluster_article_pkey ON news_cluster_article USING btree (cluster_id, processed_article_id)",
+      "index_name": "news_cluster_article_pkey",
+      "primary_index": true,
+      "table_name": "news_cluster_article",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_news_cluster_article_rank ON news_cluster_article USING btree (cluster_id, article_rank)",
+      "index_name": "uq_news_cluster_article_rank",
+      "primary_index": false,
+      "table_name": "news_cluster_article",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_news_collection_keyword_diagnostic_market ON news_collection_keyword_diagnostic USING btree (news_collection_run_id, market_type, coverage_complete)",
+      "index_name": "idx_news_collection_keyword_diagnostic_market",
+      "primary_index": false,
+      "table_name": "news_collection_keyword_diagnostic",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX news_collection_keyword_diagnostic_pkey ON news_collection_keyword_diagnostic USING btree (id)",
+      "index_name": "news_collection_keyword_diagnostic_pkey",
+      "primary_index": true,
+      "table_name": "news_collection_keyword_diagnostic",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_news_collection_keyword_diagnostic ON news_collection_keyword_diagnostic USING btree (news_collection_run_id, keyword_id)",
+      "index_name": "uq_news_collection_keyword_diagnostic",
+      "primary_index": false,
+      "table_name": "news_collection_keyword_diagnostic",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_news_collection_run_window ON news_collection_run USING btree (provider_name, window_start_at, window_end_at)",
+      "index_name": "idx_news_collection_run_window",
+      "primary_index": false,
+      "table_name": "news_collection_run",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX news_collection_run_pkey ON news_collection_run USING btree (id)",
+      "index_name": "news_collection_run_pkey",
+      "primary_index": true,
+      "table_name": "news_collection_run",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_news_collection_run_batch_job ON news_collection_run USING btree (batch_job_id)",
+      "index_name": "uq_news_collection_run_batch_job",
+      "primary_index": false,
+      "table_name": "news_collection_run",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_news_collection_run_provider_window ON news_collection_run USING btree (provider_name, window_start_at, window_end_at)",
+      "index_name": "uq_news_collection_run_provider_window",
+      "primary_index": false,
+      "table_name": "news_collection_run",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE INDEX idx_news_search_keyword_active_priority ON news_search_keyword USING btree (provider_name, market_type, is_active, priority, id)",
+      "index_name": "idx_news_search_keyword_active_priority",
+      "primary_index": false,
+      "table_name": "news_search_keyword",
+      "unique_index": false
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX news_search_keyword_pkey ON news_search_keyword USING btree (id)",
+      "index_name": "news_search_keyword_pkey",
+      "primary_index": true,
+      "table_name": "news_search_keyword",
+      "unique_index": true
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX uq_news_search_keyword_provider_market_keyword_norm ON news_search_keyword USING btree (provider_name, market_type, lower(btrim(keyword)))",
+      "index_name": "uq_news_search_keyword_provider_market_keyword_norm",
+      "primary_index": false,
+      "table_name": "news_search_keyword",
+      "unique_index": true
+    }
+  ],
+  "schema": "stock",
+  "seed_rows": [
+    {
+      "is_active": true,
+      "keyword": "코스피",
+      "market_type": "KR",
+      "priority": 10,
+      "provider_name": "NAVER_NEWS"
+    },
+    {
+      "is_active": true,
+      "keyword": "미국 증시",
+      "market_type": "US",
+      "priority": 10,
+      "provider_name": "NAVER_NEWS"
+    }
+  ],
+  "tables": [
+    {
+      "relation_kind": "r",
+      "table_name": "ai_summary"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "batch_job"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "batch_job_event"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "batch_job_market_context"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "market_daily_page"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "market_daily_page_article_link"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "market_daily_page_market"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "market_daily_page_market_cluster"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "market_daily_page_market_index"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "market_index_daily"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "news_article_processed"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "news_article_raw"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "news_article_raw_keyword_match"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "news_article_raw_processed_map"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "news_cluster"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "news_cluster_article"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "news_collection_keyword_diagnostic"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "news_collection_run"
+    },
+    {
+      "relation_kind": "r",
+      "table_name": "news_search_keyword"
+    }
+  ],
+  "triggers": [
+    {
+      "definition": "CREATE TRIGGER trg_batch_job_updated_at BEFORE UPDATE ON batch_job FOR EACH ROW EXECUTE FUNCTION set_updated_at()",
+      "table_name": "batch_job",
+      "trigger_name": "trg_batch_job_updated_at"
+    },
+    {
+      "definition": "CREATE TRIGGER trg_news_article_processed_updated_at BEFORE UPDATE ON news_article_processed FOR EACH ROW EXECUTE FUNCTION set_updated_at()",
+      "table_name": "news_article_processed",
+      "trigger_name": "trg_news_article_processed_updated_at"
+    },
+    {
+      "definition": "CREATE TRIGGER trg_news_cluster_updated_at BEFORE UPDATE ON news_cluster FOR EACH ROW EXECUTE FUNCTION set_updated_at()",
+      "table_name": "news_cluster",
+      "trigger_name": "trg_news_cluster_updated_at"
+    }
+  ]
+}

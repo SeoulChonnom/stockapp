@@ -17,6 +17,7 @@ dependencies = [
   "sqlalchemy>=2.0.44",
   "yfinance>=0.2.66",
   "exchange-calendars>=4.13.2",
+  "alembic>=1.17.2",
 ]
 
 [dependency-groups]

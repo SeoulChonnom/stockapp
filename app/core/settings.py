@@ -46,6 +46,21 @@ class Settings(BaseSettings):
             'database_pool_timeout_seconds',
         ),
     )
+    database_migration_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            'STOCKAPP_DATABASE_MIGRATION_ENABLED',
+            'database_migration_enabled',
+        ),
+    )
+    database_migration_lock_timeout_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_DATABASE_MIGRATION_LOCK_TIMEOUT_SECONDS',
+            'database_migration_lock_timeout_seconds',
+        ),
+    )
     batch_worker_poll_interval_seconds: float = Field(
         default=5.0,
         gt=0,

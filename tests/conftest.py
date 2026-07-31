@@ -38,6 +38,7 @@ def configure_jwt_auth_env(monkeypatch: pytest.MonkeyPatch):
         'STOCKAPP_DATABASE_URL',
         'postgresql+psycopg://test_app:test_password@db.example.test:5432/slcn',
     )
+    monkeypatch.setenv('STOCKAPP_DATABASE_MIGRATION_ENABLED', 'false')
     monkeypatch.setenv('STOCKAPP_CORS_ALLOWED_ORIGINS', '["http://localhost:5173"]')
     monkeypatch.setenv('STOCKAPP_JWT_SECRET', JWT_TEST_SECRET)
     monkeypatch.setenv('STOCKAPP_JWT_ALGORITHM', 'HS512')

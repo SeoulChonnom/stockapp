@@ -129,6 +129,50 @@ def test_settings_accept_valid_database_schema_identifier():
     assert settings.database_schema == 'stock'
 
 
+def test_database_migrations_are_enabled_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv('STOCKAPP_DATABASE_MIGRATION_ENABLED', raising=False)
+    monkeypatch.delenv('database_migration_enabled', raising=False)
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.database_migration_enabled is True
+
+
+def test_database_migrations_can_be_disabled_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv('STOCKAPP_DATABASE_MIGRATION_ENABLED', 'false')
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.database_migration_enabled is False
+
+
+def test_database_migration_lock_timeout_loads_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv('STOCKAPP_DATABASE_MIGRATION_LOCK_TIMEOUT_SECONDS', '12.5')
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.database_migration_lock_timeout_seconds == 12.5
+
+
+@pytest.mark.parametrize('timeout_seconds', [0, -1])
+def test_database_migration_lock_timeout_must_be_positive(
+    timeout_seconds: float,
+):
+    with pytest.raises(
+        ValidationError,
+        match='database_migration_lock_timeout_seconds',
+    ):
+        settings_module.Settings(
+            database_migration_lock_timeout_seconds=timeout_seconds
+        )
+
+
 def test_production_startup_validation_rejects_default_database_url(
     monkeypatch: pytest.MonkeyPatch,
 ):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import traceback
 from io import StringIO
 
 import pytest
@@ -246,6 +247,78 @@ def test_startup_recovery_failure_logs_safely_and_does_not_abort_app(
     assert 'exception_class=RuntimeError' in caplog.text
     assert 'postgresql://' not in caplog.text
     assert 'secret' not in caplog.text
+
+
+def test_database_migration_completes_before_batch_scheduler_starts(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    events: list[str] = []
+
+    async def migrate(_settings):
+        events.append('migration')
+
+    class FakeScheduler:
+        def start_drain(self):
+            events.append('drain')
+
+        async def shutdown(self):
+            events.append('shutdown')
+
+    def build_scheduler():
+        events.append('scheduler')
+        return FakeScheduler()
+
+    monkeypatch.setenv('STOCKAPP_DATABASE_MIGRATION_ENABLED', 'true')
+    monkeypatch.setenv('STOCKAPP_BATCH_STARTUP_RECOVERY_ENABLED', 'true')
+    settings_module.get_settings.cache_clear()
+    monkeypatch.setattr(main_module, 'run_startup_migrations_async', migrate)
+    monkeypatch.setattr(
+        main_module,
+        'get_in_process_batch_scheduler',
+        build_scheduler,
+    )
+
+    with TestClient(main_module.create_app()):
+        pass
+
+    assert events == ['migration', 'scheduler', 'drain', 'shutdown']
+
+
+def test_database_migration_failure_aborts_before_scheduler_and_logs_safely(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog,
+):
+    async def fail_migration(_settings):
+        raise RuntimeError('postgresql://admin:secret@db.example.com/stock')
+
+    monkeypatch.setenv('STOCKAPP_DATABASE_MIGRATION_ENABLED', 'true')
+    settings_module.get_settings.cache_clear()
+    monkeypatch.setattr(
+        main_module,
+        'run_startup_migrations_async',
+        fail_migration,
+    )
+    monkeypatch.setattr(
+        main_module,
+        'get_in_process_batch_scheduler',
+        lambda: pytest.fail('scheduler must not be created'),
+    )
+    caplog.set_level(logging.ERROR, logger='app.db.migrations')
+
+    with pytest.raises(
+        RuntimeError,
+        match='Database migration failed during startup',
+    ) as exc_info:
+        with TestClient(main_module.create_app()):
+            pass
+
+    formatted_traceback = ''.join(traceback.format_exception(exc_info.value))
+    assert 'exception_class=RuntimeError' in caplog.text
+    assert 'postgresql://' not in caplog.text
+    assert 'secret' not in caplog.text
+    assert 'postgresql://' not in formatted_traceback
+    assert 'secret' not in formatted_traceback
+    assert exc_info.value.__cause__ is None
 
 
 def test_ready_endpoint_is_removed():
