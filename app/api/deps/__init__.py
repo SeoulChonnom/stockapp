@@ -9,9 +9,11 @@ from app.api.deps.db import get_db_session
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 UserDep = Annotated[CurrentUser, Depends(require_roles('USER', 'ADMIN'))]
 AdminDep = Annotated[CurrentUser, Depends(require_roles('ADMIN'))]
+BatchOperatorDep = Annotated[CurrentUser, Depends(require_roles('ADMIN', 'CLIENT'))]
 
 __all__ = [
     'AdminDep',
+    'BatchOperatorDep',
     'CurrentUser',
     'DbSession',
     'UserDep',

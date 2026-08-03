@@ -14,7 +14,7 @@ from fastapi import (  # pyright: ignore[reportMissingImports]
     status,
 )
 
-from app.api.deps import AdminDep, DbSession
+from app.api.deps import BatchOperatorDep, DbSession
 from app.batch.background import (
     InProcessBatchScheduler,
     get_in_process_batch_scheduler,
@@ -84,7 +84,7 @@ BatchSchedulerDep = Annotated[
 )
 async def start_naver_news_collection(
     background_tasks: BackgroundTasks,
-    current_user: AdminDep,
+    current_user: BatchOperatorDep,
     service: BatchesServiceDep,
     scheduler: BatchSchedulerDep,
     payload: NewsCollectionRunRequest | None = None,
@@ -108,7 +108,7 @@ async def start_naver_news_collection(
 async def start_market_daily_batch(
     payload: BatchRunRequest,
     background_tasks: BackgroundTasks,
-    current_user: AdminDep,
+    current_user: BatchOperatorDep,
     service: BatchesServiceDep,
     scheduler: BatchSchedulerDep,
     idempotency_key: Annotated[
@@ -135,7 +135,7 @@ async def start_market_daily_batch(
 
 @router.get('/jobs', response_model=ApiSuccess[BatchJobListResponse])
 async def list_batch_jobs(
-    _: AdminDep,
+    _: BatchOperatorDep,
     service: BatchesServiceDep,
     fromDate: Annotated[date | None, Query(alias='fromDate')] = None,
     toDate: Annotated[date | None, Query(alias='toDate')] = None,
@@ -155,7 +155,7 @@ async def list_batch_jobs(
 
 @router.get('/jobs/{jobId}', response_model=ApiSuccess[BatchJobDetailResponse])
 async def get_batch_job_detail(
-    _: AdminDep,
+    _: BatchOperatorDep,
     service: BatchesServiceDep,
     jobId: Annotated[int, Path(alias='jobId', ge=1)],
 ) -> ApiSuccess[BatchJobDetailResponse]:
@@ -170,7 +170,7 @@ async def get_batch_job_detail(
 )
 async def retry_ai_summaries(
     background_tasks: BackgroundTasks,
-    current_user: AdminDep,
+    current_user: BatchOperatorDep,
     service: BatchesServiceDep,
     scheduler: BatchSchedulerDep,
     jobId: Annotated[int, Path(alias='jobId', ge=1)],

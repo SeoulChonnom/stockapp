@@ -139,6 +139,42 @@ def test_start_market_daily_batch_returns_job_handle(client, sample_batch_run_pa
     assert service.lifecycle_events == ['job_committed', 'drain_scheduled']
 
 
+def test_batch_apis_allow_client_role(client, sample_batch_job_detail_payload):
+    test_client, service = client
+    client_headers = build_test_bearer_headers('CLIENT')
+
+    responses = [
+        test_client.post(
+            '/stock/api/batch/news-collection',
+            headers=client_headers,
+        ),
+        test_client.post(
+            '/stock/api/batch/market-daily',
+            json={
+                'businessDate': '2026-03-17',
+                'force': False,
+                'rebuildPageOnly': False,
+            },
+            headers=client_headers,
+        ),
+        test_client.get('/stock/api/batch/jobs', headers=client_headers),
+        test_client.get(
+            f'/stock/api/batch/jobs/{sample_batch_job_detail_payload["jobId"]}',
+            headers=client_headers,
+        ),
+        test_client.post(
+            '/stock/api/batch/jobs/1001/retry-ai',
+            headers=client_headers,
+        ),
+    ]
+
+    assert [response.status_code for response in responses] == [202, 202, 200, 200, 202]
+    assert service.start_kwargs is not None
+    assert service.start_kwargs['user_id'] == 'CLIENT-0001'
+    assert service.retry_kwargs is not None
+    assert service.retry_kwargs['user_id'] == 'CLIENT-0001'
+
+
 def test_start_naver_news_collection_returns_aligned_job_handle(client):
     test_client, service = client
 

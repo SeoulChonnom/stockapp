@@ -160,7 +160,7 @@ def extract_roles_from_claims(claims: dict[str, Any]) -> tuple[str, ...]:
     return ()
 
 
-TEST_ROUTE_AUTH_ROLES = frozenset({'USER', 'ADMIN'})
+TEST_ROUTE_AUTH_ROLES = frozenset({'USER', 'ADMIN', 'CLIENT'})
 
 
 def mint_test_bearer_token(role: str, subject: str | None = None) -> str:
