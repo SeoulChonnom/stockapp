@@ -534,6 +534,7 @@ def build_batch_job_list_payload() -> dict[str, Any]:
         'items': [
             {
                 'jobId': 1001,
+                'jobType': 'MARKET_SNAPSHOT',
                 'jobName': 'market_daily_batch',
                 'businessDate': '2026-03-17',
                 'status': 'SUCCESS',
@@ -580,6 +581,7 @@ def build_batch_job_detail_payload() -> dict[str, Any]:
     return {
         'jobId': 1001,
         'jobName': 'market_daily_batch',
+        'jobType': 'MARKET_SNAPSHOT',
         'businessDate': '2026-03-17',
         'status': 'SUCCESS',
         'runMode': 'FULL',
@@ -589,28 +591,31 @@ def build_batch_job_detail_payload() -> dict[str, Any]:
         'attemptCount': 1,
         'maxAttempts': 3,
         'currentStep': 'FINALIZE',
-        'forceRun': False,
-        'rebuildPageOnly': False,
         'startedAt': '2026-03-18T06:10:00+00:00',
         'endedAt': '2026-03-18T06:12:15+00:00',
         'durationSeconds': 135,
-        'rawNewsCount': 174,
-        'processedNewsCount': 114,
-        'clusterCount': 21,
-        'aiTargetCount': 0,
-        'aiAttemptedCount': 0,
-        'aiSuccessCount': 0,
-        'aiFallbackCount': 0,
-        'aiFailedCount': 0,
-        'aiRecoveredCount': 0,
-        'pageId': 501,
-        'pageVersionNo': 3,
         'partialMessage': None,
         'errorCode': None,
         'errorMessage': None,
         'logSummary': (
             '정상 처리. 시장 데이터, 기사 수집, 클러스터링이 SLA 안에서 종료됐다.'
         ),
+        'snapshot': {
+            'forceRun': False,
+            'rebuildPageOnly': False,
+            'rawNewsCount': 174,
+            'processedNewsCount': 114,
+            'clusterCount': 21,
+            'pageId': 501,
+            'pageVersionNo': 3,
+            'aiTargetCount': 0,
+            'aiAttemptedCount': 0,
+            'aiSuccessCount': 0,
+            'aiFallbackCount': 0,
+            'aiFailedCount': 0,
+            'aiRecoveredCount': 0,
+        },
+        'newsCollection': None,
     }
 
 

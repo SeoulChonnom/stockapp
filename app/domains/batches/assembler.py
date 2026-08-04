@@ -4,11 +4,14 @@ from datetime import datetime
 from typing import Any
 
 from app.core.public_diagnostics import sanitize_public_diagnostic
+from app.db.enums import BatchJobType, derive_batch_job_type
 from app.schemas.batch import (
     AiRetryRunResponse,
     BatchJobDetailResponse,
     BatchJobListItemResponse,
     BatchJobListResponse,
+    BatchJobNewsCollectionDetail,
+    BatchJobSnapshotDetail,
     BatchJobsPaginationResponse,
     BatchJobSummaryResponse,
     BatchRunResponse,
@@ -82,6 +85,7 @@ def build_batch_job_list_payload(result: Any) -> dict[str, Any]:
     items = [
         BatchJobListItemResponse(
             jobId=item.job_id,
+            jobType=derive_batch_job_type(item.run_mode).value,
             jobName=item.job_name,
             businessDate=item.business_date,
             status=item.status,
@@ -129,10 +133,49 @@ def build_batch_job_list_payload(result: Any) -> dict[str, Any]:
     }
 
 
-def build_batch_job_detail_payload(job: Any) -> dict[str, Any]:
+def build_batch_job_detail_payload(
+    job: Any,
+    news_run: Any | None = None,
+) -> dict[str, Any]:
+    job_type = derive_batch_job_type(job.run_mode)
+    snapshot: BatchJobSnapshotDetail | None = None
+    news_collection: BatchJobNewsCollectionDetail | None = None
+    if job_type == BatchJobType.MARKET_SNAPSHOT:
+        snapshot = BatchJobSnapshotDetail(
+            forceRun=job.force_run,
+            rebuildPageOnly=job.rebuild_page_only,
+            rawNewsCount=job.raw_news_count,
+            processedNewsCount=job.processed_news_count,
+            clusterCount=job.cluster_count,
+            pageId=job.page_id,
+            pageVersionNo=job.page_version_no,
+            aiTargetCount=job.ai_target_count,
+            aiAttemptedCount=job.ai_attempted_count,
+            aiSuccessCount=job.ai_success_count,
+            aiFallbackCount=job.ai_fallback_count,
+            aiFailedCount=job.ai_failed_count,
+            aiRecoveredCount=job.ai_recovered_count,
+        )
+    elif job_type == BatchJobType.NEWS_COLLECTION and news_run is not None:
+        news_collection = BatchJobNewsCollectionDetail(
+            runId=news_run.run_id,
+            providerName=news_run.provider_name,
+            windowStartAt=_as_required_iso(news_run.window_start_at),
+            windowEndAt=_as_required_iso(news_run.window_end_at),
+            queryStartAt=_as_required_iso(news_run.query_start_at),
+            queryEndAt=_as_required_iso(news_run.query_end_at),
+            totalKeywordCount=news_run.total_keyword_count,
+            completedKeywordCount=news_run.completed_keyword_count,
+            fetchedCount=news_run.fetched_count,
+            matchedCount=news_run.matched_count,
+            insertedCount=news_run.inserted_count,
+            coverageComplete=news_run.coverage_complete,
+        )
+
     payload = BatchJobDetailResponse(
         jobId=job.job_id,
         jobName=job.job_name,
+        jobType=job_type.value,
         businessDate=job.business_date,
         status=job.status,
         runMode=job.run_mode,
@@ -142,26 +185,15 @@ def build_batch_job_detail_payload(job: Any) -> dict[str, Any]:
         attemptCount=job.attempt_count,
         maxAttempts=job.max_attempts,
         currentStep=job.current_step,
-        forceRun=job.force_run,
-        rebuildPageOnly=job.rebuild_page_only,
         startedAt=_as_required_iso(job.started_at),
         endedAt=_as_iso(job.ended_at),
         durationSeconds=job.duration_seconds,
-        rawNewsCount=job.raw_news_count,
-        processedNewsCount=job.processed_news_count,
-        clusterCount=job.cluster_count,
-        pageId=job.page_id,
-        pageVersionNo=job.page_version_no,
         partialMessage=sanitize_public_diagnostic(job.partial_message),
         errorCode=job.error_code,
         errorMessage=sanitize_public_diagnostic(job.error_message),
         logSummary=sanitize_public_diagnostic(job.log_summary),
-        aiTargetCount=job.ai_target_count,
-        aiAttemptedCount=job.ai_attempted_count,
-        aiSuccessCount=job.ai_success_count,
-        aiFallbackCount=job.ai_fallback_count,
-        aiFailedCount=job.ai_failed_count,
-        aiRecoveredCount=job.ai_recovered_count,
+        snapshot=snapshot,
+        newsCollection=news_collection,
     )
     return payload.model_dump(mode='json')
 

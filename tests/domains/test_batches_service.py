@@ -44,6 +44,7 @@ class FakeBatchJobRepository:
         self.create_error: Exception | None = None
         self.idempotent_job = None
         self.session = object()
+        self.list_jobs_kwargs: dict | None = None
 
     async def get_job_by_idempotency_key(self, idempotency_key):
         _ = idempotency_key
@@ -75,6 +76,7 @@ class FakeBatchJobRepository:
         self.rollbacks += 1
 
     async def list_jobs(self, **kwargs):
+        self.list_jobs_kwargs = kwargs
         return self.listed_jobs
 
     async def get_job_by_id(self, job_id):
@@ -594,7 +596,37 @@ async def test_list_jobs_returns_json_payload(sample_batch_job_list_payload):
 
 
 @pytest.mark.anyio
+async def test_list_jobs_passes_job_type_to_repository(sample_batch_job_list_payload):
+    listed_jobs = BatchJobListResult(
+        items=[],
+        page=1,
+        size=20,
+        total_count=0,
+        summary=BatchJobSummary(
+            success_count=0,
+            partial_count=0,
+            failed_count=0,
+            avg_duration_seconds=0,
+        ),
+    )
+    repository = FakeBatchJobRepository(listed_jobs=listed_jobs)
+    service = BatchesService(repository)
+
+    await service.list_jobs(
+        from_date=None,
+        to_date=None,
+        status=None,
+        job_type='NEWS_COLLECTION',
+        page=1,
+        size=20,
+    )
+
+    assert repository.list_jobs_kwargs['job_type'] == 'NEWS_COLLECTION'
+
+
+@pytest.mark.anyio
 async def test_get_job_detail_returns_json_payload(sample_batch_job_detail_payload):
+    snapshot = sample_batch_job_detail_payload['snapshot']
     service = BatchesService(
         FakeBatchJobRepository(
             detailed_job=BatchJobRecord(
@@ -612,11 +644,9 @@ async def test_get_job_detail_returns_json_payload(sample_batch_job_detail_paylo
                 ),
                 duration_seconds=sample_batch_job_detail_payload['durationSeconds'],
                 market_scope='GLOBAL',
-                raw_news_count=sample_batch_job_detail_payload['rawNewsCount'],
-                processed_news_count=sample_batch_job_detail_payload[
-                    'processedNewsCount'
-                ],
-                cluster_count=sample_batch_job_detail_payload['clusterCount'],
+                raw_news_count=snapshot['rawNewsCount'],
+                processed_news_count=snapshot['processedNewsCount'],
+                cluster_count=snapshot['clusterCount'],
                 run_mode=sample_batch_job_detail_payload['runMode'],
                 source_job_id=sample_batch_job_detail_payload['sourceJobId'],
                 source_page_id=sample_batch_job_detail_payload['sourcePageId'],
@@ -626,10 +656,10 @@ async def test_get_job_detail_returns_json_payload(sample_batch_job_detail_paylo
                 attempt_count=sample_batch_job_detail_payload['attemptCount'],
                 max_attempts=sample_batch_job_detail_payload['maxAttempts'],
                 current_step=sample_batch_job_detail_payload['currentStep'],
-                page_id=sample_batch_job_detail_payload['pageId'],
-                page_version_no=sample_batch_job_detail_payload['pageVersionNo'],
-                force_run=sample_batch_job_detail_payload['forceRun'],
-                rebuild_page_only=sample_batch_job_detail_payload['rebuildPageOnly'],
+                page_id=snapshot['pageId'],
+                page_version_no=snapshot['pageVersionNo'],
+                force_run=snapshot['forceRun'],
+                rebuild_page_only=snapshot['rebuildPageOnly'],
                 partial_message=sample_batch_job_detail_payload['partialMessage'],
                 error_code=sample_batch_job_detail_payload['errorCode'],
                 error_message=sample_batch_job_detail_payload['errorMessage'],
@@ -642,6 +672,132 @@ async def test_get_job_detail_returns_json_payload(sample_batch_job_detail_paylo
 
     assert isinstance(result, dict)
     assert result == sample_batch_job_detail_payload
+
+
+@pytest.mark.anyio
+async def test_get_job_detail_news_collection_fills_news_collection_not_snapshot():
+    job = BatchJobRecord(
+        job_id=3001,
+        job_name='naver_news_collection',
+        business_date=date(2026, 7, 31),
+        status='SUCCESS',
+        started_at=datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+        ended_at=datetime(2026, 7, 31, 1, 5, tzinfo=UTC),
+        duration_seconds=120,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+        run_mode='NEWS_COLLECTION',
+    )
+    news_run = SimpleNamespace(
+        run_id=41,
+        batch_job_id=3001,
+        provider_name='NAVER',
+        window_start_at=datetime(2026, 7, 31, 0, 0, tzinfo=UTC),
+        window_end_at=datetime(2026, 7, 31, 0, 30, tzinfo=UTC),
+        query_start_at=datetime(2026, 7, 30, 23, 50, tzinfo=UTC),
+        query_end_at=datetime(2026, 7, 31, 0, 30, tzinfo=UTC),
+        total_keyword_count=40,
+        completed_keyword_count=40,
+        fetched_count=900,
+        matched_count=320,
+        inserted_count=120,
+        coverage_complete=True,
+    )
+    class FakeRunByJobIdRepository:
+        def __init__(self, run: object) -> None:
+            self.run = run
+            self.calls: list[int] = []
+
+        async def get_by_job_id(self, job_id: int):
+            self.calls.append(job_id)
+            return self.run
+
+    run_repo = FakeRunByJobIdRepository(news_run)
+    repository = FakeBatchJobRepository(detailed_job=job)
+    service = BatchesService(repository, news_collection_repository=run_repo)
+
+    result = await service.get_job_detail(3001)
+
+    assert result['jobType'] == 'NEWS_COLLECTION'
+    assert result['snapshot'] is None
+    assert result['newsCollection']['runId'] == 41
+    assert result['newsCollection']['providerName'] == 'NAVER'
+    assert run_repo.calls == [3001]
+
+
+@pytest.mark.anyio
+async def test_get_job_detail_news_collection_missing_run_returns_null():
+    job = BatchJobRecord(
+        job_id=3002,
+        job_name='naver_news_collection',
+        business_date=date(2026, 7, 31),
+        status='SUCCESS',
+        started_at=datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+        ended_at=datetime(2026, 7, 31, 1, 5, tzinfo=UTC),
+        duration_seconds=120,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+        run_mode='NEWS_COLLECTION',
+    )
+
+    class MissingRunRepository:
+        async def get_by_job_id(self, job_id: int):
+            _ = job_id
+            return None
+
+    repository = FakeBatchJobRepository(detailed_job=job)
+    service = BatchesService(
+        repository, news_collection_repository=MissingRunRepository()
+    )
+
+    result = await service.get_job_detail(3002)
+
+    assert result['jobType'] == 'NEWS_COLLECTION'
+    assert result['snapshot'] is None
+    assert result['newsCollection'] is None
+
+
+@pytest.mark.anyio
+async def test_get_job_detail_snapshot_job_does_not_query_news_repo():
+    job = BatchJobRecord(
+        job_id=1001,
+        job_name='market_daily_batch',
+        business_date=date(2026, 3, 17),
+        status='SUCCESS',
+        started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+        ended_at=datetime(2026, 3, 18, 6, 12, 15, tzinfo=UTC),
+        duration_seconds=135,
+        market_scope='GLOBAL',
+        raw_news_count=174,
+        processed_news_count=114,
+        cluster_count=21,
+        page_id=501,
+        page_version_no=3,
+        run_mode='PAGE_REBUILD',
+    )
+
+    class ExplodingRunRepository:
+        async def get_by_job_id(self, job_id: int):
+            raise AssertionError('news collection repo should not be queried')
+
+    repository = FakeBatchJobRepository(detailed_job=job)
+    service = BatchesService(
+        repository, news_collection_repository=ExplodingRunRepository()
+    )
+
+    result = await service.get_job_detail(1001)
+
+    assert result['jobType'] == 'MARKET_SNAPSHOT'
+    assert result['snapshot'] is not None
+    assert result['newsCollection'] is None
 
 
 @pytest.mark.anyio

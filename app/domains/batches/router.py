@@ -22,6 +22,7 @@ from app.batch.background import (
 from app.batch.logging import log_safe_exception
 from app.core.response import ApiSuccess
 from app.core.settings import get_settings
+from app.db.enums import BatchJobStatus, BatchJobType
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.domains.batches.assembler import (
     assemble_ai_retry_run_response,
@@ -139,14 +140,16 @@ async def list_batch_jobs(
     service: BatchesServiceDep,
     fromDate: Annotated[date | None, Query(alias='fromDate')] = None,
     toDate: Annotated[date | None, Query(alias='toDate')] = None,
-    status: Annotated[str | None, Query(alias='status')] = None,
+    status: Annotated[BatchJobStatus | None, Query(alias='status')] = None,
+    jobType: Annotated[BatchJobType | None, Query(alias='jobType')] = None,
     page: Annotated[int, Query(alias='page', ge=1)] = 1,
     size: Annotated[int, Query(alias='size', ge=1, le=100)] = 20,
 ) -> ApiSuccess[BatchJobListResponse]:
     result = await service.list_jobs(
         from_date=fromDate,
         to_date=toDate,
-        status=status,
+        status=status.value if status is not None else None,
+        job_type=jobType.value if jobType is not None else None,
         page=page,
         size=size,
     )

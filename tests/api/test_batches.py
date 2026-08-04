@@ -20,6 +20,7 @@ class FakeBatchesService:
         self.detail_payload = detail_payload
         self.start_kwargs: dict | None = None
         self.retry_kwargs: dict | None = None
+        self.list_jobs_kwargs: dict | None = None
         self.retry_created = True
         self.lifecycle_events: list[str] = []
 
@@ -45,7 +46,8 @@ class FakeBatchesService:
             '_created': self.retry_created,
         }
 
-    async def list_jobs(self, **_kwargs):
+    async def list_jobs(self, **kwargs):
+        self.list_jobs_kwargs = kwargs
         return self.list_payload
 
     async def get_job_detail(self, job_id: int):
@@ -391,6 +393,7 @@ def test_list_batch_jobs_allows_admin(client, sample_batch_job_list_payload):
     assert set(payload) == {'items', 'pagination', 'summary'}
     assert {
         'jobId',
+        'jobType',
         'jobName',
         'businessDate',
         'status',
@@ -423,6 +426,58 @@ def test_list_batch_jobs_allows_admin(client, sample_batch_job_list_payload):
         == sample_batch_job_list_payload['items'][0]['jobId']
     )
     assert payload['summary']['successCount'] == 17
+
+
+def test_list_batch_jobs_accepts_job_type_filter(client):
+    test_client, service = client
+
+    response = test_client.get(
+        '/stock/api/batch/jobs',
+        params={'jobType': 'NEWS_COLLECTION'},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 200
+    assert service.list_jobs_kwargs['job_type'] == 'NEWS_COLLECTION'
+
+
+def test_list_batch_jobs_rejects_invalid_job_type(client):
+    test_client, service = client
+
+    response = test_client.get(
+        '/stock/api/batch/jobs',
+        params={'jobType': 'NOT_A_JOB_TYPE'},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 422
+    assert service.list_jobs_kwargs is None
+
+
+def test_list_batch_jobs_accepts_status_filter(client):
+    test_client, service = client
+
+    response = test_client.get(
+        '/stock/api/batch/jobs',
+        params={'status': 'PARTIAL'},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 200
+    assert service.list_jobs_kwargs['status'] == 'PARTIAL'
+
+
+def test_list_batch_jobs_rejects_invalid_status(client):
+    test_client, service = client
+
+    response = test_client.get(
+        '/stock/api/batch/jobs',
+        params={'status': 'NOT_A_STATUS'},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 422
+    assert service.list_jobs_kwargs is None
 
 
 def test_list_batch_jobs_rejects_user_as_forbidden(client):
@@ -469,6 +524,7 @@ def test_get_batch_job_detail_allows_admin(client, sample_batch_job_detail_paylo
     assert {
         'jobId',
         'jobName',
+        'jobType',
         'businessDate',
         'status',
         'runMode',
@@ -478,29 +534,38 @@ def test_get_batch_job_detail_allows_admin(client, sample_batch_job_detail_paylo
         'attemptCount',
         'maxAttempts',
         'currentStep',
-        'forceRun',
-        'rebuildPageOnly',
         'startedAt',
         'endedAt',
         'durationSeconds',
+        'partialMessage',
+        'errorCode',
+        'errorMessage',
+        'logSummary',
+        'snapshot',
+        'newsCollection',
+    } <= set(payload)
+    assert not {
+        'forceRun',
+        'rebuildPageOnly',
         'rawNewsCount',
         'processedNewsCount',
         'clusterCount',
         'pageId',
         'pageVersionNo',
-        'partialMessage',
-        'errorCode',
-        'errorMessage',
-        'logSummary',
         'aiTargetCount',
         'aiAttemptedCount',
         'aiSuccessCount',
         'aiFallbackCount',
         'aiFailedCount',
         'aiRecoveredCount',
-    } <= set(payload)
+    } & set(payload)
     assert payload['jobId'] == sample_batch_job_detail_payload['jobId']
     assert payload['logSummary'] == sample_batch_job_detail_payload['logSummary']
+    assert payload['jobType'] == 'MARKET_SNAPSHOT'
+    assert payload['snapshot']['rawNewsCount'] == (
+        sample_batch_job_detail_payload['snapshot']['rawNewsCount']
+    )
+    assert payload['newsCollection'] is None
 
 
 def test_get_batch_job_detail_returns_404_when_missing(client):

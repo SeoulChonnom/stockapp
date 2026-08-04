@@ -244,6 +244,93 @@ async def test_list_jobs_casts_status_filter_to_enum():
 
 
 @pytest.mark.anyio
+async def test_list_jobs_filters_news_collection_job_type():
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult([1]),
+            DummyResult(
+                [
+                    {
+                        'success_count': 1,
+                        'partial_count': 0,
+                        'failed_count': 0,
+                        'avg_duration_seconds': 100,
+                    }
+                ]
+            ),
+            DummyResult([]),
+        ]
+    )
+    repo = BatchJobRepository(session)
+
+    await repo.list_jobs(job_type='NEWS_COLLECTION', page=1, size=20)
+
+    count_sql = str(session.statements[0]).lower()
+    assert 'batch_run_mode_enum' in count_sql
+    assert 'run_mode = cast(:job_type_run_mode as' in count_sql
+    assert session.parameters[0]['job_type_run_mode'] == 'NEWS_COLLECTION'
+
+
+@pytest.mark.anyio
+async def test_list_jobs_filters_market_snapshot_job_type():
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult([2]),
+            DummyResult(
+                [
+                    {
+                        'success_count': 2,
+                        'partial_count': 0,
+                        'failed_count': 0,
+                        'avg_duration_seconds': 100,
+                    }
+                ]
+            ),
+            DummyResult([]),
+        ]
+    )
+    repo = BatchJobRepository(session)
+
+    await repo.list_jobs(job_type='MARKET_SNAPSHOT', page=1, size=20)
+
+    count_sql = normalize_sql(session.statements[0]).lower()
+    assert 'run_mode in (' in count_sql
+    assert count_sql.count('batch_run_mode_enum') == 3
+    assert session.parameters[0] == {
+        'job_type_run_mode_0': 'FULL',
+        'job_type_run_mode_1': 'PAGE_REBUILD',
+        'job_type_run_mode_2': 'AI_RETRY',
+    }
+
+
+@pytest.mark.anyio
+async def test_list_jobs_without_job_type_matches_previous_sql():
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult([3]),
+            DummyResult(
+                [
+                    {
+                        'success_count': 3,
+                        'partial_count': 0,
+                        'failed_count': 0,
+                        'avg_duration_seconds': 100,
+                    }
+                ]
+            ),
+            DummyResult([]),
+        ]
+    )
+    repo = BatchJobRepository(session)
+
+    await repo.list_jobs(page=1, size=20)
+
+    count_sql = normalize_sql(session.statements[0]).lower()
+    assert 'run_mode' not in count_sql
+    assert session.parameters[0] == {}
+
+
+@pytest.mark.anyio
 async def test_get_job_by_id_uses_batch_job_table(sample_batch_job_detail_payload):
     session = RecordingAsyncSession(
         results=[

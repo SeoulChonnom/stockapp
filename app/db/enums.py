@@ -27,6 +27,11 @@ class BatchRunMode(StrEnum):
     NEWS_COLLECTION = 'NEWS_COLLECTION'
 
 
+class BatchJobType(StrEnum):
+    NEWS_COLLECTION = 'NEWS_COLLECTION'
+    MARKET_SNAPSHOT = 'MARKET_SNAPSHOT'
+
+
 class BatchTriggerType(StrEnum):
     SCHEDULED = 'SCHEDULED'
     MANUAL = 'MANUAL'
@@ -52,13 +57,21 @@ class EventLevel(StrEnum):
     ERROR = 'ERROR'
 
 
+def derive_batch_job_type(run_mode: str) -> BatchJobType:
+    if run_mode == BatchRunMode.NEWS_COLLECTION.value:
+        return BatchJobType.NEWS_COLLECTION
+    return BatchJobType.MARKET_SNAPSHOT
+
+
 __all__ = [
     'AiSummaryStatus',
     'AiSummaryType',
     'BatchJobStatus',
+    'BatchJobType',
     'BatchRunMode',
     'BatchTriggerType',
     'EventLevel',
     'MarketType',
     'PageStatus',
+    'derive_batch_job_type',
 ]

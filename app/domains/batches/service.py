@@ -9,7 +9,13 @@ from app.batch.providers.naver_news import NAVER_NEWS_PROVIDER_NAME
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.settings import get_settings
 from app.core.timezone import KST, get_business_date
-from app.db.enums import BatchJobStatus, BatchRunMode, BatchTriggerType
+from app.db.enums import (
+    BatchJobStatus,
+    BatchJobType,
+    BatchRunMode,
+    BatchTriggerType,
+    derive_batch_job_type,
+)
 from app.db.repositories.ai_retry_repo import (
     AiRetryEnqueuePort,
     AiRetryIdempotencyConflictError,
@@ -140,6 +146,7 @@ class BatchesService:
         from_date: date | None,
         to_date: date | None,
         status: str | None,
+        job_type: str | None = None,
         page: int,
         size: int,
     ) -> dict[str, object]:
@@ -147,6 +154,7 @@ class BatchesService:
             from_date=from_date,
             to_date=to_date,
             status=status,
+            job_type=job_type,
             page=page,
             size=size,
         )
@@ -158,7 +166,13 @@ class BatchesService:
             raise NotFoundError(
                 'BATCH_JOB_NOT_FOUND', '요청한 배치 작업을 찾을 수 없습니다.'
             )
-        return build_batch_job_detail_payload(job)
+        news_run = None
+        if derive_batch_job_type(job.run_mode) == BatchJobType.NEWS_COLLECTION:
+            run_repo = self._news_collection_repo or NewsCollectionRunRepository(
+                self._repo.session
+            )
+            news_run = await run_repo.get_by_job_id(job_id)
+        return build_batch_job_detail_payload(job, news_run)
 
     async def start_market_daily_batch(
         self,

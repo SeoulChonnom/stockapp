@@ -69,6 +69,7 @@ class AiRetryRunResponse(BaseModel):
 
 class BatchJobListItemResponse(BaseModel):
     jobId: int
+    jobType: str
     jobName: str
     businessDate: date
     status: str
@@ -116,9 +117,41 @@ class BatchJobListResponse(BaseModel):
     summary: BatchJobSummaryResponse
 
 
+class BatchJobSnapshotDetail(BaseModel):
+    forceRun: bool | None = None
+    rebuildPageOnly: bool | None = None
+    rawNewsCount: int
+    processedNewsCount: int
+    clusterCount: int
+    pageId: int | None = None
+    pageVersionNo: int | None = None
+    aiTargetCount: int = 0
+    aiAttemptedCount: int = 0
+    aiSuccessCount: int = 0
+    aiFallbackCount: int = 0
+    aiFailedCount: int = 0
+    aiRecoveredCount: int = 0
+
+
+class BatchJobNewsCollectionDetail(BaseModel):
+    runId: int
+    providerName: str
+    windowStartAt: datetime | str
+    windowEndAt: datetime | str
+    queryStartAt: datetime | str
+    queryEndAt: datetime | str
+    totalKeywordCount: int
+    completedKeywordCount: int
+    fetchedCount: int
+    matchedCount: int
+    insertedCount: int
+    coverageComplete: bool
+
+
 class BatchJobDetailResponse(BaseModel):
     jobId: int
     jobName: str
+    jobType: str
     businessDate: date
     status: str
     runMode: str
@@ -128,26 +161,15 @@ class BatchJobDetailResponse(BaseModel):
     attemptCount: int
     maxAttempts: int
     currentStep: str | None = None
-    forceRun: bool | None = None
-    rebuildPageOnly: bool | None = None
     startedAt: datetime | str
     endedAt: datetime | str | None = None
     durationSeconds: int | None = None
-    rawNewsCount: int
-    processedNewsCount: int
-    clusterCount: int
-    pageId: int | None = None
-    pageVersionNo: int | None = None
     partialMessage: str | None = None
     errorCode: str | None = None
     errorMessage: str | None = None
     logSummary: str | None = None
-    aiTargetCount: int = 0
-    aiAttemptedCount: int = 0
-    aiSuccessCount: int = 0
-    aiFallbackCount: int = 0
-    aiFailedCount: int = 0
-    aiRecoveredCount: int = 0
+    snapshot: BatchJobSnapshotDetail | None = None
+    newsCollection: BatchJobNewsCollectionDetail | None = None
 
 
 __all__ = [
@@ -155,6 +177,8 @@ __all__ = [
     'BatchJobDetailResponse',
     'BatchJobListItemResponse',
     'BatchJobListResponse',
+    'BatchJobNewsCollectionDetail',
+    'BatchJobSnapshotDetail',
     'BatchJobSummaryResponse',
     'BatchJobsPaginationResponse',
     'BatchRunRequest',

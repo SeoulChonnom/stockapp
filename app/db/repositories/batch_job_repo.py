@@ -9,6 +9,7 @@ from sqlalchemy import bindparam, text  # pyright: ignore[reportMissingImports]
 from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
 
 from app.batch.exceptions import BatchLeaseLostError
+from app.db.enums import BatchJobType, BatchRunMode
 from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
 from app.db.repositories.projections import (
@@ -802,6 +803,7 @@ class BatchJobRepository(PostgresRepository):
         from_date: date | None = None,
         to_date: date | None = None,
         status: str | None = None,
+        job_type: str | None = None,
         page: int = 1,
         size: int = 20,
     ) -> BatchJobListResult:
@@ -810,6 +812,7 @@ class BatchJobRepository(PostgresRepository):
             from_date=from_date,
             to_date=to_date,
             status=status,
+            job_type=job_type,
         )
 
         count_statement = text(
@@ -899,6 +902,7 @@ class BatchJobRepository(PostgresRepository):
         from_date: date | None,
         to_date: date | None,
         status: str | None,
+        job_type: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
         clauses: list[str] = []
         params: dict[str, Any] = {}
@@ -914,6 +918,22 @@ class BatchJobRepository(PostgresRepository):
                 f'status = CAST(:status AS {_qualified_table("batch_job_status_enum")})'
             )
             params['status'] = status
+        if job_type == BatchJobType.NEWS_COLLECTION.value:
+            run_mode_enum = _qualified_table('batch_run_mode_enum')
+            clauses.append(f'run_mode = CAST(:job_type_run_mode AS {run_mode_enum})')
+            params['job_type_run_mode'] = BatchRunMode.NEWS_COLLECTION.value
+        elif job_type == BatchJobType.MARKET_SNAPSHOT.value:
+            run_mode_enum = _qualified_table('batch_run_mode_enum')
+            clauses.append(
+                'run_mode IN ('
+                f'CAST(:job_type_run_mode_0 AS {run_mode_enum}), '
+                f'CAST(:job_type_run_mode_1 AS {run_mode_enum}), '
+                f'CAST(:job_type_run_mode_2 AS {run_mode_enum})'
+                ')'
+            )
+            params['job_type_run_mode_0'] = BatchRunMode.FULL.value
+            params['job_type_run_mode_1'] = BatchRunMode.PAGE_REBUILD.value
+            params['job_type_run_mode_2'] = BatchRunMode.AI_RETRY.value
 
         where_sql = f'WHERE {" AND ".join(clauses)}' if clauses else ''
         return where_sql, params
