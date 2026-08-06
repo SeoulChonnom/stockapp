@@ -372,6 +372,58 @@ async def test_dispatcher_routes_full_and_ai_retry_run_modes():
     full_job = _job(1001)
     ai_retry_job = _job(1002)
     ai_retry_job.run_mode = 'AI_RETRY'
+class NeverActionableRepository:
+    """Simulate another worker instance holding the only RUNNING job under
+    a lease that keeps getting renewed via heartbeat. In that situation
+    ``seconds_until_next_actionable_job`` never returns None, because the
+    lease never actually expires -- this worker can never claim it."""
+
+    def __init__(self) -> None:
+        self.delay_calls = 0
+
+    async def recover_expired_claims(self):
+        return BatchLeaseRecoveryResult(requeued_count=0, failed_count=0)
+
+    async def claim_next_job(self, **_kwargs):
+        return None
+
+    async def seconds_until_next_actionable_job(self):
+        self.delay_calls += 1
+        return 0.01
+
+    async def commit(self):
+        return None
+
+
+@pytest.mark.anyio
+async def test_run_until_idle_stops_waiting_on_a_lease_it_can_never_claim():
+    """H3 regression: a RUNNING job actively heartbeated by another worker
+    instance must not keep this drain loop polling forever."""
+    repository = NeverActionableRepository()
+    worker = DurableBatchWorker(
+        session_maker=FakeSessionMaker(),
+        dispatcher=RecordingDispatcher(),
+        settings=SimpleNamespace(
+            batch_worker_poll_interval_seconds=0.01,
+            batch_worker_heartbeat_seconds=30,
+            batch_worker_lease_seconds=0.05,
+            batch_worker_retry_delay_seconds=0,
+            llm_retry_base_delay_seconds=5.0,
+            llm_retry_max_delay_seconds=300.0,
+            llm_retry_jitter_ratio=0.2,
+            llm_max_retries=2,
+        ),
+        worker_id='worker-test',
+        repository_factory=lambda _session: repository,
+        retry_jitter_random=lambda: 0.5,
+    )
+
+    processed_count = await asyncio.wait_for(worker.run_until_idle(), timeout=2.0)
+
+    assert processed_count == 0
+    assert repository.delay_calls > 0
+
+
     news_collection_job = _job(1003)
     news_collection_job.run_mode = 'NEWS_COLLECTION'
     lease_token = UUID('00000000-0000-0000-0000-000000000123')

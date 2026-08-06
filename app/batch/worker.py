@@ -125,6 +125,8 @@ class DurableBatchWorker:
     async def run_until_idle(self) -> int:
         """Drain jobs and wait for delayed retries or live leases to become actionable."""
         processed_count = 0
+        wait_started_at: float | None = None
+        max_wait_seconds = self._settings.batch_worker_lease_seconds
         while True:
             try:
                 processed = await self.run_once()
@@ -138,6 +140,7 @@ class DurableBatchWorker:
                 return processed_count
             if processed:
                 processed_count += 1
+                wait_started_at = None
                 continue
 
             try:
@@ -151,6 +154,16 @@ class DurableBatchWorker:
                 )
                 return processed_count
             if delay_seconds is None:
+                return processed_count
+            # A RUNNING job whose lease is actively renewed by another
+            # worker instance never surfaces as None here, so bound how
+            # long this drain will keep polling for it -- otherwise it
+            # would never finish. Giving up leaves the job to whichever
+            # worker holds it; any other actionable work is picked up by
+            # the next drain (next batch request or app startup).
+            if wait_started_at is None:
+                wait_started_at = perf_counter()
+            elif perf_counter() - wait_started_at >= max_wait_seconds:
                 return processed_count
             poll_seconds = self._settings.batch_worker_poll_interval_seconds
             await asyncio.sleep(
