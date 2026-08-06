@@ -190,6 +190,7 @@ class BatchJobCreateParams:
 class BatchPageSource:
     page_id: int
     batch_job_id: int
+    status: str
 
 
 @dataclass(slots=True)

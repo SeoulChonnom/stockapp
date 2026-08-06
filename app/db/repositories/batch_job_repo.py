@@ -201,7 +201,8 @@ class BatchJobRepository(PostgresRepository):
             """
             SELECT
                 id AS page_id,
-                batch_job_id
+                batch_job_id,
+                status
             FROM {page_table}
             WHERE business_date = :business_date
             ORDER BY version_no DESC, id DESC

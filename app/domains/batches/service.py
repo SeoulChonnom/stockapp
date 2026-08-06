@@ -233,9 +233,17 @@ class BatchesService:
                 '재생성할 기존 페이지를 찾을 수 없습니다.',
             )
         if not rebuild_page_only and not force and page_source is not None:
+            LOGGER.info(
+                'Rejecting market daily batch start because a page already '
+                'exists for business_date=%s: page_id=%s status=%s',
+                resolved_business_date,
+                page_source.page_id,
+                page_source.status,
+            )
             raise ConflictError(
                 'PAGE_ALREADY_EXISTS',
-                '이미 생성된 페이지가 있어 배치를 시작할 수 없습니다.',
+                '이미 생성된 페이지가 있어 배치를 시작할 수 없습니다. '
+                f'(기존 페이지 상태: {page_source.status})',
             )
 
         try:

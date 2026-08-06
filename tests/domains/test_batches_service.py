@@ -28,12 +28,14 @@ class FakeBatchJobRepository:
         *,
         active_exists: bool = False,
         page_exists: bool = False,
+        page_status: str = 'READY',
         created_job: object | None = None,
         listed_jobs: object | None = None,
         detailed_job: object | None = None,
     ) -> None:
         self.active_exists = active_exists
         self.page_exists = page_exists
+        self.page_status = page_status
         self.created_job = created_job
         self.listed_jobs = listed_jobs
         self.detailed_job = detailed_job
@@ -45,16 +47,14 @@ class FakeBatchJobRepository:
         self.idempotent_job = None
         self.session = object()
         self.list_jobs_kwargs: dict | None = None
-
-    async def get_job_by_idempotency_key(self, idempotency_key):
         self.retried_job = None
         self.retry_failed_job_calls: list[int] = []
         self.retry_failed_job_error: Exception | None = None
+
+    async def get_job_by_idempotency_key(self, idempotency_key):
         _ = idempotency_key
         return self.idempotent_job
 
-    async def has_active_job_for_business_date(self, business_date):
-        _ = business_date
     async def retry_failed_job(self, job_id):
         self.retry_failed_job_calls.append(job_id)
         if self.retry_failed_job_error is not None:
@@ -69,7 +69,7 @@ class FakeBatchJobRepository:
         _ = business_date
         if not self.page_exists:
             return None
-        return BatchPageSource(page_id=501, batch_job_id=900)
+        return BatchPageSource(page_id=501, batch_job_id=900, status=self.page_status)
 
     async def create_job(self, params):
         self.created_params = params
@@ -369,6 +369,59 @@ async def test_start_market_daily_batch_converts_create_race_to_conflict():
     assert repository.commits == 0
 
 
+class _FakeDiag:
+    def __init__(self, constraint_name: str) -> None:
+        self.constraint_name = constraint_name
+
+
+class _FakeDbError(Exception):
+    def __init__(self, constraint_name: str) -> None:
+        super().__init__(constraint_name)
+        self.diag = _FakeDiag(constraint_name)
+
+
+@pytest.mark.anyio
+async def test_start_market_daily_batch_reraises_unrelated_integrity_error():
+    """An IntegrityError from an unrelated constraint must not be misreported
+    as BATCH_ALREADY_RUNNING -- the real cause should surface instead."""
+    repository = FakeBatchJobRepository()
+    repository.create_error = IntegrityError(
+        'insert batch job', {}, _FakeDbError('chk_batch_job_idempotency_key')
+    )
+    service = BatchesService(repository)
+
+    with pytest.raises(IntegrityError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='test-user',
+            force=False,
+            rebuild_page_only=False,
+        )
+
+    assert 'chk_batch_job_idempotency_key' in str(exc_info.value.orig)
+
+
+@pytest.mark.anyio
+async def test_start_market_daily_batch_converts_known_conflict_constraint():
+    repository = FakeBatchJobRepository()
+    repository.create_error = IntegrityError(
+        'insert batch job',
+        {},
+        _FakeDbError('uq_batch_job_one_active_market_daily_per_day'),
+    )
+    service = BatchesService(repository)
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='test-user',
+            force=False,
+            rebuild_page_only=False,
+        )
+
+    assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
+
+
 @pytest.mark.anyio
 async def test_start_market_daily_batch_rejects_existing_page_without_force():
     service = BatchesService(FakeBatchJobRepository(page_exists=True))
@@ -382,6 +435,28 @@ async def test_start_market_daily_batch_rejects_existing_page_without_force():
         )
 
     assert exc_info.value.code == 'PAGE_ALREADY_EXISTS'
+    assert 'READY' in exc_info.value.message
+
+
+@pytest.mark.anyio
+async def test_start_market_daily_batch_reports_partial_page_status_on_conflict():
+    """PAGE_ALREADY_EXISTS is raised even for a PARTIAL/FAILED page (existing
+    behavior is kept), but the response must reveal the page's status so the
+    caller isn't left guessing why a retry is being blocked."""
+    service = BatchesService(
+        FakeBatchJobRepository(page_exists=True, page_status='PARTIAL')
+    )
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='test-user',
+            force=False,
+            rebuild_page_only=False,
+        )
+
+    assert exc_info.value.code == 'PAGE_ALREADY_EXISTS'
+    assert 'PARTIAL' in exc_info.value.message
 
 
 @pytest.mark.anyio
@@ -548,83 +623,6 @@ async def test_start_market_daily_batch_rejects_idempotency_key_reuse():
 
 
 @pytest.mark.anyio
-async def test_list_jobs_returns_json_payload(sample_batch_job_list_payload):
-    listed_jobs = BatchJobListResult(
-        items=[
-            BatchJobRecord(
-                job_id=item['jobId'],
-                job_name=item['jobName'],
-                business_date=date.fromisoformat(item['businessDate']),
-                status=item['status'],
-                started_at=datetime.fromisoformat(item['startedAt']),
-                ended_at=(
-                    datetime.fromisoformat(item['endedAt'])
-                    if item['endedAt'] is not None
-                    else None
-                ),
-                duration_seconds=item['durationSeconds'],
-                market_scope=item['marketScope'],
-                raw_news_count=item['rawNewsCount'],
-                processed_news_count=item['processedNewsCount'],
-                cluster_count=item['clusterCount'],
-                run_mode=item['runMode'],
-                source_job_id=item['sourceJobId'],
-                source_page_id=item['sourcePageId'],
-                queued_at=datetime.fromisoformat(item['queuedAt']),
-                attempt_count=item['attemptCount'],
-                max_attempts=item['maxAttempts'],
-                current_step=item['currentStep'],
-                page_id=item['pageId'],
-                page_version_no=item['pageVersionNo'],
-                partial_message=item['partialMessage'],
-            )
-            for item in sample_batch_job_list_payload['items']
-        ],
-        page=sample_batch_job_list_payload['pagination']['page'],
-        size=sample_batch_job_list_payload['pagination']['size'],
-        total_count=sample_batch_job_list_payload['pagination']['totalCount'],
-        summary=BatchJobSummary(
-            success_count=sample_batch_job_list_payload['summary']['successCount'],
-            partial_count=sample_batch_job_list_payload['summary']['partialCount'],
-            failed_count=sample_batch_job_list_payload['summary']['failedCount'],
-            avg_duration_seconds=sample_batch_job_list_payload['summary'][
-                'avgDurationSeconds'
-            ],
-        ),
-    )
-    service = BatchesService(FakeBatchJobRepository(listed_jobs=listed_jobs))
-
-    result = await service.list_jobs(
-        from_date=date(2026, 3, 16),
-        to_date=date(2026, 3, 17),
-        status='SUCCESS',
-        page=1,
-        size=20,
-    )
-
-    assert isinstance(result, dict)
-    assert result == sample_batch_job_list_payload
-
-
-@pytest.mark.anyio
-async def test_list_jobs_passes_job_type_to_repository(sample_batch_job_list_payload):
-    listed_jobs = BatchJobListResult(
-        items=[],
-        page=1,
-        size=20,
-        total_count=0,
-        summary=BatchJobSummary(
-            success_count=0,
-            partial_count=0,
-            failed_count=0,
-            avg_duration_seconds=0,
-        ),
-    )
-    repository = FakeBatchJobRepository(listed_jobs=listed_jobs)
-    service = BatchesService(repository)
-
-    await service.list_jobs(
-@pytest.mark.anyio
 async def test_start_market_daily_batch_retries_failed_job_with_same_idempotency_key():
     """H2 regression: cron uses a stable Idempotency-Key, so replaying it
     after the batch FAILED must requeue that job for another attempt --
@@ -735,6 +733,83 @@ async def test_start_market_daily_batch_failed_retry_conflicts_with_active_job()
     assert repository.commits == 0
 
 
+@pytest.mark.anyio
+async def test_list_jobs_returns_json_payload(sample_batch_job_list_payload):
+    listed_jobs = BatchJobListResult(
+        items=[
+            BatchJobRecord(
+                job_id=item['jobId'],
+                job_name=item['jobName'],
+                business_date=date.fromisoformat(item['businessDate']),
+                status=item['status'],
+                started_at=datetime.fromisoformat(item['startedAt']),
+                ended_at=(
+                    datetime.fromisoformat(item['endedAt'])
+                    if item['endedAt'] is not None
+                    else None
+                ),
+                duration_seconds=item['durationSeconds'],
+                market_scope=item['marketScope'],
+                raw_news_count=item['rawNewsCount'],
+                processed_news_count=item['processedNewsCount'],
+                cluster_count=item['clusterCount'],
+                run_mode=item['runMode'],
+                source_job_id=item['sourceJobId'],
+                source_page_id=item['sourcePageId'],
+                queued_at=datetime.fromisoformat(item['queuedAt']),
+                attempt_count=item['attemptCount'],
+                max_attempts=item['maxAttempts'],
+                current_step=item['currentStep'],
+                page_id=item['pageId'],
+                page_version_no=item['pageVersionNo'],
+                partial_message=item['partialMessage'],
+            )
+            for item in sample_batch_job_list_payload['items']
+        ],
+        page=sample_batch_job_list_payload['pagination']['page'],
+        size=sample_batch_job_list_payload['pagination']['size'],
+        total_count=sample_batch_job_list_payload['pagination']['totalCount'],
+        summary=BatchJobSummary(
+            success_count=sample_batch_job_list_payload['summary']['successCount'],
+            partial_count=sample_batch_job_list_payload['summary']['partialCount'],
+            failed_count=sample_batch_job_list_payload['summary']['failedCount'],
+            avg_duration_seconds=sample_batch_job_list_payload['summary'][
+                'avgDurationSeconds'
+            ],
+        ),
+    )
+    service = BatchesService(FakeBatchJobRepository(listed_jobs=listed_jobs))
+
+    result = await service.list_jobs(
+        from_date=date(2026, 3, 16),
+        to_date=date(2026, 3, 17),
+        status='SUCCESS',
+        page=1,
+        size=20,
+    )
+
+    assert isinstance(result, dict)
+    assert result == sample_batch_job_list_payload
+
+
+@pytest.mark.anyio
+async def test_list_jobs_passes_job_type_to_repository(sample_batch_job_list_payload):
+    listed_jobs = BatchJobListResult(
+        items=[],
+        page=1,
+        size=20,
+        total_count=0,
+        summary=BatchJobSummary(
+            success_count=0,
+            partial_count=0,
+            failed_count=0,
+            avg_duration_seconds=0,
+        ),
+    )
+    repository = FakeBatchJobRepository(listed_jobs=listed_jobs)
+    service = BatchesService(repository)
+
+    await service.list_jobs(
         from_date=None,
         to_date=None,
         status=None,
