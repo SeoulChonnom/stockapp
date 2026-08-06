@@ -292,7 +292,9 @@ def test_start_market_daily_batch_preserves_non_uuid_subject(client):
     assert service.batch_scheduler.drain_calls == 1
 
 
-def test_start_market_daily_batch_idempotent_replay_does_not_start_new_drain(client):
+def test_start_market_daily_batch_idempotent_replay_of_running_job_does_not_start_new_drain(
+    client,
+):
     test_client, service = client
     service.run_payload['_created'] = False
 
@@ -314,6 +316,7 @@ def test_start_market_daily_batch_keeps_202_when_drain_scheduling_fails(
     client,
     caplog,
 ):
+    service.run_payload['status'] = 'RUNNING'
     test_client, service = client
     service.batch_scheduler.failure = RuntimeError('sensitive scheduler detail')
     caplog.set_level(
@@ -329,6 +332,30 @@ def test_start_market_daily_batch_keeps_202_when_drain_scheduling_fails(
 
     assert response.status_code == 202
     assert 'exception_class=RuntimeError' in caplog.text
+def test_start_market_daily_batch_idempotent_replay_of_pending_job_reschedules_drain(
+    client,
+):
+    """H1 regression: replaying a PENDING job (e.g. its original drain died
+    to a process restart/cancellation) must still get a drain scheduled, or
+    the job is stuck in the queue forever."""
+    test_client, service = client
+    service.run_payload['_created'] = False
+    service.run_payload['status'] = 'PENDING'
+
+    response = test_client.post(
+        '/stock/api/batch/market-daily',
+        json={'businessDate': '2026-03-17', 'force': False, 'rebuildPageOnly': False},
+        headers={
+            **build_test_bearer_headers('ADMIN'),
+            'Idempotency-Key': 'market-daily-2026-03-17',
+        },
+    )
+
+    assert response.status_code == 202
+    assert '_created' not in response.json()['data']
+    assert service.batch_scheduler.drain_calls == 1
+
+
     assert 'sensitive scheduler detail' not in caplog.text
 
 

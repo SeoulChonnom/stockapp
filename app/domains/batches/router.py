@@ -129,7 +129,7 @@ async def start_market_daily_batch(
         rebuild_page_only=payload.rebuildPageOnly,
         idempotency_key=idempotency_key,
     )
-    if result.get('_created', True):
+    if result.get('_created', True) or result.get('status') == BatchJobStatus.PENDING:
         background_tasks.add_task(schedule_batch_drain, scheduler)
     return ApiSuccess(data=assemble_batch_run_response(result))
 
