@@ -27,7 +27,19 @@ class InProcessBatchScheduler:
         """Start a detached drain, coalescing concurrent scheduling requests."""
         if self._shutting_down:
             return
-        self._tasks = {task for task in self._tasks if not task.done()}
+        running_loop = asyncio.get_running_loop()
+        live_tasks: set[asyncio.Task[int]] = set()
+        for task in self._tasks:
+            if task.done():
+                continue
+            if task.get_loop() is not running_loop:
+                LOGGER.warning(
+                    'Discarding background batch drain task bound to a stale '
+                    'event loop.'
+                )
+                continue
+            live_tasks.add(task)
+        self._tasks = live_tasks
         if self._tasks:
             self._drain_requested = True
             return

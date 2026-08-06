@@ -89,3 +89,40 @@ async def test_scheduler_logs_and_swallows_background_failure(caplog):
 
     assert 'exception_class=RuntimeError' in caplog.text
     assert 'sensitive provider detail' not in caplog.text
+
+
+def test_scheduler_discards_task_bound_to_dead_event_loop_and_restarts_drain():
+    """A task left behind by a discarded event loop must not block drains forever."""
+    workers: list[BlockingWorker] = []
+
+    def worker_factory():
+        worker = BlockingWorker()
+        workers.append(worker)
+        return worker
+
+    scheduler = InProcessBatchScheduler(worker_factory)
+
+    async def start_and_leave_pending() -> None:
+        scheduler.start_drain()
+        await workers[0].started.wait()
+
+    loop_a = asyncio.new_event_loop()
+    try:
+        loop_a.run_until_complete(start_and_leave_pending())
+    finally:
+        loop_a.close()
+
+    async def start_on_new_loop() -> None:
+        scheduler.start_drain()
+        await workers[1].started.wait()
+        workers[1].release.set()
+        await scheduler.shutdown()
+
+    loop_b = asyncio.new_event_loop()
+    try:
+        loop_b.run_until_complete(start_on_new_loop())
+    finally:
+        loop_b.close()
+
+    assert len(workers) == 2
+    assert workers[1].started.is_set()
