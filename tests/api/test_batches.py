@@ -316,6 +316,7 @@ def test_start_market_daily_batch_idempotent_replay_of_running_job_does_not_star
 ):
     test_client, service = client
     service.run_payload['_created'] = False
+    service.run_payload['status'] = 'RUNNING'
 
     response = test_client.post(
         '/stock/api/batch/market-daily',
@@ -331,26 +332,6 @@ def test_start_market_daily_batch_idempotent_replay_of_running_job_does_not_star
     assert service.batch_scheduler.drain_calls == 0
 
 
-def test_start_market_daily_batch_keeps_202_when_drain_scheduling_fails(
-    client,
-    caplog,
-):
-    service.run_payload['status'] = 'RUNNING'
-    test_client, service = client
-    service.batch_scheduler.failure = RuntimeError('sensitive scheduler detail')
-    caplog.set_level(
-        logging.ERROR,
-        logger='app.domains.batches.router',
-    )
-
-    response = test_client.post(
-        '/stock/api/batch/market-daily',
-        json={'businessDate': '2026-03-17', 'force': False, 'rebuildPageOnly': False},
-        headers=build_test_bearer_headers('ADMIN'),
-    )
-
-    assert response.status_code == 202
-    assert 'exception_class=RuntimeError' in caplog.text
 def test_start_market_daily_batch_idempotent_replay_of_pending_job_reschedules_drain(
     client,
 ):
@@ -375,6 +356,25 @@ def test_start_market_daily_batch_idempotent_replay_of_pending_job_reschedules_d
     assert service.batch_scheduler.drain_calls == 1
 
 
+def test_start_market_daily_batch_keeps_202_when_drain_scheduling_fails(
+    client,
+    caplog,
+):
+    test_client, service = client
+    service.batch_scheduler.failure = RuntimeError('sensitive scheduler detail')
+    caplog.set_level(
+        logging.ERROR,
+        logger='app.domains.batches.router',
+    )
+
+    response = test_client.post(
+        '/stock/api/batch/market-daily',
+        json={'businessDate': '2026-03-17', 'force': False, 'rebuildPageOnly': False},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 202
+    assert 'exception_class=RuntimeError' in caplog.text
     assert 'sensitive scheduler detail' not in caplog.text
 
 

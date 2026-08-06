@@ -176,7 +176,7 @@ def context_messages(context: BatchExecutionContext) -> list[str]:
         *context.log_messages,
         *context.partial_reasons,
         *context.warning_messages,
-        *( [context.error_code] if context.error_code else [] ),
+        *([context.error_code] if context.error_code else []),
     ]
 
 
