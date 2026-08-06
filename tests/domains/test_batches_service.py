@@ -61,6 +61,8 @@ class FakeBatchJobRepository:
             raise self.retry_failed_job_error
         return self.retried_job
 
+    async def has_active_job_for_business_date(self, business_date):
+        _ = business_date
         return self.active_exists
 
     async def get_latest_page_source(self, business_date):
