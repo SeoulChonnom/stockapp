@@ -135,6 +135,35 @@ class BatchJobRepository(PostgresRepository):
         row = result.mappings().one_or_none()
         return self._model_from_mapping(BatchJobRecord, row) if row else None
 
+    async def retry_failed_job(self, job_id: int) -> BatchJobRecord | None:
+        """Requeue a FAILED job in place so an idempotent replay can retry it."""
+        statement = text(
+            """
+            UPDATE {batch_job_table}
+            SET
+                status = '{status_pending}',
+                attempt_count = 0,
+                available_at = now(),
+                error_code = NULL,
+                error_message = NULL,
+                {lease_null_assignments}
+                updated_at = now()
+            WHERE id = :job_id
+              AND status = '{status_failed}'
+            RETURNING
+                {columns}
+            """.format(
+                columns=_BATCH_JOB_COLUMNS_SQL,
+                batch_job_table=qualify_db_identifier('batch_job'),
+                status_pending=_STATUS_PENDING,
+                status_failed=_STATUS_FAILED,
+                lease_null_assignments=lease_null_assignments_sql(' ' * 16),
+            )
+        ).bindparams(bindparam('job_id', job_id))
+        result = await self.session.execute(statement)
+        row = result.mappings().one_or_none()
+        return self._model_from_mapping(BatchJobRecord, row) if row else None
+
     async def has_active_job_for_business_date(self, business_date: date) -> bool:
         statement = text(
             """

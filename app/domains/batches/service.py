@@ -200,16 +200,12 @@ class BatchesService:
                 normalized_idempotency_key
             )
             if existing_job is not None:
-                _validate_idempotent_replay(
+                return await self._reuse_idempotent_job(
                     existing_job,
                     business_date=resolved_business_date,
                     run_mode=run_mode,
                     force=force,
                 )
-                return {
-                    **build_batch_run_payload(existing_job),
-                    '_created': False,
-                }
 
         if await self._repo.has_active_job_for_business_date(resolved_business_date):
             raise ConflictError(
@@ -262,16 +258,12 @@ class BatchesService:
                     normalized_idempotency_key
                 )
                 if existing_job is not None:
-                    _validate_idempotent_replay(
+                    return await self._reuse_idempotent_job(
                         existing_job,
                         business_date=resolved_business_date,
                         run_mode=run_mode,
                         force=force,
                     )
-                    return {
-                        **build_batch_run_payload(existing_job),
-                        '_created': False,
-                    }
             raise ConflictError(
                 'BATCH_ALREADY_RUNNING',
                 '동일 날짜의 배치가 이미 실행 중입니다.',
@@ -335,6 +327,48 @@ class BatchesService:
             raise ConflictError(
                 'IDEMPOTENCY_KEY_REUSED',
                 'Idempotency-Key가 다른 AI 재처리 요청에 이미 사용되었습니다.',
+    async def _reuse_idempotent_job(
+        self,
+        existing_job: BatchJobRecord,
+        *,
+        business_date: date,
+        run_mode: str,
+        force: bool,
+    ) -> dict[str, object]:
+        _validate_idempotent_replay(
+            existing_job,
+            business_date=business_date,
+            run_mode=run_mode,
+            force=force,
+        )
+        if existing_job.status == BatchJobStatus.FAILED.value:
+            try:
+                retried_job = await self._repo.retry_failed_job(existing_job.job_id)
+            except IntegrityError as exc:
+                await self._repo.rollback()
+                raise ConflictError(
+                    'BATCH_ALREADY_RUNNING',
+                    '동일 날짜의 배치가 이미 실행 중입니다.',
+                ) from exc
+            if retried_job is not None:
+                await self._repo.add_event(
+                    job_id=retried_job.job_id,
+                    step_code='RETRY_JOB',
+                    level='INFO',
+                    message=(
+                        'Failed market daily batch requeued via idempotent replay.'
+                    ),
+                )
+                await self._repo.commit()
+                return {
+                    **build_batch_run_payload(retried_job),
+                    '_created': True,
+                }
+        return {
+            **build_batch_run_payload(existing_job),
+            '_created': False,
+        }
+
             ) from exc
         except IntegrityError as exc:
             raise ConflictError(

@@ -47,11 +47,20 @@ class FakeBatchJobRepository:
         self.list_jobs_kwargs: dict | None = None
 
     async def get_job_by_idempotency_key(self, idempotency_key):
+        self.retried_job = None
+        self.retry_failed_job_calls: list[int] = []
+        self.retry_failed_job_error: Exception | None = None
         _ = idempotency_key
         return self.idempotent_job
 
     async def has_active_job_for_business_date(self, business_date):
         _ = business_date
+    async def retry_failed_job(self, job_id):
+        self.retry_failed_job_calls.append(job_id)
+        if self.retry_failed_job_error is not None:
+            raise self.retry_failed_job_error
+        return self.retried_job
+
         return self.active_exists
 
     async def get_latest_page_source(self, business_date):
@@ -613,6 +622,117 @@ async def test_list_jobs_passes_job_type_to_repository(sample_batch_job_list_pay
     service = BatchesService(repository)
 
     await service.list_jobs(
+@pytest.mark.anyio
+async def test_start_market_daily_batch_retries_failed_job_with_same_idempotency_key():
+    """H2 regression: cron uses a stable Idempotency-Key, so replaying it
+    after the batch FAILED must requeue that job for another attempt --
+    not silently hand back the stale FAILED job with no way to recover
+    that day's batch.
+    """
+    failed_job = BatchJobRecord(
+        job_id=1001,
+        job_name='market_daily_batch',
+        business_date=date(2026, 3, 17),
+        status='FAILED',
+        started_at=datetime(2026, 3, 17, 6, 10, tzinfo=UTC),
+        ended_at=datetime(2026, 3, 17, 6, 20, tzinfo=UTC),
+        duration_seconds=600,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+        run_mode='FULL',
+        idempotency_key='daily-2026-03-17',
+    )
+    retried_job = BatchJobRecord(
+        job_id=1001,
+        job_name='market_daily_batch',
+        business_date=date(2026, 3, 17),
+        status='PENDING',
+        started_at=datetime(2026, 3, 17, 6, 10, tzinfo=UTC),
+        ended_at=None,
+        duration_seconds=None,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+        run_mode='FULL',
+        idempotency_key='daily-2026-03-17',
+    )
+    repository = FakeBatchJobRepository()
+    repository.idempotent_job = failed_job
+    repository.retried_job = retried_job
+    service = BatchesService(repository)
+
+    result = await service.start_market_daily_batch(
+        business_date=date(2026, 3, 17),
+        user_id='cron-admin',
+        force=False,
+        rebuild_page_only=False,
+        idempotency_key='daily-2026-03-17',
+    )
+
+    assert repository.retry_failed_job_calls == [1001]
+    assert result['status'] == 'PENDING'
+    assert result['_created'] is True
+    assert repository.commits == 1
+    assert repository.created_params is None
+
+
+@pytest.mark.anyio
+async def test_start_market_daily_batch_failed_retry_conflicts_with_active_job():
+    """F1 regression: retrying a FAILED job via idempotent replay must not
+    surface the partial unique index violation
+    (uq_batch_job_one_active_market_daily_per_day) as an unhandled
+    IntegrityError/500. When another job for the same business_date is
+    already PENDING/RUNNING, this must map to the existing
+    BATCH_ALREADY_RUNNING conflict (409), and the session must be rolled
+    back so it isn't left poisoned.
+    """
+    failed_job = BatchJobRecord(
+        job_id=1001,
+        job_name='market_daily_batch',
+        business_date=date(2026, 3, 17),
+        status='FAILED',
+        started_at=datetime(2026, 3, 17, 6, 10, tzinfo=UTC),
+        ended_at=datetime(2026, 3, 17, 6, 20, tzinfo=UTC),
+        duration_seconds=600,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+        run_mode='FULL',
+        idempotency_key='daily-2026-03-17',
+    )
+    repository = FakeBatchJobRepository()
+    repository.idempotent_job = failed_job
+    repository.retry_failed_job_error = IntegrityError(
+        'UPDATE batch_job', {}, Exception('duplicate key value violates unique '
+        'constraint "uq_batch_job_one_active_market_daily_per_day"')
+    )
+    service = BatchesService(repository)
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='cron-admin',
+            force=False,
+            rebuild_page_only=False,
+            idempotency_key='daily-2026-03-17',
+        )
+
+    assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
+    assert repository.retry_failed_job_calls == [1001]
+    assert repository.rollbacks == 1
+    assert repository.commits == 0
+
+
         from_date=None,
         to_date=None,
         status=None,
