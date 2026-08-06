@@ -139,14 +139,28 @@ class MarketDailyBatchOrchestrator:
                     context = await step.execute(repository, context)
                     if lease_token is not None and step_code != 'FINALIZE_JOB':
                         completed_steps.append(step_code)
+                        # Steps may persist their own checkpoint keys mid-run
+                        # (e.g. DurableTargetProgress writes `targetProgress`
+                        # directly via save_checkpoint). Re-read the current
+                        # checkpoint so this step-end save only overwrites
+                        # the keys it owns, instead of dropping whatever the
+                        # step just wrote.
+                        current_job = await repository.get_job_by_id(job_id)
+                        persisted_step_checkpoint = getattr(
+                            current_job, 'checkpoint_json', None
+                        )
+                        step_end_checkpoint: dict[str, Any] = (
+                            dict(persisted_step_checkpoint)
+                            if isinstance(persisted_step_checkpoint, dict)
+                            else {}
+                        )
+                        step_end_checkpoint['completedSteps'] = completed_steps
+                        step_end_checkpoint['context'] = context.to_checkpoint()
                         checkpoint_saved = await repository.save_checkpoint(
                             job_id=job_id,
                             lease_token=lease_token,
                             current_step=step_code,
-                            checkpoint_json={
-                                'completedSteps': completed_steps,
-                                'context': context.to_checkpoint(),
-                            },
+                            checkpoint_json=step_end_checkpoint,
                         )
                         if not checkpoint_saved:
                             await repository.rollback()

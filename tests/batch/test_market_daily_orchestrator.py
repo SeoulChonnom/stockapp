@@ -361,3 +361,85 @@ async def test_market_daily_orchestrator_resumes_after_last_checkpoint(monkeypat
     checkpoint = repository.saved_checkpoints[-1]
     assert checkpoint['completedSteps'] == ['CREATE_JOB', 'COLLECT_NEWS']
     assert checkpoint['context']['rawNewsCount'] == 12
+
+
+@pytest.mark.anyio
+async def test_market_daily_orchestrator_preserves_target_progress_on_step_end_save(
+    monkeypatch,
+):
+    """A step (e.g. BUILD_CLUSTERS) can persist its own `targetProgress`
+    checkpoint key mid-run via DurableTargetProgress.commit_target, writing
+    straight to the DB. The orchestrator's step-end save must not clobber
+    that key with a checkpoint built from stale in-memory state."""
+    lease_token = uuid4()
+
+    class TargetProgressRepository:
+        def __init__(self):
+            self.session = RecordingAsyncSession()
+            self.saved_checkpoints: list[dict] = []
+            # Simulates a step calling DurableTargetProgress.commit_target,
+            # which persists `targetProgress` directly to the DB mid-step.
+            self._persisted_checkpoint = {
+                'completedSteps': [],
+                'context': {'rawNewsCount': 0},
+                'targetProgress': {'BUILD_CLUSTERS': ['US:cluster-1']},
+            }
+
+        async def get_job_by_id(self, job_id):
+            return BatchJobRecord(
+                job_id=job_id,
+                job_name='market_daily_batch',
+                business_date=date(2026, 3, 17),
+                status='RUNNING',
+                started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+                ended_at=None,
+                duration_seconds=None,
+                market_scope='GLOBAL',
+                raw_news_count=0,
+                processed_news_count=0,
+                cluster_count=0,
+                page_id=None,
+                page_version_no=None,
+                force_run=False,
+                rebuild_page_only=False,
+                checkpoint_json=self._persisted_checkpoint,
+            )
+
+        async def add_event(self, **_kwargs):
+            return None
+
+        async def begin_step(self, *, step_code, **_kwargs):
+            return True
+
+        async def save_checkpoint(self, *, checkpoint_json, **_kwargs):
+            self.saved_checkpoints.append(checkpoint_json)
+            return True
+
+        async def commit(self):
+            await self.session.commit()
+
+        async def rollback(self):
+            await self.session.rollback()
+
+    repository = TargetProgressRepository()
+
+    class BuildClustersStubStep:
+        step_code = 'BUILD_CLUSTERS'
+
+        async def execute(self, repository, context):
+            _ = repository
+            return context
+
+    monkeypatch.setattr(
+        orchestrator_module,
+        'BatchJobRepository',
+        lambda session, lease_token=None: repository,
+    )
+    orchestrator = MarketDailyBatchOrchestrator(session_maker=FakeSessionMaker())
+    orchestrator._steps = [BuildClustersStubStep()]
+
+    await orchestrator.run(1001, lease_token=lease_token)
+
+    checkpoint = repository.saved_checkpoints[-1]
+    assert checkpoint['completedSteps'] == ['BUILD_CLUSTERS']
+    assert checkpoint['targetProgress'] == {'BUILD_CLUSTERS': ['US:cluster-1']}
