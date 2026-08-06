@@ -442,6 +442,122 @@ def test_cluster_ranking_is_stable_by_count_recency_and_article_id():
             title='alpha market',
             published_at=base_time,
         ),
+class UpsertingClusterRepo:
+    """Mimic NewsClusterWriteRepository.create_cluster_bundle's ON CONFLICT
+    DO UPDATE semantics: writing to an existing (market_type, cluster_rank)
+    key preserves the row's id instead of replacing it, and rows nobody
+    writes to are left untouched."""
+
+    def __init__(self, existing: dict[tuple[str, int], dict] | None = None):
+        self.store: dict[tuple[str, int], dict] = dict(existing or {})
+        self._next_id = (
+            max((row['cluster_id'] for row in self.store.values()), default=100) + 1
+        )
+
+    async def create_cluster_bundle(self, params, article_ids):
+        _ = article_ids
+        key = (params.market_type, params.cluster_rank)
+        existing_row = self.store.get(key)
+        cluster_id = existing_row['cluster_id'] if existing_row else self._next_id
+        if existing_row is None:
+            self._next_id += 1
+        self.store[key] = {'cluster_id': cluster_id, 'title': params.title}
+        return SimpleNamespace(cluster_id=cluster_id, cluster_rank=params.cluster_rank)
+
+    async def list_cluster_ids_for_business_date(
+        self, business_date, market_type, *, min_rank=None
+    ):
+        _ = business_date
+        return [
+            row['cluster_id']
+            for (mt, rank), row in self.store.items()
+            if mt == market_type and (min_rank is None or rank > min_rank)
+        ]
+
+    async def delete_clusters_by_ids(self, cluster_ids):
+        ids = set(cluster_ids)
+        self.store = {
+            key: row for key, row in self.store.items() if row['cluster_id'] not in ids
+        }
+
+
+@pytest.mark.anyio
+async def test_force_rerun_failure_preserves_untouched_market_clusters():
+    """A force rerun that fails partway through a later market must not
+    destroy clusters (and therefore the ai_summary/page rows that reference
+    them via cluster_id) belonging to a market this run never reached.
+    """
+    session = RecordingAsyncSession()
+    fake_repository = FakeBatchRepository(session=session, events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=True,
+        rebuild_page_only=False,
+    )
+
+    base_time = datetime(2026, 3, 17, tzinfo=UTC)
+    kr_article = _processed_article(
+        1, market_type='KR', title='코스피 상승', published_at=base_time
+    )
+    us_article = _processed_article(
+        2, market_type='US', title='nasdaq rally', published_at=base_time
+    )
+    processed_repository = ListProcessedRepo([kr_article, us_article])
+    cluster_repository = UpsertingClusterRepo(
+        existing={
+            ('KR', 1): {'cluster_id': 201, 'title': 'old KR cluster'},
+            ('US', 1): {'cluster_id': 301, 'title': 'old US cluster'},
+        }
+    )
+
+    class FailOnUsProvider:
+        concurrency_limit = 1
+
+        def is_configured(self):
+            return True
+
+        async def enrich_cluster(self, *, market_type, **kwargs):
+            _ = kwargs
+            if market_type == 'US':
+                raise LlmRetryableError()
+            return {
+                'title': 'new KR cluster',
+                'summary_short': 'short',
+                'summary_long': 'long',
+                'tags': [],
+                'analysis_paragraphs': [],
+                'representative_article_index': 0,
+            }
+
+    step = BuildClustersStep(
+        processed_repo_factory=lambda _session: processed_repository,
+        cluster_repo_factory=lambda _session: cluster_repository,
+        llm_provider_factory=FailOnUsProvider,
+        settings=SimpleNamespace(
+            batch_max_clusters_per_market=12,
+            batch_clustering_processed_article_limit=5000,
+        ),
+    )
+
+    with pytest.raises(LlmRetryableError):
+        await step.run(fake_repository, context)
+
+    # KR is processed first (alphabetically before US) and completes, so its
+    # existing cluster id must be preserved by the upsert rather than
+    # replaced with a new row.
+    assert cluster_repository.store[('KR', 1)] == {
+        'cluster_id': 201,
+        'title': 'new KR cluster',
+    }
+    # US never had its enrichment persisted -- its previously published
+    # cluster must remain completely untouched by the failed run.
+    assert cluster_repository.store[('US', 1)] == {
+        'cluster_id': 301,
+        'title': 'old US cluster',
+    }
+
+
     ]
 
     ranked = build_clusters_module._rank_market_clusters(

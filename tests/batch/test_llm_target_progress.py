@@ -269,8 +269,12 @@ class ClusterWriteRepository:
     def __init__(self) -> None:
         self.rows: dict[int, object] = {}
 
-    async def list_cluster_ids_for_business_date(self, *_args):
-        return [row.cluster_id for row in self.rows.values()]
+    async def list_cluster_ids_for_business_date(self, *_args, min_rank=None):
+        return [
+            cluster_id
+            for cluster_id in self.rows
+            if min_rank is None or cluster_id > min_rank
+        ]
 
     async def delete_clusters_by_ids(self, cluster_ids):
         for cluster_id in cluster_ids:

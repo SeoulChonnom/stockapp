@@ -111,13 +111,6 @@ class BuildClustersStep(BatchStep):
                 selected_clusters=selected_clusters,
                 max_clusters_per_market=self._max_clusters_per_market,
             )
-            await _delete_existing_market_clusters(
-                cluster_repo=cluster_repo,
-                progress=progress,
-                business_date=context.business_date,
-                market_type=market_type,
-            )
-
             concurrency_limit = getattr(llm_provider, 'concurrency_limit', 1)
             semaphore = asyncio.Semaphore(concurrency_limit)
 
@@ -162,6 +155,12 @@ class BuildClustersStep(BatchStep):
                 if target_key not in progress.completed_targets
             ]
             await run_target_calls(pending_calls, on_result=persist_enrichment)
+            await _delete_stale_market_clusters(
+                cluster_repo=cluster_repo,
+                business_date=context.business_date,
+                market_type=market_type,
+                keep_max_rank=len(selected_clusters),
+            )
 
         context.cluster_count = total_selected_count
         context.log_messages.append(
@@ -222,29 +221,33 @@ async def _log_cluster_selection(
     )
 
 
-async def _delete_existing_market_clusters(
+async def _delete_stale_market_clusters(
     *,
     cluster_repo: Any,
-    progress: DurableTargetProgress,
     business_date: Any,
     market_type: str,
+    keep_max_rank: int,
 ) -> None:
-    market_target_prefix = f'{market_type}:'
-    completed_market_targets = {
-        target_key
-        for target_key in progress.completed_targets
-        if target_key.startswith(market_target_prefix)
-    }
-    if (
-        not completed_market_targets
-        and hasattr(cluster_repo, 'list_cluster_ids_for_business_date')
+    """Remove leftover clusters from a prior run that this run no longer produces.
+
+    New/updated ranks are persisted in place via ``create_cluster_bundle``'s
+    upsert, which preserves ``news_cluster.id`` (and therefore existing
+    ``ai_summary``/``market_daily_page_market_cluster`` references) for
+    ranks that survive across runs. Only ranks beyond what this run selected
+    (e.g. the market now has fewer clusters than a previous run) are stale
+    and safe to remove once this market's new clusters have been persisted.
+    """
+    if not (
+        hasattr(cluster_repo, 'list_cluster_ids_for_business_date')
         and hasattr(cluster_repo, 'delete_clusters_by_ids')
     ):
-        existing_cluster_ids = await cluster_repo.list_cluster_ids_for_business_date(
-            business_date,
-            market_type,
-        )
-        await cluster_repo.delete_clusters_by_ids(existing_cluster_ids)
+        return
+    stale_cluster_ids = await cluster_repo.list_cluster_ids_for_business_date(
+        business_date,
+        market_type,
+        min_rank=keep_max_rank,
+    )
+    await cluster_repo.delete_clusters_by_ids(stale_cluster_ids)
 
 
 async def _persist_cluster_enrichment(

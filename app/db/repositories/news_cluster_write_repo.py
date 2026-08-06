@@ -19,23 +19,31 @@ class NewsClusterWriteRepository(PostgresRepository):
         self,
         business_date: date,
         market_type: str,
+        *,
+        min_rank: int | None = None,
     ) -> list[int]:
+        min_rank_filter = 'AND cluster_rank > :min_rank' if min_rank is not None else ''
         statement = text(
             """
             SELECT id
             FROM {cluster_table}
             WHERE business_date = :business_date
               AND market_type = CAST(:market_type AS {market_type_enum})
+              {min_rank_filter}
             ORDER BY cluster_rank ASC
             """.format(
                 cluster_table=qualify_db_identifier('news_cluster'),
                 market_type_enum=qualify_db_identifier('market_type_enum'),
+                min_rank_filter=min_rank_filter,
             )
         )
-        result = await self.session.execute(
-            statement,
-            {'business_date': business_date, 'market_type': market_type},
-        )
+        params: dict[str, object] = {
+            'business_date': business_date,
+            'market_type': market_type,
+        }
+        if min_rank is not None:
+            params['min_rank'] = min_rank
+        result = await self.session.execute(statement, params)
         return list(result.scalars().all())
 
     async def delete_clusters_by_ids(self, cluster_ids: list[int]) -> None:

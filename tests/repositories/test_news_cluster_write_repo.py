@@ -73,3 +73,49 @@ async def test_create_cluster_bundle_inserts_cluster_and_memberships():
     assert 'news_cluster' in sql
     assert 'representative_article_id' in sql
     assert 'analysis_paragraphs_json' in sql
+
+
+@pytest.mark.anyio
+async def test_list_cluster_ids_without_min_rank_omits_rank_filter_and_bind():
+    """F2: when min_rank is not given, the query must not depend on an
+    untyped NULL bind comparison -- the rank filter is left out of both
+    the SQL text and the bound parameters entirely."""
+    session = RecordingAsyncSession(results=[DummyResult([1, 2, 3])])
+    repo = NewsClusterWriteRepository(session)
+
+    cluster_ids = await repo.list_cluster_ids_for_business_date(
+        '2026-03-17',
+        'US',
+    )
+
+    assert cluster_ids == [1, 2, 3]
+    sql = normalize_sql(session.statements[0])
+    assert 'cluster_rank >' not in sql
+    assert 'min_rank' not in session.parameters[0]
+    assert session.parameters[0] == {
+        'business_date': '2026-03-17',
+        'market_type': 'US',
+    }
+
+
+@pytest.mark.anyio
+async def test_list_cluster_ids_with_min_rank_filters_and_binds_it():
+    """F2: when min_rank is given, the SQL text includes an explicit
+    cluster_rank > :min_rank filter with a real (non-NULL) bound value."""
+    session = RecordingAsyncSession(results=[DummyResult([4])])
+    repo = NewsClusterWriteRepository(session)
+
+    cluster_ids = await repo.list_cluster_ids_for_business_date(
+        '2026-03-17',
+        'US',
+        min_rank=3,
+    )
+
+    assert cluster_ids == [4]
+    sql = normalize_sql(session.statements[0])
+    assert 'cluster_rank >' in sql
+    assert session.parameters[0] == {
+        'business_date': '2026-03-17',
+        'market_type': 'US',
+        'min_rank': 3,
+    }
