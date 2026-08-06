@@ -107,7 +107,6 @@ async def start_naver_news_collection(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def start_market_daily_batch(
-    payload: BatchRunRequest,
     background_tasks: BackgroundTasks,
     current_user: BatchOperatorDep,
     service: BatchesServiceDep,
@@ -121,12 +120,14 @@ async def start_market_daily_batch(
             pattern=r'.*\S.*',
         ),
     ] = None,
+    payload: BatchRunRequest | None = None,
 ) -> ApiSuccess[BatchRunResponse]:
+    resolved_payload = payload if payload is not None else BatchRunRequest()
     result = await service.start_market_daily_batch(
-        business_date=payload.businessDate,
+        business_date=resolved_payload.businessDate,
         user_id=current_user.user_id,
-        force=payload.force,
-        rebuild_page_only=payload.rebuildPageOnly,
+        force=resolved_payload.force,
+        rebuild_page_only=resolved_payload.rebuildPageOnly,
         idempotency_key=idempotency_key,
     )
     if result.get('_created', True) or result.get('status') == BatchJobStatus.PENDING:

@@ -141,6 +141,25 @@ def test_start_market_daily_batch_returns_job_handle(client, sample_batch_run_pa
     assert service.lifecycle_events == ['job_committed', 'drain_scheduled']
 
 
+def test_start_market_daily_batch_allows_empty_body(client, sample_batch_run_payload):
+    """A cron call that omits the JSON body entirely should still be accepted.
+
+    All BatchRunRequest fields are optional, so a missing body must not 422.
+    """
+    test_client, service = client
+
+    response = test_client.post(
+        '/stock/api/batch/market-daily',
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 202
+    assert service.start_kwargs is not None
+    assert service.start_kwargs['business_date'] is None
+    assert service.start_kwargs['force'] is False
+    assert service.start_kwargs['rebuild_page_only'] is False
+
+
 def test_batch_apis_allow_client_role(client, sample_batch_job_detail_payload):
     test_client, service = client
     client_headers = build_test_bearer_headers('CLIENT')
