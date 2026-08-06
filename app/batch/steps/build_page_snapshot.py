@@ -29,6 +29,23 @@ MARKET_LABELS = {
 }
 
 
+def _market_news_count(
+    counts_by_market: dict[str, int],
+    market_type: str,
+    fallback: int,
+) -> int:
+    """Look up a per-market news count, falling back to the job-wide total.
+
+    The fallback only applies when no per-market counts were recorded at
+    all (e.g. a job resumed from a checkpoint saved before per-market
+    counts existed) -- it never re-mixes the job-wide total into an
+    otherwise-populated per-market breakdown.
+    """
+    if counts_by_market:
+        return counts_by_market.get(market_type, 0)
+    return fallback
+
+
 def _structured_page_issues(
     context: BatchExecutionContext,
 ) -> list[dict[str, str]]:
@@ -237,8 +254,16 @@ class BuildPageSnapshotStep(BatchStep):
                     market_metadata, 'keyThemes'
                 ),
                 analysis_outlook=metadata_optional_string(market_metadata, 'outlook'),
-                raw_news_count=context.raw_news_count,
-                processed_news_count=context.processed_news_count,
+                raw_news_count=_market_news_count(
+                    context.raw_news_count_by_market,
+                    market_type,
+                    context.raw_news_count,
+                ),
+                processed_news_count=_market_news_count(
+                    context.processed_news_count_by_market,
+                    market_type,
+                    context.processed_news_count,
+                ),
                 cluster_count=len(by_market.get(market_type, [])),
                 partial_message=None,
                 metadata_json={},

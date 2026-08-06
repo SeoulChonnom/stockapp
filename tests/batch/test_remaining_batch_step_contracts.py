@@ -983,6 +983,118 @@ async def test_build_page_snapshot_step_sets_page_identity_and_writes_snapshot(
 
 
 @pytest.mark.anyio
+async def test_build_page_snapshot_step_uses_per_market_news_counts(monkeypatch):
+    """create_page_market must receive each market's own raw/processed news
+    counts, not the job-wide total copied into both markets."""
+    build_module = load_module('app.batch.steps.build_page_snapshot')
+
+    class EmptyClusterRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_clusters_by_business_date(self, business_date):
+            _ = business_date
+            return [
+                {
+                    'id': 7001,
+                    'cluster_uid': UUID('51f0d9a0-9fc5-4f15-a4f9-62856f128683'),
+                    'market_type': 'US',
+                    'cluster_rank': 1,
+                    'title': '엔비디아 강세',
+                    'summary_short': '반도체 강세',
+                    'summary_long': '반도체 강세가 시장을 견인했다.',
+                    'analysis_paragraphs_json': [],
+                    'tags_json': [],
+                    'representative_article_id': 4001,
+                    'article_count': 1,
+                    'representative_title': '엔비디아 급등',
+                    'representative_publisher_name': '매일경제',
+                    'representative_published_at': datetime(
+                        2026, 3, 17, 23, 15, tzinfo=UTC
+                    ),
+                    'representative_origin_link': 'https://example.com/article1',
+                    'representative_naver_link': 'https://search.naver.com/article1',
+                }
+            ]
+
+        async def list_cluster_article_links_by_business_date(self, business_date):
+            _ = business_date
+            return []
+
+    class EmptyIndexRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_indices_by_business_date(self, business_date):
+            _ = business_date
+            return []
+
+    class EmptyAiSummaryRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_summaries_for_job(self, job_id):
+            _ = job_id
+            return []
+
+    class FakeSnapshotRepo:
+        def __init__(self, session):
+            _ = session
+            self.calls = []
+
+        async def get_next_version_no(self, business_date):
+            _ = business_date
+            return 1
+
+        async def create_page(self, **kwargs):
+            self.calls.append(('create_page', kwargs))
+            return 501
+
+        async def create_page_market(self, **kwargs):
+            self.calls.append(('create_page_market', kwargs))
+            return 1001
+
+        async def insert_page_market_index(self, params):
+            _ = params
+
+        async def insert_page_market_cluster(self, params):
+            _ = params
+
+        async def insert_page_article_link(self, params):
+            _ = params
+
+    fake_snapshot_repo = FakeSnapshotRepo(RecordingAsyncSession())
+    monkeypatch.setattr(build_module, 'ClusterRepository', EmptyClusterRepo)
+    monkeypatch.setattr(build_module, 'MarketIndexRepository', EmptyIndexRepo)
+    monkeypatch.setattr(build_module, 'AiSummaryRepository', EmptyAiSummaryRepo)
+    monkeypatch.setattr(
+        build_module, 'PageSnapshotWriteRepository', lambda session: fake_snapshot_repo
+    )
+
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
+    context = build_context()
+    context.raw_news_count = 30
+    context.processed_news_count = 18
+    context.raw_news_count_by_market = {'US': 20, 'KR': 10}
+    context.processed_news_count_by_market = {'US': 12, 'KR': 6}
+    context.cluster_count = 1
+
+    await BuildPageSnapshotStep(
+        context_repo_factory=CompleteMarketContextRepository
+    ).run(repository, context)
+
+    market_calls = {
+        kwargs['market_type']: kwargs
+        for name, kwargs in fake_snapshot_repo.calls
+        if name == 'create_page_market'
+    }
+    assert market_calls['US']['raw_news_count'] == 20
+    assert market_calls['US']['processed_news_count'] == 12
+    assert market_calls['KR']['raw_news_count'] == 10
+    assert market_calls['KR']['processed_news_count'] == 6
+
+
+@pytest.mark.anyio
 async def test_build_page_snapshot_drops_malformed_market_metadata_fields():
     class MinimalClusterRepo:
         def __init__(self, session):

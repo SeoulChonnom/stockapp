@@ -109,6 +109,10 @@ class DedupeArticlesStep(BatchStep):
                 for article in raw_articles
             )
             raw_article_ids.update(article.raw_article_id for article in raw_articles)
+            context.raw_news_count_by_market[market_context.market_type] = (
+                context.raw_news_count_by_market.get(market_context.market_type, 0)
+                + len(raw_articles)
+            )
             intervals = await collection_run_repo.list_complete_intervals(
                 provider_name=NAVER_NEWS_PROVIDER_NAME,
                 market_type=market_context.market_type,
@@ -174,6 +178,7 @@ class DedupeArticlesStep(BatchStep):
 
         seen_hashes: dict[tuple[str, str], int] = {}
         processed_ids: set[int] = set()
+        processed_ids_by_market: dict[str, set[int]] = {}
 
         for raw_article in raw_articles:
             link = raw_article.origin_link or raw_article.naver_link
@@ -228,8 +233,16 @@ class DedupeArticlesStep(BatchStep):
                 )
             )
             processed_ids.add(processed_id)
+            processed_ids_by_market.setdefault(raw_article.market_type, set()).add(
+                processed_id
+            )
 
         context.processed_news_count += len(processed_ids)
+        for market_type, market_processed_ids in processed_ids_by_market.items():
+            context.processed_news_count_by_market[market_type] = (
+                context.processed_news_count_by_market.get(market_type, 0)
+                + len(market_processed_ids)
+            )
         context.log_messages.append(
             f'Deduplicated {len(raw_article_ids)} raw articles into '
             f'{len(processed_ids)} processed articles.'

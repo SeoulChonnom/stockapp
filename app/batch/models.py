@@ -15,6 +15,8 @@ class BatchExecutionContext:
     source_page_id: int | None = None
     raw_news_count: int = 0
     processed_news_count: int = 0
+    raw_news_count_by_market: dict[str, int] = field(default_factory=dict)
+    processed_news_count_by_market: dict[str, int] = field(default_factory=dict)
     cluster_count: int = 0
     page_id: int | None = None
     page_version_no: int | None = None
@@ -44,6 +46,8 @@ class BatchExecutionContext:
             'sourcePageId': self.source_page_id,
             'rawNewsCount': self.raw_news_count,
             'processedNewsCount': self.processed_news_count,
+            'rawNewsCountByMarket': self.raw_news_count_by_market,
+            'processedNewsCountByMarket': self.processed_news_count_by_market,
             'clusterCount': self.cluster_count,
             'pageId': self.page_id,
             'pageVersionNo': self.page_version_no,
@@ -95,6 +99,12 @@ class BatchExecutionContext:
             ),
             raw_news_count=_checkpoint_int(payload, 'rawNewsCount'),
             processed_news_count=_checkpoint_int(payload, 'processedNewsCount'),
+            raw_news_count_by_market=_checkpoint_int_dict(
+                payload, 'rawNewsCountByMarket'
+            ),
+            processed_news_count_by_market=_checkpoint_int_dict(
+                payload, 'processedNewsCountByMarket'
+            ),
             cluster_count=_checkpoint_int(payload, 'clusterCount'),
             page_id=_checkpoint_optional_int(payload, 'pageId'),
             page_version_no=_checkpoint_optional_int(payload, 'pageVersionNo'),
@@ -118,6 +128,17 @@ class BatchExecutionContext:
 def _checkpoint_int(payload: dict[str, Any], key: str) -> int:
     value = payload.get(key)
     return value if isinstance(value, int) and value >= 0 else 0
+
+
+def _checkpoint_int_dict(payload: dict[str, Any], key: str) -> dict[str, int]:
+    value = payload.get(key)
+    if not isinstance(value, dict):
+        return {}
+    return {
+        market_type: count
+        for market_type, count in value.items()
+        if isinstance(market_type, str) and isinstance(count, int) and count >= 0
+    }
 
 
 def _checkpoint_optional_int(payload: dict[str, Any], key: str) -> int | None:
