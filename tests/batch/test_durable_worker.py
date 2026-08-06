@@ -9,6 +9,7 @@ from uuid import UUID
 
 import pytest
 
+from app.batch.exceptions import BatchLeaseLostError
 from app.batch.worker import BatchJobDispatcher, DurableBatchWorker
 from app.core.llm import LlmRetryableError
 from app.db.repositories.projections import (
@@ -197,6 +198,24 @@ async def test_worker_dispatches_claimed_job_and_releases_failed_attempt(caplog)
 
 
 @pytest.mark.anyio
+async def test_worker_releases_claim_when_lease_is_lost():
+    """A lost lease must not leave the job stuck RUNNING until its lease
+    expires -- release_failed_claim's WHERE clause (status=RUNNING AND
+    lease_token matches AND lease not expired) makes this a safe no-op
+    whenever another worker already reclaimed the job, so it's always safe
+    to call."""
+    state = QueueState(claims=[_job()])
+    dispatcher = RecordingDispatcher(error=BatchLeaseLostError('lease lost'))
+
+    processed = await _worker(state, dispatcher).run_once()
+
+    assert processed is True
+    assert len(state.released) == 1
+    assert state.released[0][0] == 1001
+    assert state.release_options[0]['error_code'] == 'BATCH_LEASE_LOST'
+
+
+@pytest.mark.anyio
 async def test_worker_persists_retry_after_without_blocking_or_leaking_details(caplog):
     state = QueueState(claims=[_job(attempt_count=1)])
     dispatcher = RecordingDispatcher(error=LlmRetryableError(retry_after_seconds=17.2))
@@ -353,25 +372,6 @@ async def test_startup_drain_waits_for_live_lease_then_recovers_and_dispatches()
     assert dispatcher.jobs == [1001]
 
 
-@pytest.mark.anyio
-async def test_dispatcher_routes_full_and_ai_retry_run_modes():
-    calls: list[tuple[str, int, UUID]] = []
-
-    class Orchestrator:
-        def __init__(self, name: str):
-            self.name = name
-
-        async def run(self, job_id, lease_token=None):
-            calls.append((self.name, job_id, lease_token))
-
-    dispatcher = BatchJobDispatcher(
-        market_daily_factory=lambda: Orchestrator('market'),
-        ai_retry_factory=lambda: Orchestrator('ai-retry'),
-        news_collection_factory=lambda: Orchestrator('news-collection'),
-    )
-    full_job = _job(1001)
-    ai_retry_job = _job(1002)
-    ai_retry_job.run_mode = 'AI_RETRY'
 class NeverActionableRepository:
     """Simulate another worker instance holding the only RUNNING job under
     a lease that keeps getting renewed via heartbeat. In that situation
@@ -424,6 +424,25 @@ async def test_run_until_idle_stops_waiting_on_a_lease_it_can_never_claim():
     assert repository.delay_calls > 0
 
 
+@pytest.mark.anyio
+async def test_dispatcher_routes_full_and_ai_retry_run_modes():
+    calls: list[tuple[str, int, UUID]] = []
+
+    class Orchestrator:
+        def __init__(self, name: str):
+            self.name = name
+
+        async def run(self, job_id, lease_token=None):
+            calls.append((self.name, job_id, lease_token))
+
+    dispatcher = BatchJobDispatcher(
+        market_daily_factory=lambda: Orchestrator('market'),
+        ai_retry_factory=lambda: Orchestrator('ai-retry'),
+        news_collection_factory=lambda: Orchestrator('news-collection'),
+    )
+    full_job = _job(1001)
+    ai_retry_job = _job(1002)
+    ai_retry_job.run_mode = 'AI_RETRY'
     news_collection_job = _job(1003)
     news_collection_job.run_mode = 'NEWS_COLLECTION'
     lease_token = UUID('00000000-0000-0000-0000-000000000123')

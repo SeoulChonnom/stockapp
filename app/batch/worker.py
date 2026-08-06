@@ -196,6 +196,21 @@ class DurableBatchWorker:
                 duration_seconds=perf_counter() - attempt_started_at,
                 exception=exc,
             )
+            # This worker's lease_token is already stale by definition here
+            # (heartbeat/checkpoint save only fails this way when the lease
+            # was reclaimed or expired). release_failed_claim's WHERE clause
+            # (status=RUNNING AND lease_token matches AND lease not expired)
+            # makes this a no-op whenever another worker already holds the
+            # job, so it only ever helps: it frees the job immediately when
+            # this worker's own lease is technically still valid but the
+            # save lost a race, instead of waiting out the full lease TTL.
+            await self._release_failed_claim(
+                job,
+                lease_token,
+                exc,
+                error_code='BATCH_LEASE_LOST',
+                error_message=f'{type(exc).__name__}: {exc}',
+            )
         except LlmRetryableError as exc:
             log_dispatch_event(
                 logging.WARNING,
