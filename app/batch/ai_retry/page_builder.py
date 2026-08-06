@@ -9,6 +9,8 @@ from app.batch.ai_retry.resolver import (
     resolve_effective_summaries,
 )
 from app.batch.ai_summary_targets import build_ai_summary_target_key
+from app.batch.normalizers import metadata_optional_string, metadata_string_list
+from app.batch.steps.page_snapshot_cloner import clone_child_rows, clone_page_markets
 from app.db.enums import AiSummaryType, PageStatus
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.db.repositories.page_snapshot_write_repo import (
@@ -102,9 +104,9 @@ class AiRetryPageBuilder:
             metadata_json=metadata,
         )
 
-        new_market_ids: dict[int, int] = {}
         market_types: dict[int, str] = {}
-        for source_market in source_markets:
+
+        def build_market_fields(source_market: dict[str, Any]) -> dict[str, Any]:
             market_type = source_market['market_type']
             market_types[source_market['id']] = market_type
             market_summary = effective.get(
@@ -117,82 +119,93 @@ class AiRetryPageBuilder:
             market_metadata = (
                 market_summary.metadata_json if market_summary is not None else {}
             ) or {}
-            new_market_ids[source_market['id']] = await write_repo.create_page_market(
-                page_id=page_id,
-                market_type=market_type,
-                display_order=source_market['display_order'],
-                market_label=source_market['market_label'],
-                summary_title=(
+            return {
+                'market_type': market_type,
+                'display_order': source_market['display_order'],
+                'market_label': source_market['market_label'],
+                'summary_title': (
                     market_summary.title
                     if market_summary is not None
                     else source_market.get('summary_title')
                 ),
-                summary_body=(
+                'summary_body': (
                     market_summary.body
                     if market_summary is not None
                     else source_market.get('summary_body')
                 ),
-                analysis_background_json=_metadata_string_list(
+                'analysis_background_json': metadata_string_list(
                     market_metadata,
                     'background',
                     fallback=source_market.get('analysis_background_json') or [],
                 ),
-                analysis_key_themes_json=_metadata_string_list(
+                'analysis_key_themes_json': metadata_string_list(
                     market_metadata,
                     'keyThemes',
                     fallback=source_market.get('analysis_key_themes_json') or [],
                 ),
-                analysis_outlook=_metadata_string(
+                'analysis_outlook': metadata_optional_string(
                     market_metadata,
                     'outlook',
                     fallback=source_market.get('analysis_outlook'),
                 ),
-                raw_news_count=source_market['raw_news_count'],
-                processed_news_count=source_market['processed_news_count'],
-                cluster_count=source_market['cluster_count'],
-                partial_message=(
+                'raw_news_count': source_market['raw_news_count'],
+                'processed_news_count': source_market['processed_news_count'],
+                'cluster_count': source_market['cluster_count'],
+                'partial_message': (
                     partial_message
                     if any(issue.get('marketType') == market_type for issue in issues)
                     else source_market.get('partial_message')
                 ),
-                metadata_json=source_market.get('metadata_json') or {},
-                expected_session_date=source_market.get('expected_session_date'),
-                actual_index_source_date=source_market.get('actual_index_source_date'),
-                session_close_at=source_market.get('session_close_at'),
-                news_window_start_at=source_market.get('news_window_start_at'),
-                news_window_end_at=source_market.get('news_window_end_at'),
-                news_coverage_complete=source_market.get('news_coverage_complete'),
-            )
-
-        for source_index in source_indices:
-            await write_repo.insert_page_market_index(
-                {key: value for key, value in source_index.items() if key != 'id'}
-                | {'page_market_id': new_market_ids[source_index['page_market_id']]}
-            )
-
-        for source_cluster in source_clusters:
-            card_summary = None
-            if source_cluster.get('cluster_id') is not None:
-                card_summary = effective.get(
-                    build_ai_summary_target_key(
-                        AiSummaryType.CLUSTER_CARD_SUMMARY.value,
-                        market_type=market_types[source_cluster['page_market_id']],
-                        cluster_id=source_cluster['cluster_id'],
-                    )
-                )
-            payload = {
-                key: value for key, value in source_cluster.items() if key != 'id'
+                'metadata_json': source_market.get('metadata_json') or {},
+                'expected_session_date': source_market.get('expected_session_date'),
+                'actual_index_source_date': source_market.get(
+                    'actual_index_source_date'
+                ),
+                'session_close_at': source_market.get('session_close_at'),
+                'news_window_start_at': source_market.get('news_window_start_at'),
+                'news_window_end_at': source_market.get('news_window_end_at'),
+                'news_coverage_complete': source_market.get('news_coverage_complete'),
             }
-            payload['page_market_id'] = new_market_ids[source_cluster['page_market_id']]
+
+        new_market_ids = await clone_page_markets(
+            source_markets,
+            page_id=page_id,
+            snapshot_repo=write_repo,
+            build_fields=build_market_fields,
+        )
+
+        def apply_card_summary(
+            source_cluster: dict[str, Any], payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            if source_cluster.get('cluster_id') is None:
+                return payload
+            card_summary = effective.get(
+                build_ai_summary_target_key(
+                    AiSummaryType.CLUSTER_CARD_SUMMARY.value,
+                    market_type=market_types[source_cluster['page_market_id']],
+                    cluster_id=source_cluster['cluster_id'],
+                )
+            )
             if card_summary is not None:
                 payload['summary'] = card_summary.body
-            await write_repo.insert_page_market_cluster(payload)
+            return payload
 
-        for source_link in source_links:
-            await write_repo.insert_page_article_link(
-                {key: value for key, value in source_link.items() if key != 'id'}
-                | {'page_market_id': new_market_ids[source_link['page_market_id']]}
-            )
+        await clone_child_rows(
+            source_indices,
+            new_market_ids=new_market_ids,
+            insert_fn=write_repo.insert_page_market_index,
+        )
+        await clone_child_rows(
+            source_clusters,
+            new_market_ids=new_market_ids,
+            insert_fn=write_repo.insert_page_market_cluster,
+            transform=apply_card_summary,
+        )
+        await clone_child_rows(
+            source_links,
+            new_market_ids=new_market_ids,
+            insert_fn=write_repo.insert_page_article_link,
+        )
 
         return AiRetryPageResult(
             page_id=page_id,
@@ -266,29 +279,6 @@ def _partial_message(issues: list[dict[str, Any]]) -> str | None:
 
 def _is_ai_only_legacy_partial(message: str) -> bool:
     return message.startswith(('AI summary fallback', 'Fallback processing was used'))
-
-
-def _metadata_string_list(
-    metadata: dict[str, Any],
-    key: str,
-    *,
-    fallback: list[str],
-) -> list[str]:
-    value = metadata.get(key)
-    if not isinstance(value, list):
-        return fallback
-    strings = [item for item in value if isinstance(item, str)]
-    return strings or fallback
-
-
-def _metadata_string(
-    metadata: dict[str, Any],
-    key: str,
-    *,
-    fallback: str | None,
-) -> str | None:
-    value = metadata.get(key)
-    return value if isinstance(value, str) else fallback
 
 
 __all__ = ['AiRetryPageBuilder']

@@ -12,10 +12,6 @@ from app.db.repositories.projections import (
 )
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
-
-
 class MarketContextRepository(PostgresRepository):
     """Persist immutable batch cutoffs and mutable per-market outcomes."""
 
@@ -37,7 +33,7 @@ class MarketContextRepository(PostgresRepository):
             FROM {context_table}
             WHERE batch_job_id = :job_id
             ORDER BY market_type
-            """.format(context_table=_qualified_table('batch_job_market_context'))
+            """.format(context_table=qualify_db_identifier('batch_job_market_context'))
         )
         result = await self.session.execute(statement, {'job_id': job_id})
         return self._models_from_mappings(
@@ -74,9 +70,9 @@ class MarketContextRepository(PostgresRepository):
             ORDER BY context.created_at DESC, context.id DESC
             LIMIT 1
             """.format(
-                context_table=_qualified_table('batch_job_market_context'),
-                job_table=_qualified_table('batch_job'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                context_table=qualify_db_identifier('batch_job_market_context'),
+                job_table=qualify_db_identifier('batch_job'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         result = await self.session.execute(
@@ -108,8 +104,8 @@ class MarketContextRepository(PostgresRepository):
             ORDER BY news_window_end_at DESC, id DESC
             LIMIT 1
             """.format(
-                context_table=_qualified_table('batch_job_market_context'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                context_table=qualify_db_identifier('batch_job_market_context'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         result = await self.session.execute(
@@ -144,8 +140,8 @@ class MarketContextRepository(PostgresRepository):
             )
             ON CONFLICT (batch_job_id, market_type) DO NOTHING
             """.format(
-                context_table=_qualified_table('batch_job_market_context'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                context_table=qualify_db_identifier('batch_job_market_context'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         await self.session.execute(
@@ -176,8 +172,8 @@ class MarketContextRepository(PostgresRepository):
             WHERE batch_job_id = :job_id
               AND market_type = CAST(:market_type AS {market_type_enum})
             """.format(
-                context_table=_qualified_table('batch_job_market_context'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                context_table=qualify_db_identifier('batch_job_market_context'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         await self.session.execute(
@@ -205,8 +201,8 @@ class MarketContextRepository(PostgresRepository):
             WHERE batch_job_id = :job_id
               AND market_type = CAST(:market_type AS {market_type_enum})
             """.format(
-                context_table=_qualified_table('batch_job_market_context'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                context_table=qualify_db_identifier('batch_job_market_context'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         await self.session.execute(

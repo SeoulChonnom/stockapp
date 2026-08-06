@@ -7,8 +7,9 @@ import math
 import os
 import random
 import socket
-from collections.abc import Callable
-from contextlib import suppress
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager, suppress
+from functools import partial
 from time import perf_counter
 from typing import Any, Protocol
 from uuid import UUID, uuid4
@@ -164,38 +165,28 @@ class DurableBatchWorker:
         if job is None:
             return False
         attempt_started_at = perf_counter()
-        log_batch_lifecycle(
+        log_dispatch_event = partial(
+            log_batch_lifecycle,
             LOGGER,
-            logging.INFO,
-            event='started',
             job_id=job.job_id,
             page_id=_job_page_id(job),
             reference_date=job.business_date,
             stage='DISPATCH',
         )
+        log_dispatch_event(logging.INFO, event='started')
         try:
             await self._dispatch_with_llm_retry_policy(job, lease_token)
         except BatchLeaseLostError as exc:
-            log_batch_lifecycle(
-                LOGGER,
+            log_dispatch_event(
                 logging.WARNING,
                 event='failed',
-                job_id=job.job_id,
-                page_id=_job_page_id(job),
-                reference_date=job.business_date,
-                stage='DISPATCH',
                 duration_seconds=perf_counter() - attempt_started_at,
                 exception=exc,
             )
         except LlmRetryableError as exc:
-            log_batch_lifecycle(
-                LOGGER,
+            log_dispatch_event(
                 logging.WARNING,
                 event='retry_scheduled',
-                job_id=job.job_id,
-                page_id=_job_page_id(job),
-                reference_date=job.business_date,
-                stage='DISPATCH',
                 duration_seconds=perf_counter() - attempt_started_at,
                 exception=exc,
             )
@@ -208,34 +199,28 @@ class DurableBatchWorker:
                 retry_delay_seconds=self._llm_retry_delay_seconds(job, exc),
             )
         except Exception as exc:
-            log_batch_lifecycle(
-                LOGGER,
+            log_dispatch_event(
                 logging.ERROR,
                 event='failed',
-                job_id=job.job_id,
-                page_id=_job_page_id(job),
-                reference_date=job.business_date,
-                stage='DISPATCH',
                 duration_seconds=perf_counter() - attempt_started_at,
                 exception=exc,
             )
             await self._release_failed_claim(job, lease_token, exc)
         else:
-            log_batch_lifecycle(
-                LOGGER,
+            log_dispatch_event(
                 logging.INFO,
                 event='completed',
-                job_id=job.job_id,
-                page_id=_job_page_id(job),
-                reference_date=job.business_date,
-                stage='DISPATCH',
                 duration_seconds=perf_counter() - attempt_started_at,
             )
         return True
 
-    async def _recover_expired_claims(self) -> None:
+    @asynccontextmanager
+    async def _repository(self) -> AsyncIterator[Any]:
         async with self._session_maker() as session:
-            repository = self._repository_factory(session)
+            yield self._repository_factory(session)
+
+    async def _recover_expired_claims(self) -> None:
+        async with self._repository() as repository:
             result = await repository.recover_expired_claims()
             await repository.commit()
         if result.requeued_count or result.failed_count:
@@ -246,8 +231,7 @@ class DurableBatchWorker:
             )
 
     async def _claim_next_job(self, lease_token: UUID) -> BatchJobRecord | None:
-        async with self._session_maker() as session:
-            repository = self._repository_factory(session)
+        async with self._repository() as repository:
             job = await repository.claim_next_job(
                 worker_id=self.worker_id,
                 lease_token=lease_token,
@@ -257,13 +241,11 @@ class DurableBatchWorker:
             return job
 
     async def _seconds_until_next_actionable_job(self) -> float | None:
-        async with self._session_maker() as session:
-            repository = self._repository_factory(session)
+        async with self._repository() as repository:
             return await repository.seconds_until_next_actionable_job()
 
     async def _heartbeat(self, job_id: int, lease_token: UUID) -> bool:
-        async with self._session_maker() as session:
-            repository = self._repository_factory(session)
+        async with self._repository() as repository:
             renewed = await repository.heartbeat_claim(
                 job_id=job_id,
                 worker_id=self.worker_id,
@@ -283,8 +265,7 @@ class DurableBatchWorker:
         error_message: str | None = None,
         retry_delay_seconds: int | None = None,
     ) -> None:
-        async with self._session_maker() as session:
-            repository = self._repository_factory(session)
+        async with self._repository() as repository:
             await repository.release_failed_claim(
                 job_id=job.job_id,
                 lease_token=lease_token,

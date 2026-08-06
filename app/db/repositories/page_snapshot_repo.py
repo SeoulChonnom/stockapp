@@ -6,38 +6,63 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.identifiers import qualify_db_identifier
+from app.db.repositories.base import PostgresRepository
+
+_PAGE_HEADER_BASE_COLUMNS: tuple[str, ...] = (
+    'id',
+    'business_date',
+    'version_no',
+    'page_title',
+    'status',
+    'global_headline',
+    'generated_at',
+    'partial_message',
+    'raw_news_count',
+    'processed_news_count',
+    'cluster_count',
+    'last_updated_at',
+    'metadata_json',
+)
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
+def _join_columns(columns: tuple[str, ...], indent: str) -> str:
+    return f',\n{indent}'.join(columns)
 
 
-class PageSnapshotRepository:
+_PAGE_HEADER_OUTER_COLUMNS_SQL = (
+    f'{_join_columns(_PAGE_HEADER_BASE_COLUMNS, " " * 16)},\n                is_latest'
+)
+_PAGE_HEADER_LATEST_COLUMNS_SQL = _join_columns(
+    (
+        *_PAGE_HEADER_BASE_COLUMNS[:-1],
+        'true as is_latest',
+        _PAGE_HEADER_BASE_COLUMNS[-1],
+    ),
+    ' ' * 16,
+)
+_PAGE_HEADER_INNER_COLUMNS_SQL = (
+    f'{_join_columns(_PAGE_HEADER_BASE_COLUMNS, " " * 20)},\n'
+    '                    (version_no = max(version_no) '
+    'over (partition by business_date)) as is_latest'
+)
+
+
+class PageSnapshotRepository(PostgresRepository):
     def __init__(self, session: AsyncSession) -> None:
-        self.session = session
+        super().__init__(session)
 
     async def get_latest_page_header(self) -> dict | None:
         statement = text(
             """
             select
-                id,
-                business_date,
-                version_no,
-                page_title,
-                status,
-                global_headline,
-                generated_at,
-                partial_message,
-                raw_news_count,
-                processed_news_count,
-                cluster_count,
-                last_updated_at,
-                true as is_latest,
-                metadata_json
+                {columns}
             from {page_table}
             order by business_date desc, version_no desc
             limit 1
-            """.format(page_table=_qualified_table('market_daily_page'))
+            """.format(
+                columns=_PAGE_HEADER_LATEST_COLUMNS_SQL,
+                page_table=qualify_db_identifier('market_daily_page'),
+            )
         )
         result = await self.session.execute(statement)
         row = self._first_row(result)
@@ -52,84 +77,40 @@ class PageSnapshotRepository:
             statement = text(
                 """
                 select
-                    id,
-                    business_date,
-                    version_no,
-                    page_title,
-                    status,
-                    global_headline,
-                    generated_at,
-                    partial_message,
-                    raw_news_count,
-                    processed_news_count,
-                    cluster_count,
-                    last_updated_at,
-                    metadata_json,
-                    is_latest
+                    {outer_columns}
                 from (
                     select
-                        id,
-                        business_date,
-                        version_no,
-                        page_title,
-                        status,
-                        global_headline,
-                        generated_at,
-                        partial_message,
-                        raw_news_count,
-                        processed_news_count,
-                        cluster_count,
-                        last_updated_at,
-                        metadata_json,
-                        (version_no = max(version_no) over (partition by business_date)) as is_latest
+                        {inner_columns}
                     from {page_table}
                     where business_date = :business_date
                 ) page_versions
                 order by version_no desc
                 limit 1
-                """.format(page_table=_qualified_table('market_daily_page'))
+                """.format(
+                    outer_columns=_PAGE_HEADER_OUTER_COLUMNS_SQL,
+                    inner_columns=_PAGE_HEADER_INNER_COLUMNS_SQL,
+                    page_table=qualify_db_identifier('market_daily_page'),
+                )
             ).bindparams(bindparam('business_date', business_date))
         else:
             statement = text(
                 """
                 select
-                    id,
-                    business_date,
-                    version_no,
-                    page_title,
-                    status,
-                    global_headline,
-                    generated_at,
-                    partial_message,
-                    raw_news_count,
-                    processed_news_count,
-                    cluster_count,
-                    last_updated_at,
-                    metadata_json,
-                    is_latest
+                    {outer_columns}
                 from (
                     select
-                        id,
-                        business_date,
-                        version_no,
-                        page_title,
-                        status,
-                        global_headline,
-                        generated_at,
-                        partial_message,
-                        raw_news_count,
-                        processed_news_count,
-                        cluster_count,
-                        last_updated_at,
-                        metadata_json,
-                        (version_no = max(version_no) over (partition by business_date)) as is_latest
+                        {inner_columns}
                     from {page_table}
                     where business_date = :business_date
                 ) page_versions
                 where version_no = :version_no
                 order by version_no desc
                 limit 1
-                """.format(page_table=_qualified_table('market_daily_page'))
+                """.format(
+                    outer_columns=_PAGE_HEADER_OUTER_COLUMNS_SQL,
+                    inner_columns=_PAGE_HEADER_INNER_COLUMNS_SQL,
+                    page_table=qualify_db_identifier('market_daily_page'),
+                )
             ).bindparams(
                 bindparam('business_date', business_date),
                 bindparam('version_no', version_no),
@@ -142,40 +123,18 @@ class PageSnapshotRepository:
         statement = text(
             """
             SELECT
-                id,
-                business_date,
-                version_no,
-                page_title,
-                status,
-                global_headline,
-                generated_at,
-                partial_message,
-                raw_news_count,
-                processed_news_count,
-                cluster_count,
-                last_updated_at,
-                metadata_json,
-                is_latest
+                {outer_columns}
             FROM (
                 SELECT
-                    id,
-                    business_date,
-                    version_no,
-                    page_title,
-                    status,
-                    global_headline,
-                    generated_at,
-                    partial_message,
-                    raw_news_count,
-                    processed_news_count,
-                    cluster_count,
-                    last_updated_at,
-                    metadata_json,
-                    (version_no = max(version_no) over (partition by business_date)) as is_latest
+                    {inner_columns}
                 FROM {page_table}
             ) page_versions
             WHERE id = :page_id
-            """.format(page_table=_qualified_table('market_daily_page'))
+            """.format(
+                outer_columns=_PAGE_HEADER_OUTER_COLUMNS_SQL,
+                inner_columns=_PAGE_HEADER_INNER_COLUMNS_SQL,
+                page_table=qualify_db_identifier('market_daily_page'),
+            )
         ).bindparams(bindparam('page_id', page_id))
         result = await self.session.execute(statement)
         row = self._first_row(result)
@@ -188,7 +147,7 @@ class PageSnapshotRepository:
             from {page_table}
             where business_date = :business_date
             limit 1
-            """.format(page_table=_qualified_table('market_daily_page'))
+            """.format(page_table=qualify_db_identifier('market_daily_page'))
         ).bindparams(bindparam('business_date', business_date))
         result = await self.session.execute(statement)
         return self._first_row(result) is not None
@@ -199,7 +158,7 @@ class PageSnapshotRepository:
             select max(version_no)
             from {page_table}
             where business_date = :business_date
-            """.format(page_table=_qualified_table('market_daily_page'))
+            """.format(page_table=qualify_db_identifier('market_daily_page'))
         ).bindparams(bindparam('business_date', business_date))
         result = await self.session.execute(statement)
         value = result.scalar_one_or_none()
@@ -234,7 +193,9 @@ class PageSnapshotRepository:
             FROM {page_market_table}
             WHERE page_id = :page_id
             ORDER BY display_order
-            """.format(page_market_table=_qualified_table('market_daily_page_market'))
+            """.format(
+                page_market_table=qualify_db_identifier('market_daily_page_market')
+            )
         ).bindparams(bindparam('page_id', page_id))
         result = await self.session.execute(statement)
         return [self._row_to_dict(row) for row in result.all()]
@@ -264,7 +225,7 @@ class PageSnapshotRepository:
             WHERE page_market_id IN :page_market_ids
             ORDER BY page_market_id, display_order
             """.format(
-                page_market_index_table=_qualified_table(
+                page_market_index_table=qualify_db_identifier(
                     'market_daily_page_market_index'
                 )
             )
@@ -297,7 +258,7 @@ class PageSnapshotRepository:
             WHERE page_market_id IN :page_market_ids
             ORDER BY page_market_id, display_order
             """.format(
-                page_market_cluster_table=_qualified_table(
+                page_market_cluster_table=qualify_db_identifier(
                     'market_daily_page_market_cluster'
                 )
             )
@@ -327,7 +288,7 @@ class PageSnapshotRepository:
             WHERE page_market_id IN :page_market_ids
             ORDER BY page_market_id, display_order
             """.format(
-                page_article_link_table=_qualified_table(
+                page_article_link_table=qualify_db_identifier(
                     'market_daily_page_article_link'
                 )
             )
@@ -362,7 +323,7 @@ class PageSnapshotRepository:
             ORDER BY business_date DESC, version_no DESC, id DESC
             LIMIT :limit OFFSET :offset
             """.format(
-                page_table=_qualified_table('market_daily_page'),
+                page_table=qualify_db_identifier('market_daily_page'),
                 where_clause=filters['where'],
             )
         ).bindparams(
@@ -393,26 +354,12 @@ class PageSnapshotRepository:
                 ORDER BY business_date DESC, version_no DESC, id DESC
             ) AS archive_dates
             """.format(
-                page_table=_qualified_table('market_daily_page'),
+                page_table=qualify_db_identifier('market_daily_page'),
                 where_clause=filters['where'],
             )
         ).bindparams(*filters['bindparams'])
         result = await self.session.execute(statement)
         return int(result.scalar_one())
-
-    @staticmethod
-    def _row_to_dict(row: object) -> dict:
-        mapping = getattr(row, '_mapping', None)
-        if mapping is not None:
-            return dict(mapping)
-        return dict(row)  # type: ignore[arg-type]
-
-    @staticmethod
-    def _first_row(result: object) -> object | None:
-        if hasattr(result, 'one_or_none'):
-            return result.one_or_none()  # type: ignore[no-any-return]
-        rows = result.all()  # type: ignore[no-any-return]
-        return rows[0] if rows else None
 
     @staticmethod
     def _build_filters(
@@ -431,7 +378,7 @@ class PageSnapshotRepository:
             params.append(bindparam('to_date', to_date))
         if status is not None:
             clauses.append(
-                f'status = CAST(UPPER(:status) AS {_qualified_table("page_status_enum")})'
+                f'status = CAST(UPPER(:status) AS {qualify_db_identifier("page_status_enum")})'
             )
             params.append(bindparam('status', status))
         where = f'WHERE {" AND ".join(clauses)}' if clauses else ''

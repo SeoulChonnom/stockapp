@@ -4,10 +4,8 @@ from datetime import date
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps.auth import CurrentUser, require_roles
-from app.api.deps.db import get_db_session
+from app.api.deps import DbSession, UserDep
 from app.core.response import ApiSuccess
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.domains.archive.assembler import assemble_archive_list_response
@@ -15,11 +13,9 @@ from app.domains.archive.service import ArchiveService
 from app.schemas.page import ArchiveListResponse
 
 router = APIRouter(prefix='/pages', tags=['archive'])
-type DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
-type UserDep = Annotated[CurrentUser, Depends(require_roles('USER', 'ADMIN'))]
 
 
-def get_archive_service(session: DbSessionDep) -> ArchiveService:
+def get_archive_service(session: DbSession) -> ArchiveService:
     return ArchiveService(PageSnapshotRepository(session))
 
 

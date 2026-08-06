@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from hashlib import sha256
 from html import unescape
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 _HTML_TAG_RE = re.compile(r'<[^>]+>')
@@ -60,10 +61,30 @@ def tokenize_text(value: str | None) -> list[str]:
     return seen
 
 
+def metadata_string_list(
+    metadata: dict[str, Any], key: str, *, fallback: list[str] | None = None
+) -> list[str]:
+    resolved_fallback = fallback if fallback is not None else []
+    value = metadata.get(key)
+    if not isinstance(value, list):
+        return resolved_fallback
+    strings = [item for item in value if isinstance(item, str)]
+    return strings or resolved_fallback
+
+
+def metadata_optional_string(
+    metadata: dict[str, Any], key: str, *, fallback: str | None = None
+) -> str | None:
+    value = metadata.get(key)
+    return value if isinstance(value, str) else fallback
+
+
 __all__ = [
     'build_dedupe_hash',
     'canonicalize_link',
     'excerpt_text',
+    'metadata_optional_string',
+    'metadata_string_list',
     'normalize_title',
     'normalize_whitespace',
     'strip_html',

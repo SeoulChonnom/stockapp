@@ -29,6 +29,7 @@ from app.db.repositories.projections import (
     NewsCollectionRunRecord,
 )
 from app.domains.batches.assembler import (
+    build_ai_retry_run_payload,
     build_batch_job_detail_payload,
     build_batch_job_list_payload,
     build_batch_run_payload,
@@ -354,19 +355,7 @@ class BatchesService:
                 },
             )
         await enqueuer.commit()
-        job = result.job
-        return {
-            'jobId': job.job_id,
-            'jobName': job.job_name,
-            'businessDate': job.business_date.isoformat(),
-            'status': job.status,
-            'runMode': job.run_mode,
-            'sourceJobId': job.source_job_id,
-            'sourcePageId': job.source_page_id,
-            'idempotencyKey': job.idempotency_key,
-            'startedAt': job.started_at.isoformat(),
-            '_created': result.created,
-        }
+        return build_ai_retry_run_payload(result.job, created=result.created)
 
 
 def _validate_idempotent_replay(

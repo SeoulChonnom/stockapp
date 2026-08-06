@@ -14,10 +14,6 @@ from app.db.repositories.projections import (
 )
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
-
-
 class NewsClusterWriteRepository(PostgresRepository):
     async def list_cluster_ids_for_business_date(
         self,
@@ -32,8 +28,8 @@ class NewsClusterWriteRepository(PostgresRepository):
               AND market_type = CAST(:market_type AS {market_type_enum})
             ORDER BY cluster_rank ASC
             """.format(
-                cluster_table=_qualified_table('news_cluster'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                cluster_table=qualify_db_identifier('news_cluster'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         result = await self.session.execute(
@@ -49,7 +45,7 @@ class NewsClusterWriteRepository(PostgresRepository):
             """
             DELETE FROM {cluster_table}
             WHERE id IN :cluster_ids
-            """.format(cluster_table=_qualified_table('news_cluster'))
+            """.format(cluster_table=qualify_db_identifier('news_cluster'))
         ).bindparams(bindparam('cluster_ids', expanding=True))
         await self.session.execute(statement, {'cluster_ids': tuple(cluster_ids)})
 
@@ -97,8 +93,8 @@ class NewsClusterWriteRepository(PostgresRepository):
                 cluster_uid,
                 cluster_rank
             """.format(
-                cluster_table=_qualified_table('news_cluster'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                cluster_table=qualify_db_identifier('news_cluster'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         result = await self.session.execute(
@@ -128,7 +124,9 @@ class NewsClusterWriteRepository(PostgresRepository):
             """
             DELETE FROM {cluster_article_table}
             WHERE cluster_id = :cluster_id
-            """.format(cluster_article_table=_qualified_table('news_cluster_article'))
+            """.format(
+                cluster_article_table=qualify_db_identifier('news_cluster_article')
+            )
         )
         await self.session.execute(delete_statement, {'cluster_id': cluster_id})
 
@@ -146,7 +144,7 @@ class NewsClusterWriteRepository(PostgresRepository):
                     :article_rank
                 )
                 """.format(
-                    cluster_article_table=_qualified_table('news_cluster_article')
+                    cluster_article_table=qualify_db_identifier('news_cluster_article')
                 )
             )
             for membership in memberships:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from app.core.exceptions import ValidationError
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.domains.archive.assembler import build_archive_list_payload
 
@@ -22,7 +23,9 @@ class ArchiveService:
     ) -> dict[str, object]:
         normalized_status = status.upper() if status is not None else None
         if normalized_status is not None and normalized_status not in ARCHIVE_STATUSES:
-            raise ValueError(f'Unsupported archive status: {status}')
+            raise ValidationError(
+                'UNSUPPORTED_ARCHIVE_STATUS', f'Unsupported archive status: {status}'
+            )
         items = await self._repo.list_archive_page_headers(
             from_date=from_date,
             to_date=to_date,

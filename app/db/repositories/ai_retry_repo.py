@@ -9,8 +9,16 @@ from sqlalchemy import text
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 
+from app.db.enums import BatchJobStatus
 from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
+from app.db.repositories.sql_fragments import (
+    DURATION_SECONDS_EXPR,
+    lease_null_assignments_sql,
+)
+
+_STATUS_PENDING = BatchJobStatus.PENDING.value
+_STATUS_RUNNING = BatchJobStatus.RUNNING.value
 
 
 def _qualified_table(table_name: str) -> str:
@@ -250,7 +258,7 @@ class PostgresAiRetryRepository(PostgresRepository):
             )
             VALUES (
                 :business_date,
-                'PENDING',
+                '{status_pending}',
                 'ADMIN_REBUILD',
                 CAST(:triggered_by_user_id AS TEXT),
                 FALSE,
@@ -280,7 +288,10 @@ class PostgresAiRetryRepository(PostgresRepository):
                 ai_fallback_count,
                 ai_failed_count,
                 ai_recovered_count
-            """.format(batch_job_table=_qualified_table('batch_job'))
+            """.format(
+                batch_job_table=_qualified_table('batch_job'),
+                status_pending=_STATUS_PENDING,
+            )
         )
         params = {
             'business_date': source.business_date,
@@ -322,7 +333,7 @@ class PostgresAiRetryRepository(PostgresRepository):
         if lease_token is not None:
             lease_predicate = (
                 'AND lease_token = :lease_token '
-                "AND status = 'RUNNING' AND lease_expires_at > now()"
+                f"AND status = '{_STATUS_RUNNING}' AND lease_expires_at > now()"
             )
         statement = text(
             """
@@ -330,10 +341,7 @@ class PostgresAiRetryRepository(PostgresRepository):
             SET
                 status = CAST(:status AS {status_enum}),
                 ended_at = now(),
-                duration_seconds = GREATEST(
-                    EXTRACT(EPOCH FROM (now() - started_at))::int,
-                    0
-                ),
+                duration_seconds = {duration_seconds_expr},
                 page_id = :page_id,
                 page_version_no = :page_version_no,
                 partial_message = :partial_message,
@@ -344,16 +352,15 @@ class PostgresAiRetryRepository(PostgresRepository):
                 ai_fallback_count = :ai_fallback_count,
                 ai_failed_count = :ai_failed_count,
                 ai_recovered_count = :ai_recovered_count,
-                lease_owner = NULL,
-                lease_token = NULL,
-                lease_expires_at = NULL,
-                heartbeat_at = NULL,
+                {lease_null_assignments}
                 updated_at = now()
             WHERE id = :job_id
             {lease_predicate}
             """.format(
                 batch_job_table=_qualified_table('batch_job'),
                 status_enum=_qualified_table('batch_job_status_enum'),
+                duration_seconds_expr=DURATION_SECONDS_EXPR,
+                lease_null_assignments=lease_null_assignments_sql(' ' * 16),
                 lease_predicate=lease_predicate,
             )
         )

@@ -13,10 +13,6 @@ from app.db.repositories.projections import (
 )
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
-
-
 class NewsCollectionRunRepository(PostgresRepository):
     async def get_by_job_id(self, job_id: int) -> NewsCollectionRunRecord | None:
         return await self._get_one('run.batch_job_id = :job_id', {'job_id': job_id})
@@ -67,7 +63,7 @@ class NewsCollectionRunRepository(PostgresRepository):
             FROM {run_table} run
             WHERE {predicate}
             """.format(
-                run_table=_qualified_table('news_collection_run'),
+                run_table=qualify_db_identifier('news_collection_run'),
                 predicate=predicate,
             )
         )
@@ -119,7 +115,7 @@ class NewsCollectionRunRepository(PostgresRepository):
                 coverage_complete,
                 created_at,
                 updated_at
-            """.format(run_table=_qualified_table('news_collection_run'))
+            """.format(run_table=qualify_db_identifier('news_collection_run'))
         )
         result = await self.session.execute(
             statement,
@@ -182,8 +178,10 @@ class NewsCollectionRunRepository(PostgresRepository):
                 error_message = EXCLUDED.error_message,
                 updated_at = now()
             """.format(
-                diagnostic_table=_qualified_table('news_collection_keyword_diagnostic'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                diagnostic_table=qualify_db_identifier(
+                    'news_collection_keyword_diagnostic'
+                ),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         await self.session.execute(
@@ -227,7 +225,7 @@ class NewsCollectionRunRepository(PostgresRepository):
                 coverage_complete = :coverage_complete,
                 updated_at = now()
             WHERE id = :run_id
-            """.format(run_table=_qualified_table('news_collection_run'))
+            """.format(run_table=qualify_db_identifier('news_collection_run'))
         )
         await self.session.execute(
             statement,
@@ -283,10 +281,12 @@ class NewsCollectionRunRepository(PostgresRepository):
               )
             ORDER BY run.window_start_at, run.window_end_at
             """.format(
-                run_table=_qualified_table('news_collection_run'),
-                job_table=_qualified_table('batch_job'),
-                diagnostic_table=_qualified_table('news_collection_keyword_diagnostic'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                run_table=qualify_db_identifier('news_collection_run'),
+                job_table=qualify_db_identifier('batch_job'),
+                diagnostic_table=qualify_db_identifier(
+                    'news_collection_keyword_diagnostic'
+                ),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         result = await self.session.execute(

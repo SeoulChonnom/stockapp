@@ -1,25 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
 
 from pydantic import BaseModel, field_validator
 
-from app.core.timezone import isoformat_datetime
-
-
-def _normalize_timestamp(value: Any) -> Any:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return isoformat_datetime(value)
-    if isinstance(value, str):
-        try:
-            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
-        except ValueError:
-            return value
-        return isoformat_datetime(parsed)
-    return value
+from app.schemas.common import normalize_timestamp as _normalize_timestamp
 
 
 class ClusterSummaryResponse(BaseModel):

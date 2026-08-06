@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 
 from fastapi import FastAPI, Request
@@ -5,6 +6,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.core.response import ApiError, ApiErrorDetail
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -34,6 +37,11 @@ class ForbiddenError(AppError):
         super().__init__(code=code, message=message, status_code=403)
 
 
+class ValidationError(AppError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(code=code, message=message, status_code=400)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
@@ -55,7 +63,8 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(status_code=422, content=payload.model_dump(mode='json'))
 
     @app.exception_handler(Exception)
-    async def handle_unexpected_error(_: Request, __: Exception) -> JSONResponse:
+    async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
+        logger.exception('Unhandled exception while processing request.', exc_info=exc)
         payload = ApiError(
             error=ApiErrorDetail(
                 code='INTERNAL_SERVER_ERROR',
@@ -71,5 +80,6 @@ __all__ = [
     'ForbiddenError',
     'NotFoundError',
     'UnauthorizedError',
+    'ValidationError',
     'register_exception_handlers',
 ]

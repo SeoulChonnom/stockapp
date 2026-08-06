@@ -60,6 +60,29 @@ class MarketDailyBatchOrchestrator:
             last_committed_context: BatchExecutionContext | None = None
             current_step_code = 'ORCHESTRATE'
             current_step_started_at: float | None = None
+
+            def log_stage_event(
+                event: str,
+                level: int,
+                stage: str,
+                *,
+                duration_seconds: float | None = None,
+                exception: BaseException | None = None,
+            ) -> None:
+                log_batch_lifecycle(
+                    LOGGER,
+                    level,
+                    event=event,
+                    job_id=job_id,
+                    page_id=_context_page_id(context),
+                    reference_date=(
+                        context.business_date if context is not None else None
+                    ),
+                    stage=stage,
+                    duration_seconds=duration_seconds,
+                    exception=exception,
+                )
+
             try:
                 job = await repository.get_job_by_id(job_id)
                 if job is None:
@@ -79,15 +102,7 @@ class MarketDailyBatchOrchestrator:
                     source_job_id=getattr(job, 'source_job_id', None),
                     source_page_id=getattr(job, 'source_page_id', None),
                 )
-                log_batch_lifecycle(
-                    LOGGER,
-                    logging.INFO,
-                    event='started',
-                    job_id=job_id,
-                    page_id=_context_page_id(context),
-                    reference_date=context.business_date,
-                    stage='ORCHESTRATE',
-                )
+                log_stage_event('started', logging.INFO, 'ORCHESTRATE')
                 completed_steps = _completed_steps(checkpoint)
                 await repository.add_event(
                     job_id=job_id,
@@ -104,27 +119,11 @@ class MarketDailyBatchOrchestrator:
                         type(step).__name__.upper(),
                     )
                     if step_code in completed_steps:
-                        log_batch_lifecycle(
-                            LOGGER,
-                            logging.INFO,
-                            event='skipped',
-                            job_id=job_id,
-                            page_id=_context_page_id(context),
-                            reference_date=context.business_date,
-                            stage=step_code,
-                        )
+                        log_stage_event('skipped', logging.INFO, step_code)
                         continue
                     current_step_code = step_code
                     current_step_started_at = perf_counter()
-                    log_batch_lifecycle(
-                        LOGGER,
-                        logging.INFO,
-                        event='started',
-                        job_id=job_id,
-                        page_id=_context_page_id(context),
-                        reference_date=context.business_date,
-                        stage=step_code,
-                    )
+                    log_stage_event('started', logging.INFO, step_code)
                     if lease_token is not None:
                         step_started = await repository.begin_step(
                             job_id=job_id,
@@ -156,50 +155,32 @@ class MarketDailyBatchOrchestrator:
                             )
                     await repository.commit()
                     last_committed_context = deepcopy(context)
-                    log_batch_lifecycle(
-                        LOGGER,
+                    log_stage_event(
+                        'completed',
                         logging.INFO,
-                        event='completed',
-                        job_id=job_id,
-                        page_id=_context_page_id(context),
-                        reference_date=context.business_date,
-                        stage=step_code,
+                        step_code,
                         duration_seconds=perf_counter() - current_step_started_at,
                     )
                     current_step_started_at = None
-                log_batch_lifecycle(
-                    LOGGER,
+                log_stage_event(
+                    'completed',
                     logging.INFO,
-                    event='completed',
-                    job_id=job_id,
-                    page_id=_context_page_id(context),
-                    reference_date=context.business_date,
-                    stage='ORCHESTRATE',
+                    'ORCHESTRATE',
                     duration_seconds=perf_counter() - orchestrator_started_at,
                 )
             except Exception as exc:
                 if context is not None and current_step_started_at is not None:
-                    log_batch_lifecycle(
-                        LOGGER,
+                    log_stage_event(
+                        'failed',
                         logging.ERROR,
-                        event='failed',
-                        job_id=job_id,
-                        page_id=_context_page_id(context),
-                        reference_date=context.business_date,
-                        stage=current_step_code,
+                        current_step_code,
                         duration_seconds=perf_counter() - current_step_started_at,
                         exception=exc,
                     )
-                log_batch_lifecycle(
-                    LOGGER,
+                log_stage_event(
+                    'failed',
                     logging.ERROR,
-                    event='failed',
-                    job_id=job_id,
-                    page_id=_context_page_id(context),
-                    reference_date=(
-                        context.business_date if context is not None else None
-                    ),
-                    stage='ORCHESTRATE',
+                    'ORCHESTRATE',
                     duration_seconds=perf_counter() - orchestrator_started_at,
                     exception=exc,
                 )

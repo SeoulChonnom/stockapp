@@ -11,10 +11,6 @@ from app.db.repositories.projections import (
 )
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
-
-
 class NewsSearchKeywordRepository(PostgresRepository):
     async def get_keyword_by_id(
         self, keyword_id: int
@@ -32,7 +28,7 @@ class NewsSearchKeywordRepository(PostgresRepository):
                 updated_at
             FROM {keyword_table}
             WHERE id = :keyword_id
-            """.format(keyword_table=_qualified_table('news_search_keyword'))
+            """.format(keyword_table=qualify_db_identifier('news_search_keyword'))
         ).bindparams(bindparam('keyword_id', keyword_id))
         result = await self.session.execute(statement)
         row = result.mappings().one_or_none()
@@ -54,7 +50,7 @@ class NewsSearchKeywordRepository(PostgresRepository):
         if market_type is not None:
             where_clauses.append(
                 f'market_type = CAST(:market_type AS '
-                f'{_qualified_table("market_type_enum")})'
+                f'{qualify_db_identifier("market_type_enum")})'
             )
             params['market_type'] = market_type
         if is_active is not None:
@@ -80,7 +76,7 @@ class NewsSearchKeywordRepository(PostgresRepository):
             {where_sql}
             ORDER BY provider_name ASC, market_type ASC, priority ASC, id ASC
             """.format(
-                keyword_table=_qualified_table('news_search_keyword'),
+                keyword_table=qualify_db_identifier('news_search_keyword'),
                 where_sql=where_sql,
             )
         )
@@ -131,8 +127,8 @@ class NewsSearchKeywordRepository(PostgresRepository):
                 created_at,
                 updated_at
             """.format(
-                keyword_table=_qualified_table('news_search_keyword'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                keyword_table=qualify_db_identifier('news_search_keyword'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         result = await self.session.execute(
@@ -172,7 +168,7 @@ class NewsSearchKeywordRepository(PostgresRepository):
                 priority,
                 created_at,
                 updated_at
-            """.format(keyword_table=_qualified_table('news_search_keyword'))
+            """.format(keyword_table=qualify_db_identifier('news_search_keyword'))
         )
         result = await self.session.execute(
             statement,

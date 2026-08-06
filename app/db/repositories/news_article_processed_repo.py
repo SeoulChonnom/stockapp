@@ -14,10 +14,6 @@ from app.db.repositories.projections import (
 )
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
-
-
 class NewsArticleProcessedRepository(PostgresRepository):
     async def get_processed_by_dedupe_hash(
         self,
@@ -47,8 +43,8 @@ class NewsArticleProcessedRepository(PostgresRepository):
               AND market_type = CAST(:market_type AS {market_type_enum})
               AND dedupe_hash = :dedupe_hash
             """.format(
-                processed_table=_qualified_table('news_article_processed'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                processed_table=qualify_db_identifier('news_article_processed'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         result = await self.session.execute(
@@ -75,7 +71,7 @@ class NewsArticleProcessedRepository(PostgresRepository):
         if market_type is not None:
             where_clauses.append(
                 f'market_type = CAST(:market_type AS '
-                f'{_qualified_table("market_type_enum")})'
+                f'{qualify_db_identifier("market_type_enum")})'
             )
             params['market_type'] = market_type
 
@@ -100,7 +96,7 @@ class NewsArticleProcessedRepository(PostgresRepository):
             WHERE {where_sql}
             ORDER BY market_type ASC, published_at DESC NULLS LAST, id ASC
             """.format(
-                processed_table=_qualified_table('news_article_processed'),
+                processed_table=qualify_db_identifier('news_article_processed'),
                 where_sql=' AND '.join(where_clauses),
             )
         )
@@ -168,8 +164,8 @@ class NewsArticleProcessedRepository(PostgresRepository):
                 created_at,
                 updated_at
             """.format(
-                processed_table=_qualified_table('news_article_processed'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                processed_table=qualify_db_identifier('news_article_processed'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         result = await self.session.execute(
@@ -215,7 +211,9 @@ class NewsArticleProcessedRepository(PostgresRepository):
                 :processed_article_id
             )
             ON CONFLICT (raw_article_id, processed_article_id) DO NOTHING
-            """.format(mapping_table=_qualified_table('news_article_raw_processed_map'))
+            """.format(
+                mapping_table=qualify_db_identifier('news_article_raw_processed_map')
+            )
         )
         await self.session.execute(
             statement,

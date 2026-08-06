@@ -11,10 +11,6 @@ from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
-
-
 def _page_version_lock_key(business_date: date) -> int:
     lock_identity = f'market_daily_page:{business_date.isoformat()}'
     digest = sha256(lock_identity.encode('utf-8')).digest()
@@ -34,7 +30,7 @@ class PageSnapshotWriteRepository(PostgresRepository):
             SELECT COALESCE(MAX(version_no), 0) + 1
             FROM {page_table}
             WHERE business_date = :business_date
-            """.format(page_table=_qualified_table('market_daily_page'))
+            """.format(page_table=qualify_db_identifier('market_daily_page'))
         )
         result = await self.session.execute(statement, {'business_date': business_date})
         return int(result.scalar_one())
@@ -84,8 +80,8 @@ class PageSnapshotWriteRepository(PostgresRepository):
             )
             RETURNING id
             """.format(
-                page_table=_qualified_table('market_daily_page'),
-                status_enum=_qualified_table('page_status_enum'),
+                page_table=qualify_db_identifier('market_daily_page'),
+                status_enum=qualify_db_identifier('page_status_enum'),
             )
         )
         result = await self.session.execute(
@@ -179,8 +175,8 @@ class PageSnapshotWriteRepository(PostgresRepository):
             )
             RETURNING id
             """.format(
-                page_market_table=_qualified_table('market_daily_page_market'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                page_market_table=qualify_db_identifier('market_daily_page_market'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         result = await self.session.execute(
@@ -246,7 +242,9 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 :low_price,
                 :currency_code
             )
-            """.format(index_table=_qualified_table('market_daily_page_market_index'))
+            """.format(
+                index_table=qualify_db_identifier('market_daily_page_market_index')
+            )
         )
         await self.session.execute(statement, params)
 
@@ -286,7 +284,7 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 :representative_naver_link
             )
             """.format(
-                cluster_table=_qualified_table('market_daily_page_market_cluster')
+                cluster_table=qualify_db_identifier('market_daily_page_market_cluster')
             )
         )
         payload = dict(params)
@@ -322,7 +320,9 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 :origin_link,
                 :naver_link
             )
-            """.format(article_table=_qualified_table('market_daily_page_article_link'))
+            """.format(
+                article_table=qualify_db_identifier('market_daily_page_article_link')
+            )
         )
         await self.session.execute(statement, params)
 

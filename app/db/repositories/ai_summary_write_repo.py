@@ -10,10 +10,6 @@ from app.db.repositories.base import PostgresRepository
 from app.db.repositories.projections import AiSummaryCreateParams, AiSummaryRecord
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
-
-
 class AiSummaryWriteRepository(PostgresRepository):
     async def insert_summary(self, params: AiSummaryCreateParams) -> AiSummaryRecord:
         statement = text(
@@ -77,10 +73,10 @@ class AiSummaryWriteRepository(PostgresRepository):
                 attempt_no,
                 generated_at
             """.format(
-                summary_table=_qualified_table('ai_summary'),
-                summary_type_enum=_qualified_table('ai_summary_type_enum'),
-                market_type_enum=_qualified_table('market_type_enum'),
-                status_enum=_qualified_table('ai_summary_status_enum'),
+                summary_table=qualify_db_identifier('ai_summary'),
+                summary_type_enum=qualify_db_identifier('ai_summary_type_enum'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
+                status_enum=qualify_db_identifier('ai_summary_status_enum'),
             )
         )
         target_key = params.target_key or build_ai_summary_target_key(
@@ -197,10 +193,10 @@ class AiSummaryWriteRepository(PostgresRepository):
                 attempt_no,
                 generated_at
             """.format(
-                summary_table=_qualified_table('ai_summary'),
-                summary_type_enum=_qualified_table('ai_summary_type_enum'),
-                market_type_enum=_qualified_table('market_type_enum'),
-                status_enum=_qualified_table('ai_summary_status_enum'),
+                summary_table=qualify_db_identifier('ai_summary'),
+                summary_type_enum=qualify_db_identifier('ai_summary_type_enum'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
+                status_enum=qualify_db_identifier('ai_summary_status_enum'),
             )
         )
         params_dict = {
@@ -262,7 +258,7 @@ class AiSummaryWriteRepository(PostgresRepository):
             FROM {summary_table}
             WHERE batch_job_id = :job_id
               AND target_key = :target_key
-            """.format(summary_table=_qualified_table('ai_summary'))
+            """.format(summary_table=qualify_db_identifier('ai_summary'))
         )
         result = await self.session.execute(
             statement, {'job_id': job_id, 'target_key': target_key}
@@ -296,7 +292,7 @@ class AiSummaryWriteRepository(PostgresRepository):
             FROM {summary_table}
             WHERE batch_job_id = :job_id
             ORDER BY generated_at ASC, id ASC
-            """.format(summary_table=_qualified_table('ai_summary'))
+            """.format(summary_table=qualify_db_identifier('ai_summary'))
         )
         result = await self.session.execute(statement, {'job_id': job_id})
         return self._models_from_mappings(AiSummaryRecord, result.mappings().all())

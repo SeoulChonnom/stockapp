@@ -18,7 +18,7 @@ from app.batch.ai_retry.resolver import (
 )
 from app.batch.exceptions import BatchLeaseLostError
 from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
-from app.batch.steps.generate_ai_summaries import (
+from app.batch.steps.ai_summary_generators import (
     _generate_cluster_card_summary,
     _generate_cluster_detail_summary,
     _generate_global_headline,

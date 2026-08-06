@@ -13,10 +13,6 @@ from app.db.repositories.projections import (
 )
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
-
-
 class NewsArticleRawRepository(PostgresRepository):
     async def count_articles_by_business_date(self, business_date: date) -> int:
         statement = text(
@@ -24,7 +20,7 @@ class NewsArticleRawRepository(PostgresRepository):
             SELECT COUNT(*)
             FROM {raw_table}
             WHERE business_date = :business_date
-            """.format(raw_table=_qualified_table('news_article_raw'))
+            """.format(raw_table=qualify_db_identifier('news_article_raw'))
         )
         result = await self.session.execute(
             statement,
@@ -43,7 +39,7 @@ class NewsArticleRawRepository(PostgresRepository):
         if market_type is not None:
             where_clauses.append(
                 f'market_type = CAST(:market_type AS '
-                f'{_qualified_table("market_type_enum")})'
+                f'{qualify_db_identifier("market_type_enum")})'
             )
             params['market_type'] = market_type
 
@@ -68,7 +64,7 @@ class NewsArticleRawRepository(PostgresRepository):
             WHERE {where_sql}
             ORDER BY market_type ASC, published_at DESC NULLS LAST, id ASC
             """.format(
-                raw_table=_qualified_table('news_article_raw'),
+                raw_table=qualify_db_identifier('news_article_raw'),
                 where_sql=' AND '.join(where_clauses),
             )
         )
@@ -115,9 +111,11 @@ class NewsArticleRawRepository(PostgresRepository):
               AND published_at < :window_end_at
             ORDER BY published_at DESC, id ASC
             """.format(
-                raw_table=_qualified_table('news_article_raw'),
-                keyword_match_table=_qualified_table('news_article_raw_keyword_match'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                raw_table=qualify_db_identifier('news_article_raw'),
+                keyword_match_table=qualify_db_identifier(
+                    'news_article_raw_keyword_match'
+                ),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         result = await self.session.execute(
@@ -169,8 +167,8 @@ class NewsArticleRawRepository(PostgresRepository):
             DO NOTHING
             RETURNING id
             """.format(
-                raw_table=_qualified_table('news_article_raw'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                raw_table=qualify_db_identifier('news_article_raw'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
 
@@ -222,9 +220,9 @@ class NewsArticleRawRepository(PostgresRepository):
               AND raw.provider_article_key = :provider_article_key
             ON CONFLICT (raw_article_id, keyword_id) DO NOTHING
             """.format(
-                match_table=_qualified_table('news_article_raw_keyword_match'),
-                raw_table=_qualified_table('news_article_raw'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                match_table=qualify_db_identifier('news_article_raw_keyword_match'),
+                raw_table=qualify_db_identifier('news_article_raw'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         for article in articles:

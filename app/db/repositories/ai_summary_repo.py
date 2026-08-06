@@ -7,10 +7,6 @@ from app.db.repositories.base import PostgresRepository
 from app.db.repositories.projections import AiSummaryRecord
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
-
-
 class AiSummaryRepository(PostgresRepository):
     async def list_summaries_for_job(self, job_id: int) -> list[AiSummaryRecord]:
         statement = text(
@@ -38,7 +34,7 @@ class AiSummaryRepository(PostgresRepository):
             FROM {summary_table}
             WHERE batch_job_id = :job_id
             ORDER BY generated_at ASC, id ASC
-            """.format(summary_table=_qualified_table('ai_summary'))
+            """.format(summary_table=qualify_db_identifier('ai_summary'))
         )
         result = await self.session.execute(statement, {'job_id': job_id})
         return self._models_from_mappings(AiSummaryRecord, result.mappings().all())
@@ -96,8 +92,8 @@ class AiSummaryRepository(PostgresRepository):
                 summary.generated_at ASC,
                 summary.id ASC
             """.format(
-                summary_table=_qualified_table('ai_summary'),
-                batch_job_table=_qualified_table('batch_job'),
+                summary_table=qualify_db_identifier('ai_summary'),
+                batch_job_table=qualify_db_identifier('batch_job'),
             )
         )
         result = await self.session.execute(statement, {'source_job_id': source_job_id})
@@ -143,7 +139,7 @@ class AiSummaryRepository(PostgresRepository):
                 generated_at DESC,
                 id DESC
             LIMIT 1
-            """.format(summary_table=_qualified_table('ai_summary'))
+            """.format(summary_table=qualify_db_identifier('ai_summary'))
         )
         result = await self.session.execute(
             statement, {'cluster_id': cluster_id, 'summary_type': summary_type}

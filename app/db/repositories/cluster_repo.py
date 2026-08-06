@@ -6,15 +6,12 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.identifiers import qualify_db_identifier
+from app.db.repositories.base import PostgresRepository
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
-
-
-class ClusterRepository:
+class ClusterRepository(PostgresRepository):
     def __init__(self, session: AsyncSession) -> None:
-        self.session = session
+        super().__init__(session)
 
     async def get_cluster_by_uid(self, cluster_uid: str | UUID) -> dict | None:
         cluster_uid_value = (
@@ -38,7 +35,7 @@ class ClusterRepository:
                 updated_at AS last_updated_at
             FROM {cluster_table}
             WHERE cluster_uid = :cluster_uid
-            """.format(cluster_table=_qualified_table('news_cluster'))
+            """.format(cluster_table=qualify_db_identifier('news_cluster'))
         ).bindparams(bindparam('cluster_uid', cluster_uid_value))
         result = await self.session.execute(statement)
         row = self._first_row(result)
@@ -54,7 +51,9 @@ class ClusterRepository:
             FROM {cluster_article_table}
             WHERE cluster_id = :cluster_id
             ORDER BY article_rank ASC, processed_article_id ASC
-            """.format(cluster_article_table=_qualified_table('news_cluster_article'))
+            """.format(
+                cluster_article_table=qualify_db_identifier('news_cluster_article')
+            )
         ).bindparams(bindparam('cluster_id', cluster_id))
         result = await self.session.execute(statement)
         return [self._row_to_dict(row) for row in result.all()]
@@ -70,7 +69,7 @@ class ClusterRepository:
         if market_type is not None:
             where_clauses.append(
                 f'c.market_type = CAST(:market_type AS '
-                f'{_qualified_table("market_type_enum")})'
+                f'{qualify_db_identifier("market_type_enum")})'
             )
             params['market_type'] = market_type
         statement = text(
@@ -101,8 +100,8 @@ class ClusterRepository:
             WHERE {where_sql}
             ORDER BY c.market_type ASC, c.cluster_rank ASC
             """.format(
-                cluster_table=_qualified_table('news_cluster'),
-                processed_article_table=_qualified_table('news_article_processed'),
+                cluster_table=qualify_db_identifier('news_cluster'),
+                processed_article_table=qualify_db_identifier('news_article_processed'),
                 where_sql=' AND '.join(where_clauses),
             )
         )
@@ -131,7 +130,7 @@ class ClusterRepository:
             WHERE id IN :article_ids
             ORDER BY id ASC
             """.format(
-                processed_article_table=_qualified_table('news_article_processed')
+                processed_article_table=qualify_db_identifier('news_article_processed')
             )
         ).bindparams(bindparam('article_ids', article_ids, expanding=True))
         result = await self.session.execute(statement)
@@ -150,7 +149,7 @@ class ClusterRepository:
         if market_type is not None:
             where_clauses.append(
                 f'c.market_type = CAST(:market_type AS '
-                f'{_qualified_table("market_type_enum")})'
+                f'{qualify_db_identifier("market_type_enum")})'
             )
             params['market_type'] = market_type
         statement = text(
@@ -181,28 +180,14 @@ class ClusterRepository:
                 p.published_at DESC,
                 p.id ASC
             """.format(
-                cluster_table=_qualified_table('news_cluster'),
-                cluster_article_table=_qualified_table('news_cluster_article'),
-                processed_article_table=_qualified_table('news_article_processed'),
+                cluster_table=qualify_db_identifier('news_cluster'),
+                cluster_article_table=qualify_db_identifier('news_cluster_article'),
+                processed_article_table=qualify_db_identifier('news_article_processed'),
                 where_sql=' AND '.join(where_clauses),
             )
         )
         result = await self.session.execute(statement, params)
         return [self._row_to_dict(row) for row in result.all()]
-
-    @staticmethod
-    def _row_to_dict(row: object) -> dict:
-        mapping = getattr(row, '_mapping', None)
-        if mapping is not None:
-            return dict(mapping)
-        return dict(row)  # type: ignore[arg-type]
-
-    @staticmethod
-    def _first_row(result: object) -> object | None:
-        if hasattr(result, 'one_or_none'):
-            return result.one_or_none()  # type: ignore[no-any-return]
-        rows = result.all()  # type: ignore[no-any-return]
-        return rows[0] if rows else None
 
 
 __all__ = ['ClusterRepository']

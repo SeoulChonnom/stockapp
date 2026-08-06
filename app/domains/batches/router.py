@@ -140,7 +140,7 @@ async def list_batch_jobs(
     service: BatchesServiceDep,
     fromDate: Annotated[date | None, Query(alias='fromDate')] = None,
     toDate: Annotated[date | None, Query(alias='toDate')] = None,
-    status: Annotated[BatchJobStatus | None, Query(alias='status')] = None,
+    job_status: Annotated[BatchJobStatus | None, Query(alias='status')] = None,
     jobType: Annotated[BatchJobType | None, Query(alias='jobType')] = None,
     page: Annotated[int, Query(alias='page', ge=1)] = 1,
     size: Annotated[int, Query(alias='size', ge=1, le=100)] = 20,
@@ -148,7 +148,7 @@ async def list_batch_jobs(
     result = await service.list_jobs(
         from_date=fromDate,
         to_date=toDate,
-        status=status.value if status is not None else None,
+        status=job_status.value if job_status is not None else None,
         job_type=jobType.value if jobType is not None else None,
         page=page,
         size=size,

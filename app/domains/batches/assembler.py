@@ -81,6 +81,21 @@ def build_batch_run_payload(job: Any) -> dict[str, Any]:
     }
 
 
+def build_ai_retry_run_payload(job: Any, *, created: bool) -> dict[str, Any]:
+    return {
+        'jobId': job.job_id,
+        'jobName': job.job_name,
+        'businessDate': job.business_date.isoformat(),
+        'status': job.status,
+        'runMode': job.run_mode,
+        'sourceJobId': job.source_job_id,
+        'sourcePageId': job.source_page_id,
+        'idempotencyKey': job.idempotency_key,
+        'startedAt': job.started_at.isoformat(),
+        '_created': created,
+    }
+
+
 def build_batch_job_list_payload(result: Any) -> dict[str, Any]:
     items = [
         BatchJobListItemResponse(
@@ -203,6 +218,7 @@ __all__ = [
     'assemble_batch_job_detail_response',
     'assemble_batch_job_list_response',
     'assemble_batch_run_response',
+    'build_ai_retry_run_payload',
     'build_batch_job_detail_payload',
     'build_batch_job_list_payload',
     'build_batch_run_payload',

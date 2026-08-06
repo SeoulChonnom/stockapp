@@ -4,10 +4,8 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query, Response
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps.auth import CurrentUser, require_roles
-from app.api.deps.db import get_db_session
+from app.api.deps import DbSession, UserDep
 from app.core.response import ApiSuccess
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.domains.pages.assembler import assemble_daily_page_response
@@ -15,11 +13,9 @@ from app.domains.pages.service import PagesService
 from app.schemas.page import DailyPageResponse
 
 router = APIRouter(prefix='/pages', tags=['pages'])
-type DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
-type UserDep = Annotated[CurrentUser, Depends(require_roles('USER', 'ADMIN'))]
 
 
-def get_pages_service(session: DbSessionDep) -> PagesService:
+def get_pages_service(session: DbSession) -> PagesService:
     return PagesService(PageSnapshotRepository(session))
 
 

@@ -9,7 +9,7 @@ from sqlalchemy import bindparam, text  # pyright: ignore[reportMissingImports]
 from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
 
 from app.batch.exceptions import BatchLeaseLostError
-from app.db.enums import BatchJobType, BatchRunMode
+from app.db.enums import BatchJobStatus, BatchJobType, BatchRunMode
 from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
 from app.db.repositories.projections import (
@@ -20,10 +20,69 @@ from app.db.repositories.projections import (
     BatchLeaseRecoveryResult,
     BatchPageSource,
 )
+from app.db.repositories.sql_fragments import (
+    DURATION_SECONDS_EXPR,
+    lease_null_assignments_sql,
+)
 
+_BATCH_JOB_COLUMNS: tuple[str, ...] = (
+    'id AS job_id',
+    'job_name',
+    'business_date',
+    'status',
+    'trigger_type',
+    'triggered_by_user_id',
+    'force_run',
+    'rebuild_page_only',
+    'run_mode',
+    'source_job_id',
+    'source_page_id',
+    'idempotency_key',
+    'queued_at',
+    'available_at',
+    'attempt_count',
+    'max_attempts',
+    'lease_owner',
+    'lease_token',
+    'lease_expires_at',
+    'heartbeat_at',
+    'current_step',
+    'checkpoint_json',
+    'started_at',
+    'ended_at',
+    'duration_seconds',
+    'market_scope',
+    'raw_news_count',
+    'processed_news_count',
+    'cluster_count',
+    'ai_target_count',
+    'ai_attempted_count',
+    'ai_success_count',
+    'ai_fallback_count',
+    'ai_failed_count',
+    'ai_recovered_count',
+    'page_id',
+    'page_version_no',
+    'partial_message',
+    'error_code',
+    'error_message',
+    'log_summary',
+    'created_at',
+    'updated_at',
+)
+_BATCH_JOB_COLUMNS_SQL = ',\n                '.join(_BATCH_JOB_COLUMNS)
+_BATCH_JOB_COLUMNS_SQL_JOB_PREFIXED = ',\n                '.join(
+    f'job.{column.split(" AS ")[0]} AS {column.split(" AS ")[1]}'
+    if ' AS ' in column
+    else f'job.{column}'
+    for column in _BATCH_JOB_COLUMNS
+)
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
+_STATUS_PENDING = BatchJobStatus.PENDING.value
+_STATUS_RUNNING = BatchJobStatus.RUNNING.value
+_STATUS_SUCCESS = BatchJobStatus.SUCCESS.value
+_STATUS_PARTIAL = BatchJobStatus.PARTIAL.value
+_STATUS_FAILED = BatchJobStatus.FAILED.value
 
 
 class BatchJobRepository(PostgresRepository):
@@ -46,52 +105,13 @@ class BatchJobRepository(PostgresRepository):
         statement = text(
             """
             SELECT
-                id AS job_id,
-                job_name,
-                business_date,
-                status,
-                trigger_type,
-                triggered_by_user_id,
-                force_run,
-                rebuild_page_only,
-                run_mode,
-                source_job_id,
-                source_page_id,
-                idempotency_key,
-                queued_at,
-                available_at,
-                attempt_count,
-                max_attempts,
-                lease_owner,
-                lease_token,
-                lease_expires_at,
-                heartbeat_at,
-                current_step,
-                checkpoint_json,
-                started_at,
-                ended_at,
-                duration_seconds,
-                market_scope,
-                raw_news_count,
-                processed_news_count,
-                cluster_count,
-                ai_target_count,
-                ai_attempted_count,
-                ai_success_count,
-                ai_fallback_count,
-                ai_failed_count,
-                ai_recovered_count,
-                page_id,
-                page_version_no,
-                partial_message,
-                error_code,
-                error_message,
-                log_summary,
-                created_at,
-                updated_at
+                {columns}
             FROM {batch_job_table}
             WHERE id = :job_id
-            """.format(batch_job_table=_qualified_table('batch_job'))
+            """.format(
+                columns=_BATCH_JOB_COLUMNS_SQL,
+                batch_job_table=qualify_db_identifier('batch_job'),
+            )
         ).bindparams(bindparam('job_id', job_id))
         result = await self.session.execute(statement)
         row = result.mappings().one_or_none()
@@ -103,52 +123,13 @@ class BatchJobRepository(PostgresRepository):
         statement = text(
             """
             SELECT
-                id AS job_id,
-                job_name,
-                business_date,
-                status,
-                trigger_type,
-                triggered_by_user_id,
-                force_run,
-                rebuild_page_only,
-                run_mode,
-                source_job_id,
-                source_page_id,
-                idempotency_key,
-                queued_at,
-                available_at,
-                attempt_count,
-                max_attempts,
-                lease_owner,
-                lease_token,
-                lease_expires_at,
-                heartbeat_at,
-                current_step,
-                checkpoint_json,
-                started_at,
-                ended_at,
-                duration_seconds,
-                market_scope,
-                raw_news_count,
-                processed_news_count,
-                cluster_count,
-                ai_target_count,
-                ai_attempted_count,
-                ai_success_count,
-                ai_fallback_count,
-                ai_failed_count,
-                ai_recovered_count,
-                page_id,
-                page_version_no,
-                partial_message,
-                error_code,
-                error_message,
-                log_summary,
-                created_at,
-                updated_at
+                {columns}
             FROM {batch_job_table}
             WHERE idempotency_key = :idempotency_key
-            """.format(batch_job_table=_qualified_table('batch_job'))
+            """.format(
+                columns=_BATCH_JOB_COLUMNS_SQL,
+                batch_job_table=qualify_db_identifier('batch_job'),
+            )
         ).bindparams(bindparam('idempotency_key', idempotency_key))
         result = await self.session.execute(statement)
         row = result.mappings().one_or_none()
@@ -160,10 +141,14 @@ class BatchJobRepository(PostgresRepository):
             SELECT id
             FROM {batch_job_table}
             WHERE business_date = :business_date
-              AND status IN ('PENDING', 'RUNNING')
+              AND status IN ('{status_pending}', '{status_running}')
               AND run_mode IN ('FULL', 'PAGE_REBUILD')
             LIMIT 1
-            """.format(batch_job_table=_qualified_table('batch_job'))
+            """.format(
+                batch_job_table=qualify_db_identifier('batch_job'),
+                status_pending=_STATUS_PENDING,
+                status_running=_STATUS_RUNNING,
+            )
         ).bindparams(bindparam('business_date', business_date))
         result = await self.session.execute(statement)
         return result.scalar_one_or_none() is not None
@@ -175,7 +160,7 @@ class BatchJobRepository(PostgresRepository):
             FROM {page_table}
             WHERE business_date = :business_date
             LIMIT 1
-            """.format(page_table=_qualified_table('market_daily_page'))
+            """.format(page_table=qualify_db_identifier('market_daily_page'))
         ).bindparams(bindparam('business_date', business_date))
         result = await self.session.execute(statement)
         return result.scalar_one_or_none() is not None
@@ -192,7 +177,7 @@ class BatchJobRepository(PostgresRepository):
             WHERE business_date = :business_date
             ORDER BY version_no DESC, id DESC
             LIMIT 1
-            """.format(page_table=_qualified_table('market_daily_page'))
+            """.format(page_table=qualify_db_identifier('market_daily_page'))
         ).bindparams(bindparam('business_date', business_date))
         result = await self.session.execute(statement)
         row = result.mappings().one_or_none()
@@ -230,54 +215,13 @@ class BatchJobRepository(PostgresRepository):
                 :max_attempts
             )
             RETURNING
-                id AS job_id,
-                job_name,
-                business_date,
-                status,
-                trigger_type,
-                triggered_by_user_id,
-                force_run,
-                rebuild_page_only,
-                run_mode,
-                source_job_id,
-                source_page_id,
-                idempotency_key,
-                queued_at,
-                available_at,
-                attempt_count,
-                max_attempts,
-                lease_owner,
-                lease_token,
-                lease_expires_at,
-                heartbeat_at,
-                current_step,
-                checkpoint_json,
-                started_at,
-                ended_at,
-                duration_seconds,
-                market_scope,
-                raw_news_count,
-                processed_news_count,
-                cluster_count,
-                ai_target_count,
-                ai_attempted_count,
-                ai_success_count,
-                ai_fallback_count,
-                ai_failed_count,
-                ai_recovered_count,
-                page_id,
-                page_version_no,
-                partial_message,
-                error_code,
-                error_message,
-                log_summary,
-                created_at,
-                updated_at
+                {columns}
             """.format(
-                batch_job_table=_qualified_table('batch_job'),
-                status_enum=_qualified_table('batch_job_status_enum'),
-                trigger_enum=_qualified_table('batch_trigger_type_enum'),
-                run_mode_enum=_qualified_table('batch_run_mode_enum'),
+                columns=_BATCH_JOB_COLUMNS_SQL,
+                batch_job_table=qualify_db_identifier('batch_job'),
+                status_enum=qualify_db_identifier('batch_job_status_enum'),
+                trigger_enum=qualify_db_identifier('batch_trigger_type_enum'),
+                run_mode_enum=qualify_db_identifier('batch_run_mode_enum'),
             )
         ).bindparams(
             bindparam('business_date', params.business_date),
@@ -313,7 +257,7 @@ class BatchJobRepository(PostgresRepository):
             WITH candidate AS (
                 SELECT id
                 FROM {batch_job_table}
-                WHERE status = 'PENDING'
+                WHERE status = '{status_pending}'
                   AND available_at <= now()
                   AND attempt_count < max_attempts
                 ORDER BY available_at, queued_at, id
@@ -322,7 +266,7 @@ class BatchJobRepository(PostgresRepository):
             )
             UPDATE {batch_job_table} AS job
             SET
-                status = 'RUNNING',
+                status = '{status_running}',
                 attempt_count = job.attempt_count + 1,
                 lease_owner = :worker_id,
                 lease_token = :lease_token,
@@ -337,50 +281,13 @@ class BatchJobRepository(PostgresRepository):
             FROM candidate
             WHERE job.id = candidate.id
             RETURNING
-                job.id AS job_id,
-                job.job_name,
-                job.business_date,
-                job.status,
-                job.trigger_type,
-                job.triggered_by_user_id,
-                job.force_run,
-                job.rebuild_page_only,
-                job.run_mode,
-                job.source_job_id,
-                job.source_page_id,
-                job.idempotency_key,
-                job.queued_at,
-                job.available_at,
-                job.attempt_count,
-                job.max_attempts,
-                job.lease_owner,
-                job.lease_token,
-                job.lease_expires_at,
-                job.heartbeat_at,
-                job.current_step,
-                job.checkpoint_json,
-                job.started_at,
-                job.ended_at,
-                job.duration_seconds,
-                job.market_scope,
-                job.raw_news_count,
-                job.processed_news_count,
-                job.cluster_count,
-                job.ai_target_count,
-                job.ai_attempted_count,
-                job.ai_success_count,
-                job.ai_fallback_count,
-                job.ai_failed_count,
-                job.ai_recovered_count,
-                job.page_id,
-                job.page_version_no,
-                job.partial_message,
-                job.error_code,
-                job.error_message,
-                job.log_summary,
-                job.created_at,
-                job.updated_at
-            """.format(batch_job_table=_qualified_table('batch_job'))
+                {columns}
+            """.format(
+                columns=_BATCH_JOB_COLUMNS_SQL_JOB_PREFIXED,
+                batch_job_table=qualify_db_identifier('batch_job'),
+                status_pending=_STATUS_PENDING,
+                status_running=_STATUS_RUNNING,
+            )
         )
         result = await self.session.execute(
             statement,
@@ -403,16 +310,20 @@ class BatchJobRepository(PostgresRepository):
             FROM (
                 SELECT available_at AS action_at
                 FROM {batch_job_table}
-                WHERE status = 'PENDING'
+                WHERE status = '{status_pending}'
                   AND attempt_count < max_attempts
 
                 UNION ALL
 
                 SELECT COALESCE(lease_expires_at, now()) AS action_at
                 FROM {batch_job_table}
-                WHERE status = 'RUNNING'
+                WHERE status = '{status_running}'
             ) AS actionable_jobs
-            """.format(batch_job_table=_qualified_table('batch_job'))
+            """.format(
+                batch_job_table=qualify_db_identifier('batch_job'),
+                status_pending=_STATUS_PENDING,
+                status_running=_STATUS_RUNNING,
+            )
         )
         result = await self.session.execute(statement)
         value = result.scalar_one_or_none()
@@ -434,12 +345,15 @@ class BatchJobRepository(PostgresRepository):
                 lease_expires_at = now() + make_interval(secs => :lease_seconds),
                 updated_at = now()
             WHERE id = :job_id
-              AND status = 'RUNNING'
+              AND status = '{status_running}'
               AND lease_owner = :worker_id
               AND lease_token = :lease_token
               AND lease_expires_at > now()
             RETURNING id
-            """.format(batch_job_table=_qualified_table('batch_job'))
+            """.format(
+                batch_job_table=qualify_db_identifier('batch_job'),
+                status_running=_STATUS_RUNNING,
+            )
         )
         result = await self.session.execute(
             statement,
@@ -464,11 +378,14 @@ class BatchJobRepository(PostgresRepository):
             UPDATE {batch_job_table}
             SET current_step = :step_code, updated_at = now()
             WHERE id = :job_id
-              AND status = 'RUNNING'
+              AND status = '{status_running}'
               AND lease_token = :lease_token
               AND lease_expires_at > now()
             RETURNING id
-            """.format(batch_job_table=_qualified_table('batch_job'))
+            """.format(
+                batch_job_table=qualify_db_identifier('batch_job'),
+                status_running=_STATUS_RUNNING,
+            )
         )
         result = await self.session.execute(
             statement,
@@ -496,11 +413,14 @@ class BatchJobRepository(PostgresRepository):
                 checkpoint_json = CAST(:checkpoint_json AS JSONB),
                 updated_at = now()
             WHERE id = :job_id
-              AND status = 'RUNNING'
+              AND status = '{status_running}'
               AND lease_token = :lease_token
               AND lease_expires_at > now()
             RETURNING id
-            """.format(batch_job_table=_qualified_table('batch_job'))
+            """.format(
+                batch_job_table=qualify_db_identifier('batch_job'),
+                status_running=_STATUS_RUNNING,
+            )
         )
         result = await self.session.execute(
             statement,
@@ -519,21 +439,15 @@ class BatchJobRepository(PostgresRepository):
             WITH failed AS (
                 UPDATE {batch_job_table}
                 SET
-                    status = 'FAILED',
+                    status = '{status_failed}',
                     ended_at = now(),
-                    duration_seconds = GREATEST(
-                        EXTRACT(EPOCH FROM (now() - started_at))::int,
-                        0
-                    ),
-                    lease_owner = NULL,
-                    lease_token = NULL,
-                    lease_expires_at = NULL,
-                    heartbeat_at = NULL,
+                    duration_seconds = {duration_seconds_expr},
+                    {lease_null_assignments}
                     error_code = 'BATCH_ATTEMPTS_EXHAUSTED',
                     error_message = 'Batch job exhausted its worker attempts.',
                     log_summary = 'Batch job exhausted its worker attempts.',
                     updated_at = now()
-                WHERE status = 'RUNNING'
+                WHERE status = '{status_running}'
                   AND (
                       lease_expires_at IS NULL
                       OR lease_expires_at <= now()
@@ -542,7 +456,13 @@ class BatchJobRepository(PostgresRepository):
                 RETURNING id
             )
             SELECT COUNT(*) FROM failed
-            """.format(batch_job_table=_qualified_table('batch_job'))
+            """.format(
+                batch_job_table=qualify_db_identifier('batch_job'),
+                duration_seconds_expr=DURATION_SECONDS_EXPR,
+                lease_null_assignments=lease_null_assignments_sql(' ' * 20),
+                status_failed=_STATUS_FAILED,
+                status_running=_STATUS_RUNNING,
+            )
         )
         failed_result = await self.session.execute(failed_statement)
         failed_count = int(failed_result.scalar_one())
@@ -552,18 +472,15 @@ class BatchJobRepository(PostgresRepository):
             WITH requeued AS (
                 UPDATE {batch_job_table}
                 SET
-                    status = 'PENDING',
+                    status = '{status_pending}',
                     available_at = now(),
-                    lease_owner = NULL,
-                    lease_token = NULL,
-                    lease_expires_at = NULL,
-                    heartbeat_at = NULL,
+                    {lease_null_assignments}
                     ended_at = NULL,
                     duration_seconds = NULL,
                     error_code = 'BATCH_LEASE_EXPIRED',
                     error_message = 'Worker lease expired; job was requeued.',
                     updated_at = now()
-                WHERE status = 'RUNNING'
+                WHERE status = '{status_running}'
                   AND (
                       lease_expires_at IS NULL
                       OR lease_expires_at <= now()
@@ -572,7 +489,12 @@ class BatchJobRepository(PostgresRepository):
                 RETURNING id
             )
             SELECT COUNT(*) FROM requeued
-            """.format(batch_job_table=_qualified_table('batch_job'))
+            """.format(
+                batch_job_table=qualify_db_identifier('batch_job'),
+                lease_null_assignments=lease_null_assignments_sql(' ' * 20),
+                status_pending=_STATUS_PENDING,
+                status_running=_STATUS_RUNNING,
+            )
         )
         requeued_result = await self.session.execute(requeued_statement)
         requeued_count = int(requeued_result.scalar_one())
@@ -596,8 +518,8 @@ class BatchJobRepository(PostgresRepository):
             SET
                 status = CAST(
                     CASE
-                        WHEN attempt_count >= max_attempts THEN 'FAILED'
-                        ELSE 'PENDING'
+                        WHEN attempt_count >= max_attempts THEN '{status_failed}'
+                        ELSE '{status_pending}'
                     END
                     AS {status_enum}
                 ),
@@ -611,16 +533,10 @@ class BatchJobRepository(PostgresRepository):
                 END,
                 duration_seconds = CASE
                     WHEN attempt_count >= max_attempts
-                    THEN GREATEST(
-                        EXTRACT(EPOCH FROM (now() - started_at))::int,
-                        0
-                    )
+                    THEN {duration_seconds_expr}
                     ELSE NULL
                 END,
-                lease_owner = NULL,
-                lease_token = NULL,
-                lease_expires_at = NULL,
-                heartbeat_at = NULL,
+                {lease_null_assignments}
                 error_code = CASE
                     WHEN attempt_count >= max_attempts
                     THEN 'BATCH_ATTEMPTS_EXHAUSTED'
@@ -630,13 +546,18 @@ class BatchJobRepository(PostgresRepository):
                 log_summary = :error_message,
                 updated_at = now()
             WHERE id = :job_id
-              AND status = 'RUNNING'
+              AND status = '{status_running}'
               AND lease_token = :lease_token
               AND lease_expires_at > now()
             RETURNING status::text
             """.format(
-                batch_job_table=_qualified_table('batch_job'),
-                status_enum=_qualified_table('batch_job_status_enum'),
+                batch_job_table=qualify_db_identifier('batch_job'),
+                status_enum=qualify_db_identifier('batch_job_status_enum'),
+                duration_seconds_expr=DURATION_SECONDS_EXPR,
+                lease_null_assignments=lease_null_assignments_sql(' ' * 16),
+                status_failed=_STATUS_FAILED,
+                status_pending=_STATUS_PENDING,
+                status_running=_STATUS_RUNNING,
             )
         )
         result = await self.session.execute(
@@ -677,8 +598,8 @@ class BatchJobRepository(PostgresRepository):
                 CAST(:context_json AS JSONB)
             )
             """.format(
-                batch_job_event_table=_qualified_table('batch_job_event'),
-                level_enum=_qualified_table('event_level_enum'),
+                batch_job_event_table=qualify_db_identifier('batch_job_event'),
+                level_enum=qualify_db_identifier('event_level_enum'),
             )
         )
         await self.session.execute(
@@ -714,8 +635,8 @@ class BatchJobRepository(PostgresRepository):
     ) -> None:
         lease_predicate = ''
         if self._lease_token is not None:
-            lease_predicate = """
-              AND status = 'RUNNING'
+            lease_predicate = f"""
+              AND status = '{_STATUS_RUNNING}'
               AND lease_token = :lease_token
               AND lease_expires_at > now()
             """
@@ -725,10 +646,7 @@ class BatchJobRepository(PostgresRepository):
             SET
                 status = CAST(:status AS {status_enum}),
                 ended_at = now(),
-                duration_seconds = GREATEST(
-                    EXTRACT(EPOCH FROM (now() - started_at))::int,
-                    0
-                ),
+                duration_seconds = {duration_seconds_expr},
                 raw_news_count = :raw_news_count,
                 processed_news_count = :processed_news_count,
                 cluster_count = :cluster_count,
@@ -743,17 +661,16 @@ class BatchJobRepository(PostgresRepository):
                 error_code = :error_code,
                 error_message = :error_message,
                 log_summary = :log_summary,
-                lease_owner = NULL,
-                lease_token = NULL,
-                lease_expires_at = NULL,
-                heartbeat_at = NULL,
+                {lease_null_assignments}
                 updated_at = now()
             WHERE id = :job_id
             {lease_predicate}
             RETURNING id
             """.format(
-                batch_job_table=_qualified_table('batch_job'),
-                status_enum=_qualified_table('batch_job_status_enum'),
+                batch_job_table=qualify_db_identifier('batch_job'),
+                status_enum=qualify_db_identifier('batch_job_status_enum'),
+                duration_seconds_expr=DURATION_SECONDS_EXPR,
+                lease_null_assignments=lease_null_assignments_sql(' ' * 16),
                 lease_predicate=lease_predicate,
             )
         )
@@ -791,7 +708,7 @@ class BatchJobRepository(PostgresRepository):
     ) -> None:
         await self.mark_job_completed(
             job_id=job_id,
-            status='FAILED',
+            status=_STATUS_FAILED,
             error_code=error_code,
             error_message=error_message,
             log_summary=error_message,
@@ -818,7 +735,7 @@ class BatchJobRepository(PostgresRepository):
         count_statement = text(
             f"""
             SELECT COUNT(*) AS total_count
-            FROM {_qualified_table('batch_job')}
+            FROM {qualify_db_identifier('batch_job')}
             {where_sql}
             """
         )
@@ -828,14 +745,14 @@ class BatchJobRepository(PostgresRepository):
         summary_statement = text(
             f"""
             SELECT
-                COALESCE(COUNT(*) FILTER (WHERE status = 'SUCCESS'), 0)
+                COALESCE(COUNT(*) FILTER (WHERE status = '{_STATUS_SUCCESS}'), 0)
                     AS success_count,
-                COALESCE(COUNT(*) FILTER (WHERE status = 'PARTIAL'), 0)
+                COALESCE(COUNT(*) FILTER (WHERE status = '{_STATUS_PARTIAL}'), 0)
                     AS partial_count,
-                COALESCE(COUNT(*) FILTER (WHERE status = 'FAILED'), 0)
+                COALESCE(COUNT(*) FILTER (WHERE status = '{_STATUS_FAILED}'), 0)
                     AS failed_count,
                 COALESCE(ROUND(AVG(duration_seconds))::int, 0) AS avg_duration_seconds
-            FROM {_qualified_table('batch_job')}
+            FROM {qualify_db_identifier('batch_job')}
             {where_sql}
             """
         )
@@ -877,7 +794,7 @@ class BatchJobRepository(PostgresRepository):
                 page_id,
                 page_version_no,
                 partial_message
-            FROM {_qualified_table('batch_job')}
+            FROM {qualify_db_identifier('batch_job')}
             {where_sql}
             ORDER BY business_date DESC, started_at DESC, id DESC
             LIMIT :limit OFFSET :offset
@@ -915,15 +832,15 @@ class BatchJobRepository(PostgresRepository):
             params['to_date'] = to_date
         if status is not None:
             clauses.append(
-                f'status = CAST(:status AS {_qualified_table("batch_job_status_enum")})'
+                f'status = CAST(:status AS {qualify_db_identifier("batch_job_status_enum")})'
             )
             params['status'] = status
         if job_type == BatchJobType.NEWS_COLLECTION.value:
-            run_mode_enum = _qualified_table('batch_run_mode_enum')
+            run_mode_enum = qualify_db_identifier('batch_run_mode_enum')
             clauses.append(f'run_mode = CAST(:job_type_run_mode AS {run_mode_enum})')
             params['job_type_run_mode'] = BatchRunMode.NEWS_COLLECTION.value
         elif job_type == BatchJobType.MARKET_SNAPSHOT.value:
-            run_mode_enum = _qualified_table('batch_run_mode_enum')
+            run_mode_enum = qualify_db_identifier('batch_run_mode_enum')
             clauses.append(
                 'run_mode IN ('
                 f'CAST(:job_type_run_mode_0 AS {run_mode_enum}), '

@@ -12,10 +12,6 @@ from app.db.repositories.projections import (
 )
 
 
-def _qualified_table(table_name: str) -> str:
-    return qualify_db_identifier(table_name)
-
-
 class MarketIndexRepository(PostgresRepository):
     async def upsert_index(
         self, params: MarketIndexDailyCreateParams
@@ -87,8 +83,8 @@ class MarketIndexRepository(PostgresRepository):
                 collected_at,
                 created_at
             """.format(
-                index_table=_qualified_table('market_index_daily'),
-                market_type_enum=_qualified_table('market_type_enum'),
+                index_table=qualify_db_identifier('market_index_daily'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
             )
         )
         result = await self.session.execute(
@@ -140,7 +136,7 @@ class MarketIndexRepository(PostgresRepository):
             FROM {index_table}
             WHERE business_date = :business_date
             ORDER BY market_type ASC, index_code ASC
-            """.format(index_table=_qualified_table('market_index_daily'))
+            """.format(index_table=qualify_db_identifier('market_index_daily'))
         )
         result = await self.session.execute(statement, {'business_date': business_date})
         return self._models_from_mappings(

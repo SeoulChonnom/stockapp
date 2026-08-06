@@ -43,3 +43,17 @@ class PostgresRepository:
             size = min(size, max_size)
         offset = (page - 1) * size
         return page, size, offset
+
+    @staticmethod
+    def _row_to_dict(row: object) -> dict:
+        mapping = getattr(row, '_mapping', None)
+        if mapping is not None:
+            return dict(mapping)
+        return dict(row)  # type: ignore[arg-type]
+
+    @staticmethod
+    def _first_row(result: object) -> object | None:
+        if hasattr(result, 'one_or_none'):
+            return result.one_or_none()  # type: ignore[no-any-return]
+        rows = result.all()  # type: ignore[no-any-return]
+        return rows[0] if rows else None
