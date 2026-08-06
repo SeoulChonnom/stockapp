@@ -65,6 +65,7 @@ class NewsArticleProcessedRepository(PostgresRepository):
         business_date: date,
         *,
         market_type: str | None = None,
+        limit: int | None = None,
     ) -> list[NewsArticleProcessedRecord]:
         where_clauses = ['business_date = :business_date']
         params: dict[str, object] = {'business_date': business_date}
@@ -74,6 +75,10 @@ class NewsArticleProcessedRepository(PostgresRepository):
                 f'{qualify_db_identifier("market_type_enum")})'
             )
             params['market_type'] = market_type
+        limit_sql = ''
+        if limit is not None:
+            limit_sql = 'LIMIT :limit'
+            params['limit'] = limit
 
         statement = text(
             """
@@ -95,9 +100,11 @@ class NewsArticleProcessedRepository(PostgresRepository):
             FROM {processed_table}
             WHERE {where_sql}
             ORDER BY market_type ASC, published_at DESC NULLS LAST, id ASC
+            {limit_sql}
             """.format(
                 processed_table=qualify_db_identifier('news_article_processed'),
                 where_sql=' AND '.join(where_clauses),
+                limit_sql=limit_sql,
             )
         )
         result = await self.session.execute(statement, params)
@@ -110,9 +117,10 @@ class NewsArticleProcessedRepository(PostgresRepository):
         business_date: date,
         *,
         market_type: str | None = None,
+        limit: int | None = None,
     ) -> list[NewsArticleProcessedRecord]:
         return await self.list_processed_by_business_date(
-            business_date, market_type=market_type
+            business_date, market_type=market_type, limit=limit
         )
 
     async def insert_processed_article(

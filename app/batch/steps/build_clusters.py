@@ -50,9 +50,11 @@ class BuildClustersStep(BatchStep):
         )
         self._cluster_repo_factory = cluster_repo_factory or NewsClusterWriteRepository
         self._llm_provider_factory = llm_provider_factory or BatchLlmProvider
-        self._max_clusters_per_market = (
-            settings or get_settings()
-        ).batch_max_clusters_per_market
+        resolved_settings = settings or get_settings()
+        self._max_clusters_per_market = resolved_settings.batch_max_clusters_per_market
+        self._processed_article_limit = (
+            resolved_settings.batch_clustering_processed_article_limit
+        )
 
     async def run(
         self,
@@ -77,8 +79,20 @@ class BuildClustersStep(BatchStep):
         )
 
         processed_articles = await processed_repo.list_by_business_date(
-            context.business_date
+            context.business_date,
+            limit=self._processed_article_limit,
         )
+        if len(processed_articles) >= self._processed_article_limit:
+            await repository.add_event(
+                job_id=context.job_id,
+                step_code=self.step_code,
+                level=EventLevel.WARN.value,
+                message=(
+                    'Processed article count reached the clustering query '
+                    'limit; some articles may be excluded from clustering.'
+                ),
+                context_json={'limit': self._processed_article_limit},
+            )
         if not processed_articles:
             await repository.add_event(
                 job_id=context.job_id,
@@ -98,7 +112,8 @@ class BuildClustersStep(BatchStep):
         total_selected_count = 0
         for market_type in sorted(grouped_articles):
             articles = grouped_articles[market_type]
-            candidate_clusters = _rank_market_clusters(_group_articles(articles))
+            grouped = await asyncio.to_thread(_group_articles, articles)
+            candidate_clusters = _rank_market_clusters(grouped)
             selected_clusters = candidate_clusters[: self._max_clusters_per_market]
             total_selected_count += len(selected_clusters)
 

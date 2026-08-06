@@ -97,8 +97,10 @@ class EmptyProcessedArticlesRepo:
     def __init__(self, session):
         _ = session
 
-    async def list_by_business_date(self, business_date):
-        _ = business_date
+    async def list_by_business_date(
+        self, business_date, *, market_type=None, limit=None
+    ):
+        _ = (business_date, market_type, limit)
         return []
 
 

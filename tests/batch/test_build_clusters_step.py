@@ -30,8 +30,10 @@ class FakeProcessedRepo:
     def __init__(self, session):
         _ = session
 
-    async def list_by_business_date(self, business_date, *, market_type=None):
-        _ = (business_date, market_type)
+    async def list_by_business_date(
+        self, business_date, *, market_type=None, limit=None
+    ):
+        _ = (business_date, market_type, limit)
         return [
             projections_module.NewsArticleProcessedRecord(
                 processed_article_id=4001,
@@ -97,8 +99,10 @@ class ListProcessedRepo:
     def __init__(self, articles):
         self.articles = articles
 
-    async def list_by_business_date(self, business_date, *, market_type=None):
-        _ = business_date
+    async def list_by_business_date(
+        self, business_date, *, market_type=None, limit=None
+    ):
+        _ = (business_date, limit)
         return [
             article
             for article in self.articles
@@ -173,6 +177,7 @@ async def _run_step_with_articles(articles, *, provider, max_per_market=12):
         llm_provider_factory=lambda: provider,
         settings=SimpleNamespace(
             batch_max_clusters_per_market=max_per_market,
+            batch_clustering_processed_article_limit=5000,
         ),
     )
 
@@ -208,6 +213,46 @@ async def test_build_clusters_creates_scaffold_bundle(monkeypatch):
 
     assert updated_context.cluster_count == 2
     assert updated_context.log_messages
+
+
+@pytest.mark.anyio
+async def test_build_clusters_offloads_grouping_to_a_thread(monkeypatch):
+    """_group_articles does an O(n^2) synchronous token-intersection scan
+    over every processed article; it must run off the event loop so it
+    doesn't stall API requests served by the same process."""
+    session = RecordingAsyncSession()
+    fake_repository = FakeBatchRepository(session=session, events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    class FakeLlmProvider:
+        def is_configured(self):
+            return False
+
+    to_thread_calls: list[object] = []
+    real_to_thread = asyncio.to_thread
+
+    async def recording_to_thread(func, /, *args, **kwargs):
+        to_thread_calls.append(func)
+        return await real_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsArticleProcessedRepository', FakeProcessedRepo
+    )
+    monkeypatch.setattr(
+        build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
+    )
+    monkeypatch.setattr(build_clusters_module, 'BatchLlmProvider', FakeLlmProvider)
+    monkeypatch.setattr(build_clusters_module.asyncio, 'to_thread', recording_to_thread)
+
+    step = BuildClustersStep()
+    await step.run(fake_repository, context)
+
+    assert to_thread_calls == [build_clusters_module._group_articles]
 
 
 @pytest.mark.anyio
@@ -397,51 +442,6 @@ async def test_build_clusters_bounds_llm_enrichment_concurrency(monkeypatch):
     assert updated_context.cluster_count == 2
 
 
-def test_cluster_ranking_is_stable_by_count_recency_and_article_id():
-    base_time = datetime(2026, 3, 17, tzinfo=UTC)
-    articles = [
-        _processed_article(
-            21,
-            market_type='US',
-            title='gamma market',
-            published_at=base_time + timedelta(days=2),
-        ),
-        _processed_article(
-            2,
-            market_type='US',
-            title='alpha market',
-            published_at=base_time,
-        ),
-        _processed_article(
-            11,
-            market_type='US',
-            title='beta market',
-            published_at=base_time + timedelta(days=2),
-        ),
-        _processed_article(
-            1,
-            market_type='US',
-            title='alpha market',
-            published_at=base_time,
-        ),
-        _processed_article(
-            20,
-            market_type='US',
-            title='gamma market',
-            published_at=base_time + timedelta(days=1),
-        ),
-        _processed_article(
-            10,
-            market_type='US',
-            title='beta market',
-            published_at=base_time + timedelta(days=1),
-        ),
-        _processed_article(
-            3,
-            market_type='US',
-            title='alpha market',
-            published_at=base_time,
-        ),
 class UpsertingClusterRepo:
     """Mimic NewsClusterWriteRepository.create_cluster_bundle's ON CONFLICT
     DO UPDATE semantics: writing to an existing (market_type, cluster_rank)
@@ -558,6 +558,51 @@ async def test_force_rerun_failure_preserves_untouched_market_clusters():
     }
 
 
+def test_cluster_ranking_is_stable_by_count_recency_and_article_id():
+    base_time = datetime(2026, 3, 17, tzinfo=UTC)
+    articles = [
+        _processed_article(
+            21,
+            market_type='US',
+            title='gamma market',
+            published_at=base_time + timedelta(days=2),
+        ),
+        _processed_article(
+            2,
+            market_type='US',
+            title='alpha market',
+            published_at=base_time,
+        ),
+        _processed_article(
+            11,
+            market_type='US',
+            title='beta market',
+            published_at=base_time + timedelta(days=2),
+        ),
+        _processed_article(
+            1,
+            market_type='US',
+            title='alpha market',
+            published_at=base_time,
+        ),
+        _processed_article(
+            20,
+            market_type='US',
+            title='gamma market',
+            published_at=base_time + timedelta(days=1),
+        ),
+        _processed_article(
+            10,
+            market_type='US',
+            title='beta market',
+            published_at=base_time + timedelta(days=1),
+        ),
+        _processed_article(
+            3,
+            market_type='US',
+            title='alpha market',
+            published_at=base_time,
+        ),
     ]
 
     ranked = build_clusters_module._rank_market_clusters(

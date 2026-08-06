@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
+import app.batch.providers.article_content as article_content_module
 from app.batch.providers.article_content import ArticleContentProvider
 
 
@@ -53,3 +56,37 @@ async def test_article_content_provider_reuses_injected_client_for_fallback():
             'error_message': 'origin timed out',
         }
     ]
+
+
+@pytest.mark.anyio
+async def test_article_content_provider_offloads_html_parsing_to_a_thread(
+    monkeypatch,
+):
+    """BeautifulSoup parsing is CPU-bound and must not block the event loop
+    while other concurrently-crawled articles are awaiting their turn."""
+    to_thread_calls: list[object] = []
+    real_to_thread = asyncio.to_thread
+
+    async def recording_to_thread(func, /, *args, **kwargs):
+        to_thread_calls.append(func)
+        return await real_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(
+        article_content_module.asyncio, 'to_thread', recording_to_thread
+    )
+
+    class SingleUrlClient:
+        async def get(self, url: str) -> FakeResponse:
+            _ = url
+            return FakeResponse('<article>Body text</article>')
+
+    provider = ArticleContentProvider(client=SingleUrlClient())
+
+    result = await provider.fetch_article_content(
+        origin_link='https://origin.example/news/1',
+        naver_link=None,
+        fallback_summary=None,
+    )
+
+    assert result.body_text == 'Body text'
+    assert to_thread_calls == [provider._extract_body_text]

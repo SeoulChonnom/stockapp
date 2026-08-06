@@ -25,6 +25,32 @@ NewsArticleRawProcessedMapCreateParams = (
 
 
 @pytest.mark.anyio
+async def test_list_by_business_date_applies_limit_when_provided():
+    """A caller-supplied limit must reach the SQL as a bound LIMIT clause so
+    a pathological day's article volume can't grow an unbounded query."""
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = NewsArticleProcessedRepository(session)
+
+    await repo.list_by_business_date(date(2026, 3, 17), limit=5000)
+
+    statement_sql = ' '.join(str(session.statements[-1]).split())
+    assert 'LIMIT :limit' in statement_sql
+    assert session.parameters[-1]['limit'] == 5000
+
+
+@pytest.mark.anyio
+async def test_list_by_business_date_omits_limit_by_default():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = NewsArticleProcessedRepository(session)
+
+    await repo.list_by_business_date(date(2026, 3, 17))
+
+    statement_sql = ' '.join(str(session.statements[-1]).split())
+    assert 'LIMIT' not in statement_sql
+    assert 'limit' not in session.parameters[-1]
+
+
+@pytest.mark.anyio
 async def test_get_or_create_processed_article_inserts_when_missing():
     session = RecordingAsyncSession(
         results=[

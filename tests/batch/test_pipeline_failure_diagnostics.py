@@ -357,8 +357,10 @@ async def test_cluster_llm_fallback_increments_count_and_adds_partial_diagnostic
         def __init__(self, session: object) -> None:
             _ = session
 
-        async def list_by_business_date(self, business_date: date) -> list:
-            _ = business_date
+        async def list_by_business_date(
+            self, business_date: date, *, market_type=None, limit=None
+        ) -> list:
+            _ = (business_date, market_type, limit)
             return [article]
 
     class ClusterRepo:

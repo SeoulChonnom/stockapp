@@ -238,7 +238,10 @@ async def test_build_clusters_restart_skips_persisted_enrichment_and_awaits_canc
         processed_repo_factory=lambda _session: ProcessedRepository(articles),
         cluster_repo_factory=lambda _session: cluster_repo,
         llm_provider_factory=lambda: provider,
-        settings=SimpleNamespace(batch_max_clusters_per_market=12),
+        settings=SimpleNamespace(
+            batch_max_clusters_per_market=12,
+            batch_clustering_processed_article_limit=5000,
+        ),
     )
 
     with pytest.raises(LlmRetryableError):
@@ -261,7 +264,10 @@ class ProcessedRepository:
     def __init__(self, articles):
         self.articles = articles
 
-    async def list_by_business_date(self, _business_date):
+    async def list_by_business_date(
+        self, _business_date, *, market_type=None, limit=None
+    ):
+        _ = (market_type, limit)
         return self.articles
 
 

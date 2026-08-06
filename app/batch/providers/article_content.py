@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from html import unescape
@@ -106,7 +107,9 @@ class ArticleContentProvider:
             try:
                 response = await client.get(url)
                 response.raise_for_status()
-                body_text = self._extract_body_text(response.text)
+                body_text = await asyncio.to_thread(
+                    self._extract_body_text, response.text
+                )
                 if body_text:
                     return ArticleContentResult(
                         body_text=body_text,
