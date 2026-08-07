@@ -581,3 +581,31 @@ async def test_begin_step_returns_none_and_skips_insert_when_lease_lost():
 
     assert step_run_id is None
     assert len(session.statements) == 1
+
+
+@pytest.mark.anyio
+async def test_finish_step_run_closes_running_row_with_duration():
+    session = RecordingAsyncSession(results=[DummyResult([777])])
+    repo = BatchJobRepository(session)
+
+    finished = await repo.finish_step_run(step_run_id=777, status='SUCCEEDED')
+
+    assert finished is True
+    sql = ' '.join(str(session.statements[0]).split()).lower()
+    assert 'update stock.batch_job_step_run' in sql
+    assert 'ended_at = now()' in sql
+    assert "where id = :step_run_id and status = 'running'" in sql
+    assert session.parameters[0] == {
+        'step_run_id': 777,
+        'status': 'SUCCEEDED',
+    }
+
+
+@pytest.mark.anyio
+async def test_finish_step_run_returns_false_when_already_closed():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = BatchJobRepository(session)
+
+    finished = await repo.finish_step_run(step_run_id=777, status='FAILED')
+
+    assert finished is False

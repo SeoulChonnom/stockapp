@@ -22,6 +22,7 @@ from app.db.repositories.projections import (
 )
 from app.db.repositories.sql_fragments import (
     DURATION_SECONDS_EXPR,
+    STEP_DURATION_MS_EXPR,
     lease_null_assignments_sql,
 )
 
@@ -451,6 +452,30 @@ class BatchJobRepository(PostgresRepository):
             {'job_id': job_id, 'step_code': step_code},
         )
         return int(result.scalar_one())
+
+    async def finish_step_run(self, *, step_run_id: int, status: str) -> bool:
+        statement = text(
+            """
+            UPDATE {step_run_table}
+            SET
+                status = CAST(:status AS batch_step_status_enum),
+                ended_at = now(),
+                duration_ms = {step_duration_ms_expr},
+                updated_at = now()
+            WHERE id = :step_run_id
+              AND status = '{status_running}'
+            RETURNING id
+            """.format(
+                step_run_table=qualify_db_identifier('batch_job_step_run'),
+                step_duration_ms_expr=STEP_DURATION_MS_EXPR,
+                status_running=BatchStepStatus.RUNNING.value,
+            )
+        )
+        result = await self.session.execute(
+            statement,
+            {'step_run_id': step_run_id, 'status': status},
+        )
+        return result.scalar_one_or_none() is not None
 
     async def save_checkpoint(
         self,
