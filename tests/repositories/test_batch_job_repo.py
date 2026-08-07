@@ -119,14 +119,16 @@ async def test_create_job_rolls_back_integrity_error_before_reraising():
 
 @pytest.mark.anyio
 async def test_recover_expired_claims_requeues_retryable_and_fails_exhausted():
-    session = RecordingAsyncSession(results=[DummyResult([1]), DummyResult([2])])
+    session = RecordingAsyncSession(
+        results=[DummyResult([1]), DummyResult([2]), DummyResult([3])]
+    )
     repo = BatchJobRepository(session)
 
     result = await repo.recover_expired_claims()
 
     assert result.failed_count == 1
     assert result.requeued_count == 2
-    assert session.operations == ['execute', 'execute']
+    assert session.operations == ['execute', 'execute', 'execute']
     failed_sql = normalize_sql(session.statements[0]).lower()
     requeued_sql = normalize_sql(session.statements[1]).lower()
     assert "status = 'failed'" in failed_sql
@@ -609,3 +611,62 @@ async def test_finish_step_run_returns_false_when_already_closed():
     finished = await repo.finish_step_run(step_run_id=777, status='FAILED')
 
     assert finished is False
+
+
+@pytest.mark.anyio
+async def test_list_step_runs_returns_records_in_seq_order():
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult(
+                [
+                    {
+                        'step_run_id': 11,
+                        'step_code': 'CREATE_JOB',
+                        'seq': 1,
+                        'status': 'SUCCEEDED',
+                        'started_at': datetime(2026, 8, 7, 0, 0, tzinfo=UTC),
+                        'ended_at': datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
+                        'duration_ms': 1000,
+                    },
+                    {
+                        'step_run_id': 12,
+                        'step_code': 'DEDUPE_ARTICLES',
+                        'seq': 2,
+                        'status': 'RUNNING',
+                        'started_at': datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
+                        'ended_at': None,
+                        'duration_ms': None,
+                    },
+                ]
+            )
+        ]
+    )
+    repo = BatchJobRepository(session)
+
+    records = await repo.list_step_runs(1001)
+
+    assert [record.step_code for record in records] == [
+        'CREATE_JOB',
+        'DEDUPE_ARTICLES',
+    ]
+    assert records[0].duration_ms == 1000
+    assert records[1].ended_at is None
+    sql = normalize_sql(session.statements[0]).lower()
+    assert 'from stock.batch_job_step_run' in sql
+    assert 'order by seq' in sql
+    assert session.parameters[0] == {'job_id': 1001}
+
+
+@pytest.mark.anyio
+async def test_recover_expired_claims_closes_orphan_step_runs():
+    session = RecordingAsyncSession(
+        results=[DummyResult([1]), DummyResult([2]), DummyResult([3])]
+    )
+    repo = BatchJobRepository(session)
+
+    await repo.recover_expired_claims()
+
+    orphan_sql = normalize_sql(session.statements[2]).lower()
+    assert 'update stock.batch_job_step_run' in orphan_sql
+    assert "sr.status = 'running'" in orphan_sql
+    assert "j.status <> 'running'" in orphan_sql
