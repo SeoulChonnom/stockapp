@@ -23,6 +23,7 @@ CREATE TYPE ai_summary_type_enum AS ENUM (
     'CLUSTER_DETAIL_ANALYSIS'
 );
 CREATE TYPE event_level_enum AS ENUM ('INFO', 'WARN', 'ERROR');
+CREATE TYPE batch_step_status_enum AS ENUM ('RUNNING', 'SUCCEEDED', 'FAILED');
 
 CREATE TABLE batch_job (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -181,6 +182,29 @@ CREATE TABLE batch_job_event (
 
 CREATE INDEX idx_batch_job_event_job_created
     ON batch_job_event (batch_job_id, created_at);
+
+CREATE TABLE batch_job_step_run (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    batch_job_id BIGINT NOT NULL REFERENCES batch_job(id) ON DELETE CASCADE,
+    step_code TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    status batch_step_status_enum NOT NULL DEFAULT 'RUNNING',
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ended_at TIMESTAMPTZ NULL,
+    duration_ms INTEGER NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_batch_job_step_run_job_seq UNIQUE (batch_job_id, seq),
+    CONSTRAINT chk_batch_job_step_run_seq_positive
+        CHECK (seq >= 1),
+    CONSTRAINT chk_batch_job_step_run_ended_after_started
+        CHECK (ended_at IS NULL OR ended_at >= started_at),
+    CONSTRAINT chk_batch_job_step_run_duration_non_negative
+        CHECK (duration_ms IS NULL OR duration_ms >= 0)
+);
+
+CREATE INDEX idx_batch_job_step_run_job_seq
+    ON batch_job_step_run (batch_job_id, seq);
 
 CREATE TABLE news_search_keyword (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

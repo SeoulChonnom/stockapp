@@ -57,6 +57,12 @@ class EventLevel(StrEnum):
     ERROR = 'ERROR'
 
 
+class BatchStepStatus(StrEnum):
+    RUNNING = 'RUNNING'
+    SUCCEEDED = 'SUCCEEDED'
+    FAILED = 'FAILED'
+
+
 def derive_batch_job_type(run_mode: str) -> BatchJobType:
     if run_mode == BatchRunMode.NEWS_COLLECTION.value:
         return BatchJobType.NEWS_COLLECTION
@@ -69,6 +75,7 @@ __all__ = [
     'BatchJobStatus',
     'BatchJobType',
     'BatchRunMode',
+    'BatchStepStatus',
     'BatchTriggerType',
     'EventLevel',
     'MarketType',
