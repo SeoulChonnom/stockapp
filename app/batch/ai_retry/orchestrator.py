@@ -90,6 +90,7 @@ class AiRetryOrchestrator:
                     lease_token=lease_token,
                     step_code=AI_RETRY_SELECT_STEP,
                 )
+                await retry_repo.commit()
                 lineage = await summary_repo.list_retry_lineage_summaries(
                     job.source_job_id
                 )
@@ -135,6 +136,7 @@ class AiRetryOrchestrator:
                         lease_token=lease_token,
                         step_code=AI_RETRY_GENERATE_STEP,
                     )
+                    await retry_repo.commit()
                     payload = await _generate_target(
                         selection,
                         llm_provider=llm_provider,
@@ -195,6 +197,7 @@ class AiRetryOrchestrator:
                         lease_token=lease_token,
                         step_code=AI_RETRY_BUILD_PAGE_STEP,
                     )
+                    await retry_repo.commit()
                     page = await self._page_builder.build(
                         session=session,
                         source_page_id=job.source_page_id,
@@ -236,6 +239,7 @@ class AiRetryOrchestrator:
                     lease_token=lease_token,
                     step_code=AI_RETRY_FINALIZE_STEP,
                 )
+                await retry_repo.commit()
                 completed = await retry_repo.complete_job(
                     job_id=job_id,
                     status=status,
