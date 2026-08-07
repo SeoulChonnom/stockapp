@@ -119,14 +119,16 @@ async def test_create_job_rolls_back_integrity_error_before_reraising():
 
 @pytest.mark.anyio
 async def test_recover_expired_claims_requeues_retryable_and_fails_exhausted():
-    session = RecordingAsyncSession(results=[DummyResult([1]), DummyResult([2])])
+    session = RecordingAsyncSession(
+        results=[DummyResult([1]), DummyResult([2]), DummyResult([3])]
+    )
     repo = BatchJobRepository(session)
 
     result = await repo.recover_expired_claims()
 
     assert result.failed_count == 1
     assert result.requeued_count == 2
-    assert session.operations == ['execute', 'execute']
+    assert session.operations == ['execute', 'execute', 'execute']
     failed_sql = normalize_sql(session.statements[0]).lower()
     requeued_sql = normalize_sql(session.statements[1]).lower()
     assert "status = 'failed'" in failed_sql
@@ -434,7 +436,12 @@ async def test_claim_next_job_uses_skip_locked_and_workers_get_distinct_rows():
 async def test_heartbeat_and_checkpoint_updates_are_lease_fenced():
     lease_token = uuid4()
     session = RecordingAsyncSession(
-        results=[DummyResult([1001]), DummyResult([1001]), DummyResult([1001])]
+        results=[
+            DummyResult([1001]),
+            DummyResult([1001]),
+            DummyResult([777]),
+            DummyResult([1001]),
+        ]
     )
     repo = BatchJobRepository(session)
 
@@ -460,16 +467,16 @@ async def test_heartbeat_and_checkpoint_updates_are_lease_fenced():
     )
 
     assert renewed is True
-    assert began is True
+    assert began == 777
     assert saved is True
     heartbeat_sql = ' '.join(str(session.statements[0]).split()).lower()
-    checkpoint_sql = ' '.join(str(session.statements[2]).split()).lower()
+    checkpoint_sql = ' '.join(str(session.statements[3]).split()).lower()
     assert 'lease_owner = :worker_id' in heartbeat_sql
     assert 'lease_token = :lease_token' in heartbeat_sql
     assert 'lease_expires_at > now()' in heartbeat_sql
     assert 'lease_token = :lease_token' in checkpoint_sql
     assert 'lease_expires_at > now()' in checkpoint_sql
-    assert '"completedSteps"' in session.parameters[2]['checkpoint_json']
+    assert '"completedSteps"' in session.parameters[3]['checkpoint_json']
 
 
 @pytest.mark.anyio
@@ -534,3 +541,132 @@ async def test_release_failed_claim_is_token_fenced_and_preserves_checkpoint():
     assert 'lease_expires_at > now()' in sql
     assert 'checkpoint_json' not in sql
     assert 'attempt_count >= max_attempts' in sql
+
+
+@pytest.mark.anyio
+async def test_begin_step_records_step_run_and_returns_its_id():
+    lease_token = uuid4()
+    session = RecordingAsyncSession(
+        results=[DummyResult([1001]), DummyResult([777])]
+    )
+    repo = BatchJobRepository(session)
+
+    step_run_id = await repo.begin_step(
+        job_id=1001,
+        lease_token=lease_token,
+        step_code='COLLECT_NEWS',
+    )
+
+    assert step_run_id == 777
+    lease_sql = normalize_sql(session.statements[0]).lower()
+    assert 'update stock.batch_job' in lease_sql
+    assert 'lease_expires_at > now()' in lease_sql
+    insert_sql = normalize_sql(session.statements[1]).lower()
+    assert 'insert into stock.batch_job_step_run' in insert_sql
+    assert 'coalesce(max(seq), 0) + 1' in insert_sql
+    assert session.parameters[1] == {
+        'job_id': 1001,
+        'step_code': 'COLLECT_NEWS',
+    }
+
+
+@pytest.mark.anyio
+async def test_begin_step_returns_none_and_skips_insert_when_lease_lost():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = BatchJobRepository(session)
+
+    step_run_id = await repo.begin_step(
+        job_id=1001,
+        lease_token=uuid4(),
+        step_code='COLLECT_NEWS',
+    )
+
+    assert step_run_id is None
+    assert len(session.statements) == 1
+
+
+@pytest.mark.anyio
+async def test_finish_step_run_closes_running_row_with_duration():
+    session = RecordingAsyncSession(results=[DummyResult([777])])
+    repo = BatchJobRepository(session)
+
+    finished = await repo.finish_step_run(step_run_id=777, status='SUCCEEDED')
+
+    assert finished is True
+    sql = ' '.join(str(session.statements[0]).split()).lower()
+    assert 'update stock.batch_job_step_run' in sql
+    assert 'ended_at = now()' in sql
+    assert "where id = :step_run_id and status = 'running'" in sql
+    assert session.parameters[0] == {
+        'step_run_id': 777,
+        'status': 'SUCCEEDED',
+    }
+
+
+@pytest.mark.anyio
+async def test_finish_step_run_returns_false_when_already_closed():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = BatchJobRepository(session)
+
+    finished = await repo.finish_step_run(step_run_id=777, status='FAILED')
+
+    assert finished is False
+
+
+@pytest.mark.anyio
+async def test_list_step_runs_returns_records_in_seq_order():
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult(
+                [
+                    {
+                        'step_run_id': 11,
+                        'step_code': 'CREATE_JOB',
+                        'seq': 1,
+                        'status': 'SUCCEEDED',
+                        'started_at': datetime(2026, 8, 7, 0, 0, tzinfo=UTC),
+                        'ended_at': datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
+                        'duration_ms': 1000,
+                    },
+                    {
+                        'step_run_id': 12,
+                        'step_code': 'DEDUPE_ARTICLES',
+                        'seq': 2,
+                        'status': 'RUNNING',
+                        'started_at': datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
+                        'ended_at': None,
+                        'duration_ms': None,
+                    },
+                ]
+            )
+        ]
+    )
+    repo = BatchJobRepository(session)
+
+    records = await repo.list_step_runs(1001)
+
+    assert [record.step_code for record in records] == [
+        'CREATE_JOB',
+        'DEDUPE_ARTICLES',
+    ]
+    assert records[0].duration_ms == 1000
+    assert records[1].ended_at is None
+    sql = normalize_sql(session.statements[0]).lower()
+    assert 'from stock.batch_job_step_run' in sql
+    assert 'order by seq' in sql
+    assert session.parameters[0] == {'job_id': 1001}
+
+
+@pytest.mark.anyio
+async def test_recover_expired_claims_closes_orphan_step_runs():
+    session = RecordingAsyncSession(
+        results=[DummyResult([1]), DummyResult([2]), DummyResult([3])]
+    )
+    repo = BatchJobRepository(session)
+
+    await repo.recover_expired_claims()
+
+    orphan_sql = normalize_sql(session.statements[2]).lower()
+    assert 'update stock.batch_job_step_run' in orphan_sql
+    assert "sr.status = 'running'" in orphan_sql
+    assert "j.status <> 'running'" in orphan_sql

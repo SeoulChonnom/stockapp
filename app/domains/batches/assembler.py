@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -13,6 +14,7 @@ from app.schemas.batch import (
     BatchJobNewsCollectionDetail,
     BatchJobSnapshotDetail,
     BatchJobsPaginationResponse,
+    BatchJobStepRunResponse,
     BatchJobSummaryResponse,
     BatchRunResponse,
 )
@@ -151,6 +153,7 @@ def build_batch_job_list_payload(result: Any) -> dict[str, Any]:
 def build_batch_job_detail_payload(
     job: Any,
     news_run: Any | None = None,
+    step_runs: Sequence[Any] | None = None,
 ) -> dict[str, Any]:
     job_type = derive_batch_job_type(job.run_mode)
     snapshot: BatchJobSnapshotDetail | None = None
@@ -209,6 +212,16 @@ def build_batch_job_detail_payload(
         logSummary=sanitize_public_diagnostic(job.log_summary),
         snapshot=snapshot,
         newsCollection=news_collection,
+        steps=[
+            BatchJobStepRunResponse(
+                stepCode=step_run.step_code,
+                status=step_run.status,
+                startedAt=_as_required_iso(step_run.started_at),
+                endedAt=_as_iso(step_run.ended_at),
+                durationMs=step_run.duration_ms,
+            )
+            for step_run in (step_runs or [])
+        ],
     )
     return payload.model_dump(mode='json')
 

@@ -616,6 +616,7 @@ def build_batch_job_detail_payload() -> dict[str, Any]:
             'aiRecoveredCount': 0,
         },
         'newsCollection': None,
+        'steps': [],
     }
 
 

@@ -23,6 +23,10 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 MANIFEST_PATH = (
     REPOSITORY_ROOT / 'db' / 'alembic' / 'manifests' / '20260731_schema_manifest.json'
 )
+# NOTE: literal, not derived from ScriptDirectory — update this whenever a new
+# alembic revision becomes the head, so this test independently catches a
+# broken/forked revision chain instead of trivially agreeing with production code.
+LATEST_ALEMBIC_HEAD = '20260807_01_step_run'
 
 
 def _canonical_manifest() -> dict:
@@ -242,7 +246,7 @@ def test_upgrade_locked_upgrades_versioned_and_fresh_databases(
 
     assert calls == expected_calls
     assert connection.commit_count == 1
-    assert head == migration_runner.ALEMBIC_BASELINE_REVISION
+    assert head == LATEST_ALEMBIC_HEAD
 
 
 def test_upgrade_locked_stamps_matching_legacy_manifest_before_upgrade(
@@ -285,7 +289,7 @@ def test_upgrade_locked_stamps_matching_legacy_manifest_before_upgrade(
         ('upgrade', 'head'),
     ]
     assert connection.commit_count == 1
-    assert head == migration_runner.ALEMBIC_BASELINE_REVISION
+    assert head == LATEST_ALEMBIC_HEAD
 
 
 def test_upgrade_locked_refuses_mismatched_non_empty_schema(
@@ -510,7 +514,9 @@ def test_alembic_chain_has_one_squashed_baseline_head():
     config = Config(str(REPOSITORY_ROOT / 'alembic.ini'))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == [migration_runner.ALEMBIC_BASELINE_REVISION]
+    # Pinned to LATEST_ALEMBIC_HEAD (a literal, not derived from ScriptDirectory)
+    # so this test independently catches a forked/broken revision chain.
+    assert script.get_heads() == [LATEST_ALEMBIC_HEAD]
     baseline = script.get_revision(migration_runner.ALEMBIC_BASELINE_REVISION)
     assert baseline is not None
     assert baseline.down_revision is None

@@ -9,19 +9,21 @@ from sqlalchemy import bindparam, text  # pyright: ignore[reportMissingImports]
 from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
 
 from app.batch.exceptions import BatchLeaseLostError
-from app.db.enums import BatchJobStatus, BatchJobType, BatchRunMode
+from app.db.enums import BatchJobStatus, BatchJobType, BatchRunMode, BatchStepStatus
 from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
 from app.db.repositories.projections import (
     BatchJobCreateParams,
     BatchJobListResult,
     BatchJobRecord,
+    BatchJobStepRunRecord,
     BatchJobSummary,
     BatchLeaseRecoveryResult,
     BatchPageSource,
 )
 from app.db.repositories.sql_fragments import (
     DURATION_SECONDS_EXPR,
+    STEP_DURATION_MS_EXPR,
     lease_null_assignments_sql,
 )
 
@@ -402,7 +404,7 @@ class BatchJobRepository(PostgresRepository):
         job_id: int,
         lease_token: UUID,
         step_code: str,
-    ) -> bool:
+    ) -> int | None:
         statement = text(
             """
             UPDATE {batch_job_table}
@@ -425,7 +427,79 @@ class BatchJobRepository(PostgresRepository):
                 'step_code': step_code,
             },
         )
+        if result.scalar_one_or_none() is None:
+            return None
+        return await self._insert_step_run(job_id=job_id, step_code=step_code)
+
+    async def _insert_step_run(self, *, job_id: int, step_code: str) -> int:
+        statement = text(
+            """
+            INSERT INTO {step_run_table} (batch_job_id, step_code, seq, status)
+            SELECT
+                :job_id,
+                :step_code,
+                COALESCE(MAX(seq), 0) + 1,
+                '{status_running}'
+            FROM {step_run_table}
+            WHERE batch_job_id = :job_id
+            RETURNING id
+            """.format(
+                step_run_table=qualify_db_identifier('batch_job_step_run'),
+                status_running=BatchStepStatus.RUNNING.value,
+            )
+        )
+        result = await self.session.execute(
+            statement,
+            {'job_id': job_id, 'step_code': step_code},
+        )
+        return int(result.scalar_one())
+
+    async def finish_step_run(self, *, step_run_id: int, status: str) -> bool:
+        statement = text(
+            """
+            UPDATE {step_run_table}
+            SET
+                status = CAST(:status AS batch_step_status_enum),
+                ended_at = now(),
+                duration_ms = {step_duration_ms_expr},
+                updated_at = now()
+            WHERE id = :step_run_id
+              AND status = '{status_running}'
+            RETURNING id
+            """.format(
+                step_run_table=qualify_db_identifier('batch_job_step_run'),
+                step_duration_ms_expr=STEP_DURATION_MS_EXPR,
+                status_running=BatchStepStatus.RUNNING.value,
+            )
+        )
+        result = await self.session.execute(
+            statement,
+            {'step_run_id': step_run_id, 'status': status},
+        )
         return result.scalar_one_or_none() is not None
+
+    async def list_step_runs(self, job_id: int) -> list[BatchJobStepRunRecord]:
+        statement = text(
+            """
+            SELECT
+                id AS step_run_id,
+                step_code,
+                seq,
+                status,
+                started_at,
+                ended_at,
+                duration_ms
+            FROM {step_run_table}
+            WHERE batch_job_id = :job_id
+            ORDER BY seq
+            """.format(
+                step_run_table=qualify_db_identifier('batch_job_step_run'),
+            )
+        )
+        result = await self.session.execute(statement, {'job_id': job_id})
+        return self._models_from_mappings(
+            BatchJobStepRunRecord, result.mappings().all()
+        )
 
     async def save_checkpoint(
         self,
@@ -528,6 +602,30 @@ class BatchJobRepository(PostgresRepository):
         )
         requeued_result = await self.session.execute(requeued_statement)
         requeued_count = int(requeued_result.scalar_one())
+
+        orphan_step_statement = text(
+            """
+            UPDATE {step_run_table} AS sr
+            SET
+                status = '{status_failed_step}',
+                ended_at = now(),
+                duration_ms = GREATEST(
+                    (EXTRACT(EPOCH FROM (now() - sr.started_at)) * 1000)::int, 0
+                ),
+                updated_at = now()
+            FROM {batch_job_table} AS j
+            WHERE sr.batch_job_id = j.id
+              AND sr.status = '{status_running_step}'
+              AND j.status <> '{status_running}'
+            """.format(
+                step_run_table=qualify_db_identifier('batch_job_step_run'),
+                batch_job_table=qualify_db_identifier('batch_job'),
+                status_failed_step=BatchStepStatus.FAILED.value,
+                status_running_step=BatchStepStatus.RUNNING.value,
+                status_running=_STATUS_RUNNING,
+            )
+        )
+        await self.session.execute(orphan_step_statement)
         return BatchLeaseRecoveryResult(
             requeued_count=requeued_count,
             failed_count=failed_count,

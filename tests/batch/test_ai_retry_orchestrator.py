@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, date, datetime
+from uuid import uuid4
 
 import pytest
 
 from app.batch.ai_retry.models import AiRetryPageResult
-from app.batch.ai_retry.orchestrator import AiRetryOrchestrator
+from app.batch.ai_retry.orchestrator import AI_RETRY_SELECT_STEP, AiRetryOrchestrator
 from app.db.repositories.ai_retry_repo import AiRetryJob
 from app.db.repositories.projections import AiSummaryRecord
 
@@ -52,9 +53,115 @@ class FakeRetryRepository:
 class FakeJobRepository:
     def __init__(self):
         self.events = []
+        self.begun_steps: list[str] = []
+        self.step_run_seq = 0
+        self.finished_step_runs: list[tuple[int, str]] = []
 
     async def add_event(self, **kwargs):
         self.events.append(kwargs)
+
+    async def begin_step(self, *, job_id, lease_token, step_code):
+        self.begun_steps.append(step_code)
+        self.step_run_seq += 1
+        return self.step_run_seq
+
+    async def finish_step_run(self, *, step_run_id, status):
+        self.finished_step_runs.append((step_run_id, status))
+        return True
+
+
+class OperationLoggingSession:
+    """Reproduces the real AsyncSession semantics that matter for this bug:
+
+    an INSERT/UPDATE issued through `begin_step`/`finish_step_run` is only
+    durable once `commit()` runs; `rollback()` discards anything issued
+    since the last commit. `operations` records the order calls happen in,
+    across every fake wired to this shared session, so tests can assert on
+    interleaving (e.g. "commit happens before the step's own work runs").
+    """
+
+    def __init__(self):
+        self.pending_steps: dict[int, str] = {}
+        self.committed_steps: dict[int, str] = {}
+        self.next_id = 0
+        self.operations: list[tuple] = []
+
+    def begin_step(self, step_code):
+        self.next_id += 1
+        step_run_id = self.next_id
+        self.pending_steps[step_run_id] = 'RUNNING'
+        self.operations.append(('begin_step', step_code, step_run_id))
+        return step_run_id
+
+    def finish_step_run(self, step_run_id, status):
+        current = self.pending_steps.get(
+            step_run_id, self.committed_steps.get(step_run_id)
+        )
+        if current != 'RUNNING':
+            self.operations.append(('finish_step_run_noop', step_run_id, status))
+            return False
+        self.pending_steps[step_run_id] = status
+        self.operations.append(('finish_step_run', step_run_id, status))
+        return True
+
+    def commit(self):
+        self.committed_steps.update(self.pending_steps)
+        self.pending_steps = {}
+        self.operations.append(('commit',))
+
+    def rollback(self):
+        self.pending_steps = {}
+        self.operations.append(('rollback',))
+
+    def log(self, marker):
+        self.operations.append(marker)
+
+
+class SessionJobRepository:
+    def __init__(self, session):
+        self.session = session
+        self.events = []
+
+    async def add_event(self, **kwargs):
+        self.events.append(kwargs)
+
+    async def begin_step(self, *, job_id, lease_token, step_code):
+        return self.session.begin_step(step_code)
+
+    async def finish_step_run(self, *, step_run_id, status):
+        return self.session.finish_step_run(step_run_id, status)
+
+
+class SessionRetryRepository:
+    def __init__(self, session, job):
+        self.session = session
+        self.job = job
+        self.completed = None
+
+    async def get_job(self, job_id):
+        assert job_id == self.job.job_id
+        return self.job
+
+    async def complete_job(self, **kwargs):
+        self.completed = kwargs
+        return True
+
+    async def commit(self):
+        self.session.commit()
+
+    async def rollback(self):
+        self.session.rollback()
+
+
+class RaisingSummaryRepository:
+    """Fails mid-SELECT-step, after `begin_step` but before any checkpoint."""
+
+    def __init__(self, session):
+        self.session = session
+
+    async def list_retry_lineage_summaries(self, source_job_id):
+        self.session.log(('list_retry_lineage_summaries', source_job_id))
+        raise RuntimeError('lineage lookup failed')
 
 
 class FakeSummaryRepository:
@@ -189,14 +296,54 @@ def _orchestrator(*, lineage, llm, page_builder, job=None):
         llm_provider_factory=lambda: llm,
         page_builder=page_builder,
     )
-    return orchestrator, retry_repo, summary_writer
+    return orchestrator, retry_repo, summary_writer, job_repo
+
+
+def _build_successful_retry():
+    job = replace(_retry_job(), job_id=4001)
+    page_builder = FakePageBuilder()
+    orchestrator, _retry_repo, _summary_writer, job_repo = _orchestrator(
+        lineage=[_source_summary()],
+        llm=SuccessfulLlm(),
+        page_builder=page_builder,
+        job=job,
+    )
+    lease_token = uuid4()
+    return job_repo, orchestrator, lease_token
+
+
+def _build_failing_retry():
+    """A retry job whose SELECT step begins, then blows up before checkpointing.
+
+    Uses `OperationLoggingSession`-backed fakes (not `FakeRetryRepository`,
+    whose `rollback()` is just a counter) so that `rollback()` actually
+    discards any step_run row that was never committed -- the real
+    AsyncSession semantics that Finding 1 depends on.
+    """
+    session = OperationLoggingSession()
+    job = replace(_retry_job(), job_id=4002)
+    job_repo = SessionJobRepository(session)
+    retry_repo = SessionRetryRepository(session, job)
+    orchestrator = AiRetryOrchestrator(
+        session_maker=FakeSessionMaker(),
+        retry_repo_factory=lambda _: retry_repo,
+        job_repo_factory=lambda _: job_repo,
+        summary_repo_factory=lambda _: RaisingSummaryRepository(session),
+        summary_write_repo_factory=lambda _: FakeSummaryWriteRepository(),
+        cluster_repo_factory=lambda _: FakeClusterRepository(),
+        index_repo_factory=lambda _: FakeIndexRepository(),
+        llm_provider_factory=lambda: SuccessfulLlm(),
+        page_builder=FakePageBuilder(),
+    )
+    lease_token = uuid4()
+    return session, orchestrator, lease_token
 
 
 @pytest.mark.anyio
 async def test_recovered_target_creates_vnext_and_completes_success():
     source = _source_summary()
     page_builder = FakePageBuilder()
-    orchestrator, retry_repo, summary_writer = _orchestrator(
+    orchestrator, retry_repo, summary_writer, _ = _orchestrator(
         lineage=[source],
         llm=SuccessfulLlm(),
         page_builder=page_builder,
@@ -216,7 +363,7 @@ async def test_recovered_target_creates_vnext_and_completes_success():
 @pytest.mark.anyio
 async def test_zero_recovery_creates_no_page_and_completes_partial():
     page_builder = FakePageBuilder()
-    orchestrator, retry_repo, _ = _orchestrator(
+    orchestrator, retry_repo, _, _ = _orchestrator(
         lineage=[_source_summary()],
         llm=TimeoutLlm(),
         page_builder=page_builder,
@@ -246,7 +393,7 @@ async def test_resume_skips_successful_provider_call_and_builds_missing_page():
         attempt_no=2,
     )
     page_builder = FakePageBuilder()
-    orchestrator, _, summary_writer = _orchestrator(
+    orchestrator, _, summary_writer, _ = _orchestrator(
         lineage=[source, current_success],
         llm=SuccessfulLlm(),
         page_builder=page_builder,
@@ -284,7 +431,7 @@ async def test_resume_reuses_checkpointed_page_without_creating_duplicate_versio
             },
         }
     )
-    orchestrator, retry_repo, _ = _orchestrator(
+    orchestrator, retry_repo, _, _ = _orchestrator(
         lineage=[source, current_success],
         llm=SuccessfulLlm(),
         page_builder=page_builder,
@@ -297,3 +444,43 @@ async def test_resume_reuses_checkpointed_page_without_creating_duplicate_versio
     assert result.page.page_id == 777
     assert page_builder.calls == []
     assert retry_repo.completed['page_id'] == 777
+
+
+@pytest.mark.anyio
+async def test_ai_retry_closes_step_runs_as_succeeded():
+    job_repo, orchestrator, lease_token = _build_successful_retry()
+
+    await orchestrator.run(job_id=4001, lease_token=lease_token)
+
+    assert job_repo.finished_step_runs
+    assert all(
+        status == 'SUCCEEDED' for _, status in job_repo.finished_step_runs
+    )
+    assert len(job_repo.finished_step_runs) == job_repo.step_run_seq
+
+
+@pytest.mark.anyio
+async def test_ai_retry_closes_step_run_as_failed_on_mid_step_exception():
+    session, orchestrator, lease_token = _build_failing_retry()
+
+    with pytest.raises(RuntimeError, match='lineage lookup failed'):
+        await orchestrator.run(job_id=4002, lease_token=lease_token)
+
+    assert session.committed_steps == {1: 'FAILED'}
+
+
+@pytest.mark.anyio
+async def test_ai_retry_commits_running_step_before_step_work_runs():
+    session, orchestrator, lease_token = _build_failing_retry()
+
+    with pytest.raises(RuntimeError, match='lineage lookup failed'):
+        await orchestrator.run(job_id=4002, lease_token=lease_token)
+
+    begin_index = session.operations.index(
+        ('begin_step', AI_RETRY_SELECT_STEP, 1)
+    )
+    commit_index = session.operations.index(('commit',))
+    work_index = session.operations.index(
+        ('list_retry_lineage_summaries', 10)
+    )
+    assert begin_index < commit_index < work_index

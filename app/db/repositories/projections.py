@@ -200,6 +200,17 @@ class BatchLeaseRecoveryResult:
 
 
 @dataclass(slots=True)
+class BatchJobStepRunRecord:
+    step_run_id: int
+    step_code: str
+    seq: int
+    status: str
+    started_at: datetime
+    ended_at: datetime | None = None
+    duration_ms: int | None = None
+
+
+@dataclass(slots=True)
 class BatchJobListResult:
     items: Sequence[BatchJobRecord]
     page: int
