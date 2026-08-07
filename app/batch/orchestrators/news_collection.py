@@ -13,7 +13,7 @@ from app.batch.providers.naver_news import (
     NAVER_NEWS_PROVIDER_NAME,
     NaverNewsProvider,
 )
-from app.db.enums import BatchJobStatus, EventLevel
+from app.db.enums import BatchJobStatus, BatchStepStatus, EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.news_article_raw_repo import NewsArticleRawRepository
 from app.db.repositories.news_collection_run_repo import NewsCollectionRunRepository
@@ -56,13 +56,14 @@ class NaverNewsCollectionOrchestrator:
                     f'News collection metadata for batch job {job_id} was not found.'
                 )
 
+            step_run_id: int | None = None
             if lease_token is not None:
-                begun = await job_repo.begin_step(
+                step_run_id = await job_repo.begin_step(
                     job_id=job_id,
                     lease_token=lease_token,
                     step_code='COLLECT_NAVER_NEWS',
                 )
-                if not begun:
+                if step_run_id is None:
                     await job_repo.rollback()
                     raise BatchLeaseLostError('News collection worker lease was lost.')
 
@@ -93,6 +94,7 @@ class NaverNewsCollectionOrchestrator:
                     run_id=run.run_id,
                     error_code='NEWS_KEYWORDS_NOT_CONFIGURED',
                     error_message='No active Naver news keywords are configured.',
+                    step_run_id=step_run_id,
                 )
                 return
             if not provider.is_configured():
@@ -104,6 +106,7 @@ class NaverNewsCollectionOrchestrator:
                     error_code='NAVER_NOT_CONFIGURED',
                     error_message='Naver news API credentials are not configured.',
                     total_keyword_count=len(keywords),
+                    step_run_id=step_run_id,
                 )
                 return
 
@@ -297,6 +300,11 @@ class NaverNewsCollectionOrchestrator:
                     f'{len(keywords)} keyword(s).'
                 ),
             )
+            if step_run_id is not None:
+                await job_repo.finish_step_run(
+                    step_run_id=step_run_id,
+                    status=BatchStepStatus.SUCCEEDED.value,
+                )
             await job_repo.commit()
 
     async def _fail_job(
@@ -309,6 +317,7 @@ class NaverNewsCollectionOrchestrator:
         error_code: str,
         error_message: str,
         total_keyword_count: int = 0,
+        step_run_id: int | None = None,
     ) -> None:
         await run_repo.finalize_run(
             run_id=run_id,
@@ -331,6 +340,11 @@ class NaverNewsCollectionOrchestrator:
             error_code=error_code,
             error_message=error_message,
         )
+        if step_run_id is not None:
+            await job_repo.finish_step_run(
+                step_run_id=step_run_id,
+                status=BatchStepStatus.FAILED.value,
+            )
         await job_repo.commit()
 
 

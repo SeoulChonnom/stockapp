@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -25,8 +26,7 @@ class FakeSessionMaker:
         return FakeSessionContext()
 
 
-@pytest.mark.anyio
-async def test_news_collection_records_partial_keyword_diagnostics(monkeypatch):
+def _build_successful_collection(monkeypatch):
     run = SimpleNamespace(
         run_id=41,
         window_start_at=datetime(2026, 7, 31, 0, 30, tzinfo=UTC),
@@ -51,6 +51,8 @@ async def test_news_collection_records_partial_keyword_diagnostics(monkeypatch):
 
     class FakeJobRepo:
         instance = None
+        step_run_seq = 0
+        finished_step_runs: list[tuple[int, str]] = []
 
         def __init__(self, session, lease_token=None):
             _ = (session, lease_token)
@@ -59,6 +61,11 @@ async def test_news_collection_records_partial_keyword_diagnostics(monkeypatch):
             FakeJobRepo.instance = self
 
         async def begin_step(self, **_kwargs):
+            FakeJobRepo.step_run_seq += 1
+            return FakeJobRepo.step_run_seq
+
+        async def finish_step_run(self, *, step_run_id, status):
+            FakeJobRepo.finished_step_runs.append((step_run_id, status))
             return True
 
         async def add_event(self, **kwargs):
@@ -141,12 +148,20 @@ async def test_news_collection_records_partial_keyword_diagnostics(monkeypatch):
     monkeypatch.setattr(module, 'NewsSearchKeywordRepository', FakeKeywordRepo)
     monkeypatch.setattr(module, 'NewsArticleRawRepository', FakeRawRepo)
 
-    await module.NaverNewsCollectionOrchestrator(
+    orchestrator = module.NaverNewsCollectionOrchestrator(
         session_maker=FakeSessionMaker(),
         provider_factory=FakeProvider,
-    ).run(3001)
+    )
+    return FakeJobRepo, orchestrator, uuid4()
 
-    assert FakeRunRepo.instance.finalized == {
+
+@pytest.mark.anyio
+async def test_news_collection_records_partial_keyword_diagnostics(monkeypatch):
+    FakeJobRepo, orchestrator, _lease_token = _build_successful_collection(monkeypatch)
+
+    await orchestrator.run(3001)
+
+    assert module.NewsCollectionRunRepository.instance.finalized == {
         'run_id': 41,
         'total_keyword_count': 2,
         'completed_keyword_count': 1,
@@ -155,12 +170,121 @@ async def test_news_collection_records_partial_keyword_diagnostics(monkeypatch):
         'inserted_count': 1,
         'coverage_complete': False,
     }
-    assert [item.status for item in FakeRunRepo.instance.diagnostics] == [
+    assert [
+        item.status for item in module.NewsCollectionRunRepository.instance.diagnostics
+    ] == [
         'SUCCESS',
         'FAILED',
     ]
     assert FakeJobRepo.instance.completion['status'] == 'PARTIAL'
     assert FakeJobRepo.instance.completion['raw_news_count'] == 1
+
+
+@pytest.mark.anyio
+async def test_collection_step_run_is_closed_as_succeeded(monkeypatch):
+    job_repo, orchestrator, lease_token = _build_successful_collection(monkeypatch)
+
+    await orchestrator.run(job_id=3001, lease_token=lease_token)
+
+    assert job_repo.finished_step_runs == [(1, 'SUCCEEDED')]
+
+
+def _build_unconfigured_collection(monkeypatch):
+    run = SimpleNamespace(
+        run_id=71,
+        window_start_at=datetime(2026, 7, 31, 0, 30, tzinfo=UTC),
+        window_end_at=datetime(2026, 7, 31, 1, 0, tzinfo=UTC),
+        query_start_at=datetime(2026, 7, 31, 0, 20, tzinfo=UTC),
+        query_end_at=datetime(2026, 7, 31, 1, 0, tzinfo=UTC),
+    )
+    keyword = SimpleNamespace(
+        keyword_id=1,
+        provider_name='NAVER_NEWS',
+        market_type='KR',
+        keyword='코스피',
+    )
+
+    class FakeJobRepo:
+        instance = None
+        step_run_seq = 0
+        finished_step_runs: list[tuple[int, str]] = []
+
+        def __init__(self, session, lease_token=None):
+            _ = (session, lease_token)
+            self.events = []
+            self.failure = None
+            FakeJobRepo.instance = self
+
+        async def begin_step(self, **_kwargs):
+            FakeJobRepo.step_run_seq += 1
+            return FakeJobRepo.step_run_seq
+
+        async def finish_step_run(self, *, step_run_id, status):
+            FakeJobRepo.finished_step_runs.append((step_run_id, status))
+            return True
+
+        async def add_event(self, **kwargs):
+            self.events.append(kwargs)
+
+        async def mark_job_failed(self, **kwargs):
+            self.failure = kwargs
+
+        async def commit(self):
+            return None
+
+        async def rollback(self):
+            return None
+
+    class FakeRunRepo:
+        instance = None
+
+        def __init__(self, session):
+            _ = session
+            self.finalized = None
+            FakeRunRepo.instance = self
+
+        async def get_by_job_id(self, job_id):
+            assert job_id == 3001
+            return run
+
+        async def finalize_run(self, **kwargs):
+            self.finalized = kwargs
+
+    class FakeKeywordRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_active_keywords(self, **_kwargs):
+            return [keyword]
+
+    class FakeRawRepo:
+        def __init__(self, session):
+            _ = session
+
+    class UnconfiguredProvider:
+        def is_configured(self):
+            return False
+
+    monkeypatch.setattr(module, 'BatchJobRepository', FakeJobRepo)
+    monkeypatch.setattr(module, 'NewsCollectionRunRepository', FakeRunRepo)
+    monkeypatch.setattr(module, 'NewsSearchKeywordRepository', FakeKeywordRepo)
+    monkeypatch.setattr(module, 'NewsArticleRawRepository', FakeRawRepo)
+
+    orchestrator = module.NaverNewsCollectionOrchestrator(
+        session_maker=FakeSessionMaker(),
+        provider_factory=UnconfiguredProvider,
+    )
+    return FakeJobRepo, orchestrator, uuid4()
+
+
+@pytest.mark.anyio
+async def test_step_run_is_closed_as_failed_when_collection_fails(monkeypatch):
+    job_repo, orchestrator, lease_token = _build_unconfigured_collection(monkeypatch)
+
+    await orchestrator.run(job_id=3001, lease_token=lease_token)
+
+    assert job_repo.finished_step_runs == [(1, 'FAILED')]
+    assert job_repo.instance.failure['error_code'] == 'NAVER_NOT_CONFIGURED'
 
 
 def test_market_daily_default_pipeline_never_contains_news_provider_collection():
