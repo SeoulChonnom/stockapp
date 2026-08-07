@@ -187,7 +187,8 @@ class BatchesService:
                 self._repo.session
             )
             news_run = await run_repo.get_by_job_id(job_id)
-        return build_batch_job_detail_payload(job, news_run)
+        step_runs = await self._repo.list_step_runs(job_id)
+        return build_batch_job_detail_payload(job, news_run, step_runs)
 
     async def start_market_daily_batch(
         self,

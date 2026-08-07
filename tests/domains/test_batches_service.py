@@ -50,6 +50,8 @@ class FakeBatchJobRepository:
         self.retried_job = None
         self.retry_failed_job_calls: list[int] = []
         self.retry_failed_job_error: Exception | None = None
+        self.step_runs: list = []
+        self.list_step_runs_calls: list[int] = []
 
     async def get_job_by_idempotency_key(self, idempotency_key):
         _ = idempotency_key
@@ -93,6 +95,10 @@ class FakeBatchJobRepository:
     async def get_job_by_id(self, job_id):
         _ = job_id
         return self.detailed_job
+
+    async def list_step_runs(self, job_id):
+        self.list_step_runs_calls.append(job_id)
+        return self.step_runs
 
 
 class FakeAiRetryEnqueuer:
@@ -995,6 +1001,53 @@ async def test_get_job_detail_snapshot_job_does_not_query_news_repo():
     assert result['jobType'] == 'MARKET_SNAPSHOT'
     assert result['snapshot'] is not None
     assert result['newsCollection'] is None
+
+
+@pytest.mark.anyio
+async def test_get_job_detail_includes_step_runs():
+    repository = FakeBatchJobRepository(
+        detailed_job=BatchJobRecord(
+            job_id=1001,
+            job_name='market_daily_batch',
+            business_date=date(2026, 8, 7),
+            status='SUCCESS',
+            started_at=datetime(2026, 8, 7, 0, 0, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 7, 0, 2, tzinfo=UTC),
+            duration_seconds=120,
+            market_scope='GLOBAL',
+            raw_news_count=0,
+            processed_news_count=0,
+            cluster_count=0,
+            page_id=None,
+            page_version_no=None,
+            run_mode='FULL',
+        )
+    )
+    repository.step_runs = [
+        SimpleNamespace(
+            step_run_id=11,
+            step_code='CREATE_JOB',
+            seq=1,
+            status='SUCCEEDED',
+            started_at=datetime(2026, 8, 7, 0, 0, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
+            duration_ms=1000,
+        )
+    ]
+    service = BatchesService(repository)
+
+    result = await service.get_job_detail(1001)
+
+    assert result['steps'] == [
+        {
+            'stepCode': 'CREATE_JOB',
+            'status': 'SUCCEEDED',
+            'startedAt': '2026-08-07T00:00:00+00:00',
+            'endedAt': '2026-08-07T00:00:01+00:00',
+            'durationMs': 1000,
+        }
+    ]
+    assert repository.list_step_runs_calls == [1001]
 
 
 @pytest.mark.anyio
