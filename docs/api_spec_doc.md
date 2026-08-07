@@ -377,7 +377,23 @@ Authorization: Bearer {TOKEN}
     "partialMessage": null,
     "errorCode": null,
     "errorMessage": null,
-    "logSummary": "정상 처리. 시장 데이터, 기사 수집, 클러스터링이 SLA 안에서 종료됐다."
+    "logSummary": "정상 처리. 시장 데이터, 기사 수집, 클러스터링이 SLA 안에서 종료됐다.",
+    "steps": [
+      {
+        "stepCode": "CREATE_JOB",
+        "status": "SUCCEEDED",
+        "startedAt": "2026-03-18T06:10:00+09:00",
+        "endedAt": "2026-03-18T06:10:00+09:00",
+        "durationMs": 12
+      },
+      {
+        "stepCode": "DEDUPE_ARTICLES",
+        "status": "SUCCEEDED",
+        "startedAt": "2026-03-18T06:10:00+09:00",
+        "endedAt": "2026-03-18T06:10:04+09:00",
+        "durationMs": 4210
+      }
+    ]
   },
   "meta": {
     "requestId": "req-003",
@@ -385,6 +401,13 @@ Authorization: Bearer {TOKEN}
   }
 }
 ```
+
+`steps`는 해당 잡이 실행한 스텝을 실행 순서대로 담는다. `status`는
+`RUNNING` / `SUCCEEDED` / `FAILED` 중 하나이며, 진행 중인 스텝은
+`endedAt`과 `durationMs`가 `null`이다. 체크포인트 재개나 재시도로 같은
+스텝이 여러 번 실행되면 항목도 여러 개 나타난다. AI 재처리 잡은 재처리
+대상마다 생성 스텝 항목이 하나씩 생긴다. 이 기능 도입 이전에 실행된
+잡은 빈 배열을 반환한다.
 
 ---
 
