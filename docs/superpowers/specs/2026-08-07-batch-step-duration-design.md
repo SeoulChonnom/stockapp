@@ -178,6 +178,13 @@ assembler에서 매핑한다.
 
 ### 4. 알려진 제약
 
+`AiRetryOrchestrator`는 재처리 대상마다 `AI_RETRY_GENERATE_STEP`으로 `begin_step`을 호출한다
+(`app/batch/ai_retry/orchestrator.py:125`, 대상 수만큼 반복).
+따라서 AI 재처리 잡의 `steps` 배열에는 `GENERATE` 항목이 대상 수만큼 들어간다.
+대상별 생성 지연을 그대로 보여주는 편이 진단에 유용하므로 합치지 않으며,
+이는 "재실행을 합치지 않는다"는 결정과 동일한 방향이다.
+
+
 `begin_step`은 `lease_token`이 있을 때만 호출된다
 (`market_daily.py:127`의 `if lease_token is not None`).
 리스 없이 오케스트레이터를 직접 호출하는 경로에서는 스텝 이력이 남지 않는다.
@@ -203,6 +210,8 @@ assembler에서 매핑한다.
   - 상세 응답에 `steps`가 `seq` 순으로 담긴다
   - 이력이 없으면 `[]`가 담긴다
 - **마이그레이션**
-  - alembic revision 추가 (down_revision = `20260731_00_baseline`)
-  - `db/schema_postgresql.sql` 동기화
+  - `db/alembic/README.md`의 규약을 따른다: `alembic/versions/`에 신규 전진 revision을 추가하고
+    (`down_revision = '20260731_00_baseline'`), 동일한 목표 상태를
+    `db/schema_postgresql.sql`에 반영한다. 기존 revision과 동결 베이스라인 자산
+    (`db/alembic/baselines/`, `db/migrations/`)은 수정하지 않는다.
   - upgrade/downgrade 양방향 동작 확인
