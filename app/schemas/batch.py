@@ -148,6 +148,14 @@ class BatchJobNewsCollectionDetail(BaseModel):
     coverageComplete: bool
 
 
+class BatchJobStepRunResponse(BaseModel):
+    stepCode: str
+    status: str
+    startedAt: datetime | str
+    endedAt: datetime | str | None = None
+    durationMs: int | None = None
+
+
 class BatchJobDetailResponse(BaseModel):
     jobId: int
     jobName: str
@@ -170,6 +178,7 @@ class BatchJobDetailResponse(BaseModel):
     logSummary: str | None = None
     snapshot: BatchJobSnapshotDetail | None = None
     newsCollection: BatchJobNewsCollectionDetail | None = None
+    steps: list[BatchJobStepRunResponse] = []
 
 
 __all__ = [
@@ -179,6 +188,7 @@ __all__ = [
     'BatchJobListResponse',
     'BatchJobNewsCollectionDetail',
     'BatchJobSnapshotDetail',
+    'BatchJobStepRunResponse',
     'BatchJobSummaryResponse',
     'BatchJobsPaginationResponse',
     'BatchRunRequest',
