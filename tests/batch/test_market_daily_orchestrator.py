@@ -289,6 +289,8 @@ async def test_market_daily_orchestrator_resumes_after_last_checkpoint(monkeypat
             self.session = RecordingAsyncSession()
             self.begun_steps: list[str] = []
             self.saved_checkpoints: list[dict] = []
+            self.step_run_seq = 0
+            self.finished_step_runs: list[tuple[int, str]] = []
 
         async def get_job_by_id(self, job_id):
             return BatchJobRecord(
@@ -318,6 +320,11 @@ async def test_market_daily_orchestrator_resumes_after_last_checkpoint(monkeypat
 
         async def begin_step(self, *, step_code, **_kwargs):
             self.begun_steps.append(step_code)
+            self.step_run_seq += 1
+            return self.step_run_seq
+
+        async def finish_step_run(self, *, step_run_id, status):
+            self.finished_step_runs.append((step_run_id, status))
             return True
 
         async def save_checkpoint(self, *, checkpoint_json, **_kwargs):
@@ -377,6 +384,8 @@ async def test_market_daily_orchestrator_preserves_target_progress_on_step_end_s
         def __init__(self):
             self.session = RecordingAsyncSession()
             self.saved_checkpoints: list[dict] = []
+            self.step_run_seq = 0
+            self.finished_step_runs: list[tuple[int, str]] = []
             # Simulates a step calling DurableTargetProgress.commit_target,
             # which persists `targetProgress` directly to the DB mid-step.
             self._persisted_checkpoint = {
@@ -409,6 +418,11 @@ async def test_market_daily_orchestrator_preserves_target_progress_on_step_end_s
             return None
 
         async def begin_step(self, *, step_code, **_kwargs):
+            self.step_run_seq += 1
+            return self.step_run_seq
+
+        async def finish_step_run(self, *, step_run_id, status):
+            self.finished_step_runs.append((step_run_id, status))
             return True
 
         async def save_checkpoint(self, *, checkpoint_json, **_kwargs):
@@ -443,3 +457,127 @@ async def test_market_daily_orchestrator_preserves_target_progress_on_step_end_s
     checkpoint = repository.saved_checkpoints[-1]
     assert checkpoint['completedSteps'] == ['BUILD_CLUSTERS']
     assert checkpoint['targetProgress'] == {'BUILD_CLUSTERS': ['US:cluster-1']}
+
+
+class StepHistoryRepository:
+    """A leased-run fake repository that records begin_step/finish_step_run
+    pairs, mirroring the real BatchJobRepository step-history contract."""
+
+    def __init__(self):
+        self.session = RecordingAsyncSession()
+        self.begun_steps: list[str] = []
+        self.finished_step_runs: list[tuple[int, str]] = []
+        self.saved_checkpoints: list[dict] = []
+        self.step_run_seq = 0
+
+    async def get_job_by_id(self, job_id):
+        return BatchJobRecord(
+            job_id=job_id,
+            job_name='market_daily_batch',
+            business_date=date(2026, 3, 17),
+            status='RUNNING',
+            started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+            ended_at=None,
+            duration_seconds=None,
+            market_scope='GLOBAL',
+            raw_news_count=0,
+            processed_news_count=0,
+            cluster_count=0,
+            page_id=None,
+            page_version_no=None,
+            force_run=False,
+            rebuild_page_only=False,
+            checkpoint_json={
+                'completedSteps': [],
+                'context': {'rawNewsCount': 0},
+            },
+        )
+
+    async def add_event(self, **_kwargs):
+        return None
+
+    async def begin_step(self, *, step_code, **_kwargs):
+        self.begun_steps.append(step_code)
+        self.step_run_seq += 1
+        return self.step_run_seq
+
+    async def finish_step_run(self, *, step_run_id, status):
+        self.finished_step_runs.append((step_run_id, status))
+        return True
+
+    async def save_checkpoint(self, *, checkpoint_json, **_kwargs):
+        self.saved_checkpoints.append(checkpoint_json)
+        return True
+
+    async def commit(self):
+        await self.session.commit()
+
+    async def rollback(self):
+        await self.session.rollback()
+
+
+class _StepHistoryStubStep:
+    def __init__(self, step_code: str, *, should_fail: bool = False):
+        self.step_code = step_code
+        self._should_fail = should_fail
+
+    async def execute(self, repository, context):
+        _ = repository
+        if self._should_fail:
+            raise RuntimeError(f'{self.step_code} failed')
+        return context
+
+
+def _build_step_history_orchestrator(monkeypatch, *, failing_step: str | None = None):
+    lease_token = uuid4()
+    repository = StepHistoryRepository()
+    monkeypatch.setattr(
+        orchestrator_module,
+        'BatchJobRepository',
+        lambda session, lease_token=None: repository,
+    )
+    orchestrator = MarketDailyBatchOrchestrator(session_maker=FakeSessionMaker())
+    orchestrator._steps = [
+        _StepHistoryStubStep('COLLECT_NEWS'),
+        _StepHistoryStubStep('DEDUPE_ARTICLES'),
+        _StepHistoryStubStep(
+            'BUILD_CLUSTERS', should_fail=(failing_step == 'BUILD_CLUSTERS')
+        ),
+        _StepHistoryStubStep('COLLECT_MARKET_INDICES'),
+    ]
+    return repository, orchestrator, lease_token
+
+
+def _build_successful_orchestrator(monkeypatch):
+    return _build_step_history_orchestrator(monkeypatch)
+
+
+def _build_orchestrator_failing_at(monkeypatch, step_code: str):
+    return _build_step_history_orchestrator(monkeypatch, failing_step=step_code)
+
+
+@pytest.mark.anyio
+async def test_each_step_run_is_closed_as_succeeded_on_success(monkeypatch):
+    repository, orchestrator, lease_token = _build_successful_orchestrator(
+        monkeypatch
+    )
+
+    await orchestrator.run(job_id=1001, lease_token=lease_token)
+
+    assert repository.finished_step_runs
+    assert all(
+        status == 'SUCCEEDED' for _, status in repository.finished_step_runs
+    )
+    assert len(repository.finished_step_runs) == len(repository.begun_steps)
+
+
+@pytest.mark.anyio
+async def test_failing_step_run_is_closed_as_failed(monkeypatch):
+    repository, orchestrator, lease_token = _build_orchestrator_failing_at(
+        monkeypatch, 'BUILD_CLUSTERS'
+    )
+
+    with pytest.raises(RuntimeError, match='BUILD_CLUSTERS failed'):
+        await orchestrator.run(job_id=1001, lease_token=lease_token)
+
+    assert repository.finished_step_runs[-1][1] == 'FAILED'

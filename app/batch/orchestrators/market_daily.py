@@ -27,7 +27,7 @@ from app.core.public_diagnostics import (
     sanitize_public_diagnostic,
     sanitize_public_diagnostics,
 )
-from app.db.enums import EventLevel
+from app.db.enums import BatchStepStatus, EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.session import get_session_maker
 
@@ -60,6 +60,7 @@ class MarketDailyBatchOrchestrator:
             last_committed_context: BatchExecutionContext | None = None
             current_step_code = 'ORCHESTRATE'
             current_step_started_at: float | None = None
+            current_step_run_id: int | None = None
 
             def log_stage_event(
                 event: str,
@@ -125,12 +126,12 @@ class MarketDailyBatchOrchestrator:
                     current_step_started_at = perf_counter()
                     log_stage_event('started', logging.INFO, step_code)
                     if lease_token is not None:
-                        step_started = await repository.begin_step(
+                        current_step_run_id = await repository.begin_step(
                             job_id=job_id,
                             lease_token=lease_token,
                             step_code=step_code,
                         )
-                        if not step_started:
+                        if current_step_run_id is None:
                             await repository.rollback()
                             raise BatchLeaseLostError(
                                 f'Lease was lost before step {step_code}.'
@@ -167,6 +168,11 @@ class MarketDailyBatchOrchestrator:
                             raise BatchLeaseLostError(
                                 f'Lease was lost after step {step_code}.'
                             )
+                    if current_step_run_id is not None:
+                        await repository.finish_step_run(
+                            step_run_id=current_step_run_id,
+                            status=BatchStepStatus.SUCCEEDED.value,
+                        )
                     await repository.commit()
                     last_committed_context = deepcopy(context)
                     log_stage_event(
@@ -176,6 +182,7 @@ class MarketDailyBatchOrchestrator:
                         duration_seconds=perf_counter() - current_step_started_at,
                     )
                     current_step_started_at = None
+                    current_step_run_id = None
                 log_stage_event(
                     'completed',
                     logging.INFO,
@@ -199,6 +206,13 @@ class MarketDailyBatchOrchestrator:
                     exception=exc,
                 )
                 await _rollback_active_transaction(repository)
+                if current_step_run_id is not None:
+                    await repository.finish_step_run(
+                        step_run_id=current_step_run_id,
+                        status=BatchStepStatus.FAILED.value,
+                    )
+                    await repository.commit()
+                    current_step_run_id = None
                 if lease_token is not None:
                     raise
                 error_code = (
