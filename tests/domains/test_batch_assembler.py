@@ -5,6 +5,9 @@ from types import SimpleNamespace
 from tests.support import jsonable, load_module
 
 assembler_module = load_module('app.domains.batches.assembler')
+projections_module = load_module('app.db.repositories.projections')
+
+BatchJobStepRunRecord = projections_module.BatchJobStepRunRecord
 
 
 def _sample_market_snapshot_job() -> SimpleNamespace:
@@ -88,7 +91,7 @@ def test_batch_list_assembler_preserves_normal_partial_reason(
 def test_detail_payload_includes_step_durations():
     job = _sample_market_snapshot_job()
     step_runs = [
-        SimpleNamespace(
+        BatchJobStepRunRecord(
             step_run_id=11,
             step_code='CREATE_JOB',
             seq=1,
@@ -97,7 +100,7 @@ def test_detail_payload_includes_step_durations():
             ended_at=datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
             duration_ms=1000,
         ),
-        SimpleNamespace(
+        BatchJobStepRunRecord(
             step_run_id=12,
             step_code='DEDUPE_ARTICLES',
             seq=2,
