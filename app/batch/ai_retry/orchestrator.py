@@ -24,7 +24,7 @@ from app.batch.steps.ai_summary_generators import (
     _generate_global_headline,
     _generate_market_summary,
 )
-from app.db.enums import AiSummaryStatus, EventLevel
+from app.db.enums import AiSummaryStatus, BatchStepStatus, EventLevel
 from app.db.repositories.ai_retry_repo import PostgresAiRetryRepository
 from app.db.repositories.ai_summary_repo import AiSummaryRepository
 from app.db.repositories.ai_summary_write_repo import AiSummaryWriteRepository
@@ -76,6 +76,7 @@ class AiRetryOrchestrator:
             job_repo = self._make_job_repository(session, lease_token)
             summary_repo = self._summary_repo_factory(session)
             summary_write_repo = self._summary_write_repo_factory(session)
+            current_step_run_id: int | None = None
             try:
                 job = await retry_repo.get_job(job_id)
                 if job is None:
@@ -83,7 +84,7 @@ class AiRetryOrchestrator:
                 if job.run_mode != 'AI_RETRY' or job.source_job_id is None:
                     raise ValueError(f'Batch job {job_id} is not an AI_RETRY job.')
 
-                await _begin_step(
+                current_step_run_id = await _begin_step(
                     job_repo,
                     job_id=job_id,
                     lease_token=lease_token,
@@ -112,6 +113,12 @@ class AiRetryOrchestrator:
                     completed_steps=[AI_RETRY_SELECT_STEP],
                     context={'selectedTargetCount': len(selections)},
                 )
+                await _finish_step(
+                    job_repo,
+                    step_run_id=current_step_run_id,
+                    status=BatchStepStatus.SUCCEEDED.value,
+                )
+                current_step_run_id = None
                 await retry_repo.commit()
 
                 clusters = await self._cluster_repo_factory(
@@ -122,7 +129,7 @@ class AiRetryOrchestrator:
                 ).list_indices_by_business_date(job.business_date)
                 llm_provider = self._llm_provider_factory()
                 for selection in selections:
-                    await _begin_step(
+                    current_step_run_id = await _begin_step(
                         job_repo,
                         job_id=job_id,
                         lease_token=lease_token,
@@ -143,6 +150,12 @@ class AiRetryOrchestrator:
                             payload=payload,
                         )
                     )
+                    await _finish_step(
+                        job_repo,
+                        step_run_id=current_step_run_id,
+                        status=BatchStepStatus.SUCCEEDED.value,
+                    )
+                    current_step_run_id = None
                     lineage = _replace_current_retry(lineage, persisted)
                     counts = calculate_retry_counts(
                         source_job_id=job.source_job_id,
@@ -176,7 +189,7 @@ class AiRetryOrchestrator:
                         raise LookupError(
                             'The AI retry job has no persisted source page.'
                         )
-                    await _begin_step(
+                    current_step_run_id = await _begin_step(
                         job_repo,
                         job_id=job_id,
                         lease_token=lease_token,
@@ -208,10 +221,16 @@ class AiRetryOrchestrator:
                             **_count_payload(counts),
                         },
                     )
+                    await _finish_step(
+                        job_repo,
+                        step_run_id=current_step_run_id,
+                        status=BatchStepStatus.SUCCEEDED.value,
+                    )
+                    current_step_run_id = None
                     await retry_repo.commit()
 
                 status, partial_message = _terminal_status(counts, page)
-                await _begin_step(
+                current_step_run_id = await _begin_step(
                     job_repo,
                     job_id=job_id,
                     lease_token=lease_token,
@@ -241,6 +260,12 @@ class AiRetryOrchestrator:
                     message=f'AI retry finalized with status={status}.',
                     context_json=_count_payload(counts),
                 )
+                await _finish_step(
+                    job_repo,
+                    step_run_id=current_step_run_id,
+                    status=BatchStepStatus.SUCCEEDED.value,
+                )
+                current_step_run_id = None
                 await retry_repo.commit()
                 return AiRetryRunResult(
                     counts=counts,
@@ -250,6 +275,13 @@ class AiRetryOrchestrator:
                 )
             except Exception:
                 await retry_repo.rollback()
+                if current_step_run_id is not None:
+                    await _finish_step(
+                        job_repo,
+                        step_run_id=current_step_run_id,
+                        status=BatchStepStatus.FAILED.value,
+                    )
+                    await retry_repo.commit()
                 raise
 
     def _make_job_repository(self, session: object, lease_token: UUID | None) -> Any:
@@ -381,16 +413,30 @@ async def _begin_step(
     job_id: int,
     lease_token: UUID | None,
     step_code: str,
-) -> None:
+) -> int | None:
     method = getattr(repository, 'begin_step', None)
     if lease_token is None or method is None:
-        return
-    if not await method(
+        return None
+    step_run_id = await method(
         job_id=job_id,
         lease_token=lease_token,
         step_code=step_code,
-    ):
+    )
+    if step_run_id is None:
         raise BatchLeaseLostError(f'Lease lost before AI retry step {step_code}.')
+    return step_run_id
+
+
+async def _finish_step(
+    repository: Any,
+    *,
+    step_run_id: int | None,
+    status: str,
+) -> None:
+    method = getattr(repository, 'finish_step_run', None)
+    if step_run_id is None or method is None:
+        return
+    await method(step_run_id=step_run_id, status=status)
 
 
 async def _checkpoint(
