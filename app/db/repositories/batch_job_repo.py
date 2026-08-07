@@ -9,7 +9,7 @@ from sqlalchemy import bindparam, text  # pyright: ignore[reportMissingImports]
 from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
 
 from app.batch.exceptions import BatchLeaseLostError
-from app.db.enums import BatchJobStatus, BatchJobType, BatchRunMode
+from app.db.enums import BatchJobStatus, BatchJobType, BatchRunMode, BatchStepStatus
 from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
 from app.db.repositories.projections import (
@@ -402,7 +402,7 @@ class BatchJobRepository(PostgresRepository):
         job_id: int,
         lease_token: UUID,
         step_code: str,
-    ) -> bool:
+    ) -> int | None:
         statement = text(
             """
             UPDATE {batch_job_table}
@@ -425,7 +425,32 @@ class BatchJobRepository(PostgresRepository):
                 'step_code': step_code,
             },
         )
-        return result.scalar_one_or_none() is not None
+        if result.scalar_one_or_none() is None:
+            return None
+        return await self._insert_step_run(job_id=job_id, step_code=step_code)
+
+    async def _insert_step_run(self, *, job_id: int, step_code: str) -> int:
+        statement = text(
+            """
+            INSERT INTO {step_run_table} (batch_job_id, step_code, seq, status)
+            SELECT
+                :job_id,
+                :step_code,
+                COALESCE(MAX(seq), 0) + 1,
+                '{status_running}'
+            FROM {step_run_table}
+            WHERE batch_job_id = :job_id
+            RETURNING id
+            """.format(
+                step_run_table=qualify_db_identifier('batch_job_step_run'),
+                status_running=BatchStepStatus.RUNNING.value,
+            )
+        )
+        result = await self.session.execute(
+            statement,
+            {'job_id': job_id, 'step_code': step_code},
+        )
+        return int(result.scalar_one())
 
     async def save_checkpoint(
         self,

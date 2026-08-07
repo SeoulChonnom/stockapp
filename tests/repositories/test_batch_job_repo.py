@@ -434,7 +434,12 @@ async def test_claim_next_job_uses_skip_locked_and_workers_get_distinct_rows():
 async def test_heartbeat_and_checkpoint_updates_are_lease_fenced():
     lease_token = uuid4()
     session = RecordingAsyncSession(
-        results=[DummyResult([1001]), DummyResult([1001]), DummyResult([1001])]
+        results=[
+            DummyResult([1001]),
+            DummyResult([1001]),
+            DummyResult([777]),
+            DummyResult([1001]),
+        ]
     )
     repo = BatchJobRepository(session)
 
@@ -460,16 +465,16 @@ async def test_heartbeat_and_checkpoint_updates_are_lease_fenced():
     )
 
     assert renewed is True
-    assert began is True
+    assert began == 777
     assert saved is True
     heartbeat_sql = ' '.join(str(session.statements[0]).split()).lower()
-    checkpoint_sql = ' '.join(str(session.statements[2]).split()).lower()
+    checkpoint_sql = ' '.join(str(session.statements[3]).split()).lower()
     assert 'lease_owner = :worker_id' in heartbeat_sql
     assert 'lease_token = :lease_token' in heartbeat_sql
     assert 'lease_expires_at > now()' in heartbeat_sql
     assert 'lease_token = :lease_token' in checkpoint_sql
     assert 'lease_expires_at > now()' in checkpoint_sql
-    assert '"completedSteps"' in session.parameters[2]['checkpoint_json']
+    assert '"completedSteps"' in session.parameters[3]['checkpoint_json']
 
 
 @pytest.mark.anyio
@@ -534,3 +539,45 @@ async def test_release_failed_claim_is_token_fenced_and_preserves_checkpoint():
     assert 'lease_expires_at > now()' in sql
     assert 'checkpoint_json' not in sql
     assert 'attempt_count >= max_attempts' in sql
+
+
+@pytest.mark.anyio
+async def test_begin_step_records_step_run_and_returns_its_id():
+    lease_token = uuid4()
+    session = RecordingAsyncSession(
+        results=[DummyResult([1001]), DummyResult([777])]
+    )
+    repo = BatchJobRepository(session)
+
+    step_run_id = await repo.begin_step(
+        job_id=1001,
+        lease_token=lease_token,
+        step_code='COLLECT_NEWS',
+    )
+
+    assert step_run_id == 777
+    lease_sql = normalize_sql(session.statements[0]).lower()
+    assert 'update stock.batch_job' in lease_sql
+    assert 'lease_expires_at > now()' in lease_sql
+    insert_sql = normalize_sql(session.statements[1]).lower()
+    assert 'insert into stock.batch_job_step_run' in insert_sql
+    assert 'coalesce(max(seq), 0) + 1' in insert_sql
+    assert session.parameters[1] == {
+        'job_id': 1001,
+        'step_code': 'COLLECT_NEWS',
+    }
+
+
+@pytest.mark.anyio
+async def test_begin_step_returns_none_and_skips_insert_when_lease_lost():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = BatchJobRepository(session)
+
+    step_run_id = await repo.begin_step(
+        job_id=1001,
+        lease_token=uuid4(),
+        step_code='COLLECT_NEWS',
+    )
+
+    assert step_run_id is None
+    assert len(session.statements) == 1
