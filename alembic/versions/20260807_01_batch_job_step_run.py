@@ -34,9 +34,6 @@ CREATE TABLE batch_job_step_run (
     CONSTRAINT chk_batch_job_step_run_duration_non_negative
         CHECK (duration_ms IS NULL OR duration_ms >= 0)
 );
-
-CREATE INDEX idx_batch_job_step_run_job_seq
-    ON batch_job_step_run (batch_job_id, seq);
 """
 
 _DOWNGRADE_SQL = """

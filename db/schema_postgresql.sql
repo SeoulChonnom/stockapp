@@ -203,9 +203,6 @@ CREATE TABLE batch_job_step_run (
         CHECK (duration_ms IS NULL OR duration_ms >= 0)
 );
 
-CREATE INDEX idx_batch_job_step_run_job_seq
-    ON batch_job_step_run (batch_job_id, seq);
-
 CREATE TABLE news_search_keyword (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     provider_name TEXT NOT NULL,
