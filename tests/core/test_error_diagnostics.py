@@ -59,6 +59,9 @@ def test_mask_error_log_redacts_configured_sensitive_values(
         ('Authorization: Bearer provider-token', 'provider-token'),
         ('Authorization: Basic provider-basic-token', 'provider-basic-token'),
         ('password=provider-password', 'provider-password'),
+        ('credential=provider-credential', 'provider-credential'),
+        ('credentials=provider-credentials', 'provider-credentials'),
+        ('authorization=provider-authorization', 'provider-authorization'),
         ('{"api_key": "provider-key"}', 'provider-key'),
         ('postgresql://user:db-pass@example/db', 'db-pass'),
         ('token=temporary-token', 'temporary-token'),
@@ -123,3 +126,21 @@ def test_mask_error_log_truncates_large_output_from_both_ends(
     assert masked.startswith('START-')
     assert masked.endswith('-END')
     assert '[TRUNCATED]' in masked
+
+
+def test_build_step_error_diagnostics_retains_final_exception_prefix_when_truncated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(error_diagnostics, 'get_settings', lambda: _settings())
+    message_prefix = 'failure-prefix:'
+    try:
+        try:
+            raise ValueError('inner failure:' + ('x' * (32 * 1024)))
+        except ValueError as exc:
+            raise RuntimeError(message_prefix + ('x' * (32 * 1024))) from exc
+    except RuntimeError as exc:
+        result = build_step_error_diagnostics(exc, public_message='Batch failed.')
+
+    assert len(result.error_log) <= 32 * 1024
+    assert '[TRUNCATED]' in result.error_log
+    assert f'RuntimeError: {message_prefix}' in result.error_log

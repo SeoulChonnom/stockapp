@@ -18,7 +18,7 @@ _AUTHORIZATION_PATTERN = re.compile(
 _CREDENTIAL_VALUE_PATTERN = re.compile(
     r'('
     r'(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|'
-    r'jwt(?:[_-]?secret)?|password|passwd|secret|token)'
+    r'authorization|credential(?:s)?|jwt(?:[_-]?secret)?|password|passwd|secret|token)'
     r'["\']?\s*(?:=|:)\s*["\']?'
     r')[^"\'\s,}&]+',
     flags=re.IGNORECASE,
@@ -93,7 +93,22 @@ def _truncate(value: str) -> str:
     remaining = MAX_ERROR_LOG_CHARS - len(_TRUNCATION_MARKER)
     beginning_length = remaining // 2
     ending_length = remaining - beginning_length
-    return value[:beginning_length] + _TRUNCATION_MARKER + value[-ending_length:]
+    final_line_start = value.rfind('\n', 0, len(value.rstrip('\n'))) + 1
+    final_line = value[final_line_start:]
+    if len(final_line) <= ending_length:
+        return value[:beginning_length] + _TRUNCATION_MARKER + value[-ending_length:]
+
+    segmented_remaining = MAX_ERROR_LOG_CHARS - (2 * len(_TRUNCATION_MARKER))
+    beginning_length = segmented_remaining // 2
+    final_prefix_length = segmented_remaining // 4
+    ending_length = segmented_remaining - beginning_length - final_prefix_length
+    return (
+        value[:beginning_length]
+        + _TRUNCATION_MARKER
+        + final_line[:final_prefix_length]
+        + _TRUNCATION_MARKER
+        + value[-ending_length:]
+    )
 
 
 __all__ = [
