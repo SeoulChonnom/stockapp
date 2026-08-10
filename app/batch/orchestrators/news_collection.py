@@ -13,7 +13,10 @@ from app.batch.providers.naver_news import (
     NAVER_NEWS_PROVIDER_NAME,
     NaverNewsProvider,
 )
-from app.core.error_diagnostics import build_step_error_diagnostics
+from app.core.error_diagnostics import (
+    StepErrorDiagnostics,
+    build_step_error_diagnostics,
+)
 from app.db.enums import BatchJobStatus, BatchStepStatus, EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.news_article_raw_repo import NewsArticleRawRepository
@@ -120,6 +123,7 @@ class NaverNewsCollectionOrchestrator:
                 completed_keyword_count = 0
                 partial_reasons: list[str] = []
                 auth_failed = False
+                auth_failure_diagnostics: StepErrorDiagnostics | None = None
 
                 for keyword in keywords:
                     if auth_failed:
@@ -183,6 +187,13 @@ class NaverNewsCollectionOrchestrator:
                             await job_repo.commit()
                             raise NaverRetryableError() from None
                         auth_failed = status_code in {401, 403}
+                        if auth_failed and auth_failure_diagnostics is None:
+                            auth_failure_diagnostics = build_step_error_diagnostics(
+                                exc,
+                                public_message=(
+                                    'Naver news API authentication failed.'
+                                ),
+                            )
                         error_code = (
                             'NAVER_AUTH_FAILED'
                             if auth_failed
@@ -312,10 +323,18 @@ class NaverNewsCollectionOrchestrator:
                     ),
                 )
                 if step_run_id is not None:
-                    await job_repo.finish_step_run(
-                        step_run_id=step_run_id,
-                        status=BatchStepStatus.SUCCEEDED.value,
-                    )
+                    if auth_failure_diagnostics is None:
+                        await job_repo.finish_step_run(
+                            step_run_id=step_run_id,
+                            status=BatchStepStatus.SUCCEEDED.value,
+                        )
+                    else:
+                        await job_repo.finish_step_run(
+                            step_run_id=step_run_id,
+                            status=BatchStepStatus.FAILED.value,
+                            error_message=auth_failure_diagnostics.error_message,
+                            error_log=auth_failure_diagnostics.error_log,
+                        )
                 await job_repo.commit()
             except Exception as exc:
                 await job_repo.rollback()

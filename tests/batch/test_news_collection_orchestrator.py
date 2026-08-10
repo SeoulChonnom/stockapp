@@ -592,7 +592,7 @@ async def test_step_run_is_closed_as_failed_on_mid_run_exception_with_lease(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize('status_code', [401, 403])
-async def test_news_collection_treats_auth_http_status_as_terminal(
+async def test_news_collection_treats_leased_auth_http_status_as_failed(
     monkeypatch,
     status_code,
 ):
@@ -616,7 +616,29 @@ async def test_news_collection_treats_auth_http_status_as_terminal(
         def __init__(self, session, lease_token=None):
             _ = (session, lease_token)
             self.completion = None
+            self.finished_step_runs = []
             FakeJobRepo.instance = self
+
+        async def begin_step(self, **_kwargs):
+            return 77
+
+        async def finish_step_run(
+            self,
+            *,
+            step_run_id,
+            status,
+            error_message=None,
+            error_log=None,
+        ):
+            self.finished_step_runs.append(
+                {
+                    'step_run_id': step_run_id,
+                    'status': status,
+                    'error_message': error_message,
+                    'error_log': error_log,
+                }
+            )
+            return True
 
         async def add_event(self, **_kwargs):
             return None
@@ -625,6 +647,9 @@ async def test_news_collection_treats_auth_http_status_as_terminal(
             self.completion = kwargs
 
         async def commit(self):
+            return None
+
+        async def rollback(self):
             return None
 
     class FakeRunRepo:
@@ -664,7 +689,7 @@ async def test_news_collection_treats_auth_http_status_as_terminal(
             request = httpx.Request('GET', 'https://openapi.naver.com/news')
             response = httpx.Response(status_code, request=request)
             raise httpx.HTTPStatusError(
-                'auth failure',
+                'auth failure token=secret-token',
                 request=request,
                 response=response,
             )
@@ -677,8 +702,14 @@ async def test_news_collection_treats_auth_http_status_as_terminal(
     await module.NaverNewsCollectionOrchestrator(
         session_maker=FakeSessionMaker(),
         provider_factory=AuthFailureProvider,
-    ).run(3001)
+    ).run(3001, lease_token=uuid4())
 
     assert FakeRunRepo.instance.diagnostics[0].error_code == 'NAVER_AUTH_FAILED'
     assert FakeJobRepo.instance.completion['status'] == 'FAILED'
     assert FakeJobRepo.instance.completion['error_code'] == 'NAVER_AUTH_FAILED'
+    finished_step = FakeJobRepo.instance.finished_step_runs[-1]
+    assert finished_step['status'] == 'FAILED'
+    assert finished_step['error_message'] == 'Naver news API authentication failed.'
+    assert 'HTTPStatusError' in finished_step['error_log']
+    assert 'secret-token' not in finished_step['error_log']
+    assert '[REDACTED]' in finished_step['error_log']

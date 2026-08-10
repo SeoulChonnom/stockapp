@@ -6,6 +6,7 @@ Create Date: 2026-08-10
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = '20260810_01_step_errors'
@@ -18,13 +19,15 @@ def upgrade() -> None:
     op.add_column(
         'batch_job_step_run',
         sa.Column('error_message', sa.Text(), nullable=True),
+        schema='stock',
     )
     op.add_column(
         'batch_job_step_run',
         sa.Column('error_log', sa.Text(), nullable=True),
+        schema='stock',
     )
 
 
 def downgrade() -> None:
-    op.drop_column('batch_job_step_run', 'error_log')
-    op.drop_column('batch_job_step_run', 'error_message')
+    op.drop_column('batch_job_step_run', 'error_log', schema='stock')
+    op.drop_column('batch_job_step_run', 'error_message', schema='stock')

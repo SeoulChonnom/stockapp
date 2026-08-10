@@ -120,8 +120,8 @@ class AiRetryOrchestrator:
                     step_run_id=current_step_run_id,
                     status=BatchStepStatus.SUCCEEDED.value,
                 )
-                current_step_run_id = None
                 await retry_repo.commit()
+                current_step_run_id = None
 
                 clusters = await self._cluster_repo_factory(
                     session
@@ -158,7 +158,6 @@ class AiRetryOrchestrator:
                         step_run_id=current_step_run_id,
                         status=BatchStepStatus.SUCCEEDED.value,
                     )
-                    current_step_run_id = None
                     lineage = _replace_current_retry(lineage, persisted)
                     counts = calculate_retry_counts(
                         source_job_id=job.source_job_id,
@@ -180,6 +179,7 @@ class AiRetryOrchestrator:
                         },
                     )
                     await retry_repo.commit()
+                    current_step_run_id = None
 
                 counts = calculate_retry_counts(
                     source_job_id=job.source_job_id,
@@ -230,8 +230,8 @@ class AiRetryOrchestrator:
                         step_run_id=current_step_run_id,
                         status=BatchStepStatus.SUCCEEDED.value,
                     )
-                    current_step_run_id = None
                     await retry_repo.commit()
+                    current_step_run_id = None
 
                 status, partial_message = _terminal_status(counts, page)
                 current_step_run_id = await _begin_step(
@@ -270,8 +270,8 @@ class AiRetryOrchestrator:
                     step_run_id=current_step_run_id,
                     status=BatchStepStatus.SUCCEEDED.value,
                 )
-                current_step_run_id = None
                 await retry_repo.commit()
+                current_step_run_id = None
                 return AiRetryRunResult(
                     counts=counts,
                     page=page,

@@ -1,3 +1,5 @@
+from time import perf_counter
+
 import pytest
 
 from app.core import error_diagnostics
@@ -85,6 +87,56 @@ def test_mask_error_log_redacts_common_credentials(
     assert '[REDACTED]' in masked
 
 
+@pytest.mark.parametrize(
+    ('raw', 'expected', 'secret_fragments'),
+    [
+        (
+            'authorization=Bearer external-provider-token',
+            'authorization=Bearer [REDACTED]',
+            ('external-provider-token',),
+        ),
+        (
+            '{"authorization": "Basic external provider token"}',
+            '{"authorization": "Basic [REDACTED]"}',
+            ('external', 'provider', 'token'),
+        ),
+        (
+            '{"credential": "correct horse battery staple"}',
+            '{"credential": "[REDACTED]"}',
+            ('correct', 'horse', 'battery', 'staple'),
+        ),
+        (
+            "password='open sesame phrase'",
+            "password='[REDACTED]'",
+            ('open', 'sesame', 'phrase'),
+        ),
+        (
+            '{"credential": "correct \\"horse\\" battery staple"}',
+            '{"credential": "[REDACTED]"}',
+            ('correct', 'horse', 'battery', 'staple'),
+        ),
+        (
+            'password="line one\nline two"',
+            'password="[REDACTED]"',
+            ('line one', 'line two'),
+        ),
+    ],
+)
+def test_mask_error_log_redacts_complete_whitespace_bearing_credentials(
+    raw: str,
+    expected: str,
+    secret_fragments: tuple[str, ...],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(error_diagnostics, 'get_settings', lambda: _settings())
+
+    masked = mask_error_log(raw)
+
+    assert masked == expected
+    for fragment in secret_fragments:
+        assert fragment not in masked
+
+
 def test_build_step_error_diagnostics_preserves_exception_chaining_after_masking(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -111,6 +163,20 @@ def test_build_step_error_diagnostics_preserves_exception_chaining_after_masking
 
 def test_mask_error_log_preserves_none() -> None:
     assert mask_error_log(None) is None
+
+
+def test_mask_error_log_bounds_unterminated_quoted_backslash_processing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(error_diagnostics, 'get_settings', lambda: _settings())
+    raw = 'password="' + ('\\' * 32)
+
+    started_at = perf_counter()
+    masked = mask_error_log(raw)
+    elapsed_seconds = perf_counter() - started_at
+
+    assert masked == 'password="[REDACTED]'
+    assert elapsed_seconds < 0.1
 
 
 def test_mask_error_log_truncates_large_output_from_both_ends(
@@ -144,3 +210,25 @@ def test_build_step_error_diagnostics_retains_final_exception_prefix_when_trunca
     assert len(result.error_log) <= 32 * 1024
     assert '[TRUNCATED]' in result.error_log
     assert f'RuntimeError: {message_prefix}' in result.error_log
+
+
+def test_build_step_error_diagnostics_retains_multiline_outer_exception_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(error_diagnostics, 'get_settings', lambda: _settings())
+    message_prefix = 'outer-prefix:'
+    message_tail = 'outer-tail'
+    try:
+        try:
+            raise ValueError('inner failure:' + ('i' * (32 * 1024)))
+        except ValueError as exc:
+            raise RuntimeError(
+                message_prefix + '\n' + ('o' * (32 * 1024)) + message_tail
+            ) from exc
+    except RuntimeError as exc:
+        result = build_step_error_diagnostics(exc, public_message='Batch failed.')
+
+    assert len(result.error_log) <= 32 * 1024
+    assert '[TRUNCATED]' in result.error_log
+    assert f'RuntimeError: {message_prefix}' in result.error_log
+    assert result.error_log.rstrip().endswith(message_tail)

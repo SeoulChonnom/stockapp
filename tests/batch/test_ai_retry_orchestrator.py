@@ -8,6 +8,7 @@ import pytest
 
 from app.batch.ai_retry.models import AiRetryPageResult
 from app.batch.ai_retry.orchestrator import AI_RETRY_SELECT_STEP, AiRetryOrchestrator
+from app.batch.exceptions import BatchLeaseLostError
 from app.db.repositories.ai_retry_repo import AiRetryJob
 from app.db.repositories.projections import AiSummaryRecord
 
@@ -94,10 +95,14 @@ class OperationLoggingSession:
     interleaving (e.g. "commit happens before the step's own work runs").
     """
 
-    def __init__(self):
+    def __init__(self, *, fail_commit_on: set[int] | None = None):
         self.pending_steps: dict[int, str] = {}
         self.committed_steps: dict[int, str] = {}
+        self.pending_step_runs: dict[int, dict] = {}
+        self.committed_step_runs: dict[int, dict] = {}
         self.next_id = 0
+        self.commit_attempts = 0
+        self.fail_commit_on = set(fail_commit_on or ())
         self.operations: list[tuple] = []
         self.finished_step_runs: list[dict] = []
 
@@ -105,6 +110,11 @@ class OperationLoggingSession:
         self.next_id += 1
         step_run_id = self.next_id
         self.pending_steps[step_run_id] = 'RUNNING'
+        self.pending_step_runs[step_run_id] = {
+            'status': 'RUNNING',
+            'error_message': None,
+            'error_log': None,
+        }
         self.operations.append(('begin_step', step_code, step_run_id))
         return step_run_id
 
@@ -122,6 +132,11 @@ class OperationLoggingSession:
             self.operations.append(('finish_step_run_noop', step_run_id, status))
             return False
         self.pending_steps[step_run_id] = status
+        self.pending_step_runs[step_run_id] = {
+            'status': status,
+            'error_message': error_message,
+            'error_log': error_log,
+        }
         self.operations.append(('finish_step_run', step_run_id, status))
         self.finished_step_runs.append(
             {
@@ -134,12 +149,20 @@ class OperationLoggingSession:
         return True
 
     def commit(self):
+        self.commit_attempts += 1
+        if self.commit_attempts in self.fail_commit_on:
+            self.fail_commit_on.remove(self.commit_attempts)
+            self.operations.append(('commit_failed', self.commit_attempts))
+            raise RuntimeError('commit failed token=secret-token')
         self.committed_steps.update(self.pending_steps)
+        self.committed_step_runs.update(self.pending_step_runs)
         self.pending_steps = {}
+        self.pending_step_runs = {}
         self.operations.append(('commit',))
 
     def rollback(self):
         self.pending_steps = {}
+        self.pending_step_runs = {}
         self.operations.append(('rollback',))
 
     def log(self, marker):
@@ -171,6 +194,16 @@ class SessionJobRepository:
             error_message,
             error_log,
         )
+
+
+class CheckpointSessionJobRepository(SessionJobRepository):
+    def __init__(self, session, checkpoint_results):
+        super().__init__(session)
+        self.checkpoint_results = iter(checkpoint_results)
+
+    async def save_checkpoint(self, **kwargs):
+        self.session.log(('save_checkpoint', kwargs['current_step']))
+        return next(self.checkpoint_results)
 
 
 class SessionRetryRepository:
@@ -380,6 +413,29 @@ def _build_failing_retry():
     return session, orchestrator, lease_token
 
 
+def _build_transactional_successful_retry(
+    *,
+    checkpoint_results: list[bool],
+    fail_commit_on: set[int] | None = None,
+):
+    session = OperationLoggingSession(fail_commit_on=fail_commit_on)
+    job = replace(_retry_job(), job_id=4003)
+    job_repo = CheckpointSessionJobRepository(session, checkpoint_results)
+    retry_repo = SessionRetryRepository(session, job)
+    orchestrator = AiRetryOrchestrator(
+        session_maker=FakeSessionMaker(),
+        retry_repo_factory=lambda _: retry_repo,
+        job_repo_factory=lambda _: job_repo,
+        summary_repo_factory=lambda _: FakeSummaryRepository([_source_summary()]),
+        summary_write_repo_factory=lambda _: FakeSummaryWriteRepository(),
+        cluster_repo_factory=lambda _: FakeClusterRepository(),
+        index_repo_factory=lambda _: FakeIndexRepository(),
+        llm_provider_factory=lambda: SuccessfulLlm(),
+        page_builder=FakePageBuilder(),
+    )
+    return session, orchestrator, uuid4()
+
+
 @pytest.mark.anyio
 async def test_recovered_target_creates_vnext_and_completes_success():
     source = _source_summary()
@@ -538,3 +594,40 @@ async def test_ai_retry_commits_running_step_before_step_work_runs():
         ('list_retry_lineage_summaries', 10)
     )
     assert begin_index < commit_index < work_index
+
+
+@pytest.mark.anyio
+async def test_ai_retry_checkpoint_loss_after_finish_closes_durable_step_failed():
+    session, orchestrator, lease_token = _build_transactional_successful_retry(
+        checkpoint_results=[True, False]
+    )
+
+    with pytest.raises(BatchLeaseLostError, match='checkpointing'):
+        await orchestrator.run(job_id=4003, lease_token=lease_token)
+
+    failed_step = session.committed_step_runs[2]
+    assert failed_step['status'] == 'FAILED'
+    assert failed_step['error_message'] == (
+        'AI 재처리 단계 실행 중 오류가 발생했습니다.'
+    )
+    assert 'BatchLeaseLostError' in failed_step['error_log']
+
+
+@pytest.mark.anyio
+async def test_ai_retry_one_shot_success_commit_failure_closes_durable_step_failed():
+    session, orchestrator, lease_token = _build_transactional_successful_retry(
+        checkpoint_results=[True],
+        fail_commit_on={2},
+    )
+
+    with pytest.raises(RuntimeError, match='commit failed'):
+        await orchestrator.run(job_id=4003, lease_token=lease_token)
+
+    failed_step = session.committed_step_runs[1]
+    assert failed_step['status'] == 'FAILED'
+    assert failed_step['error_message'] == (
+        'AI 재처리 단계 실행 중 오류가 발생했습니다.'
+    )
+    assert 'RuntimeError' in failed_step['error_log']
+    assert 'secret-token' not in failed_step['error_log']
+    assert '[REDACTED]' in failed_step['error_log']

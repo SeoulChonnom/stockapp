@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import traceback
 from copy import deepcopy
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any, cast
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, pool, text
 
 from alembic import command
 from app.core.settings import Settings
@@ -522,6 +524,79 @@ def test_alembic_chain_has_one_squashed_baseline_head():
     assert baseline.down_revision is None
 
 
+def test_alembic_incremental_step_diagnostics_use_stock_schema():
+    database_url = os.getenv('STOCKAPP_MIGRATION_TEST_DSN')
+    if database_url is None:
+        pytest.skip('STOCKAPP_MIGRATION_TEST_DSN is not configured.')
+
+    sqlalchemy_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    config = Config(str(REPOSITORY_ROOT / 'alembic.ini'))
+    engine = create_engine(sqlalchemy_url, poolclass=pool.NullPool)
+
+    def run_migration(action, target: str) -> None:
+        with engine.connect() as connection:
+            connection.execute(text('SET search_path TO "$user", public'))
+            connection.commit()
+            config.attributes['connection'] = connection
+            action(config, target)
+
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+
+        run_migration(command.upgrade, '20260807_01_step_run')
+        run_migration(command.upgrade, LATEST_ALEMBIC_HEAD)
+
+        with engine.connect() as connection:
+            columns = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'stock'
+                      AND table_name = 'batch_job_step_run'
+                      AND column_name IN ('error_message', 'error_log')
+                    ORDER BY column_name
+                    """
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        assert columns == ['error_log', 'error_message']
+
+        run_migration(command.downgrade, '20260807_01_step_run')
+
+        with engine.connect() as connection:
+            remaining_columns = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'stock'
+                      AND table_name = 'batch_job_step_run'
+                      AND column_name IN ('error_message', 'error_log')
+                    """
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        assert remaining_columns == []
+    finally:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+        engine.dispose()
+
+
 def test_alembic_offline_sql_contains_schema_before_version_table(capsys):
     config = Config(str(REPOSITORY_ROOT / 'alembic.ini'))
     config.set_main_option(
@@ -537,6 +612,10 @@ def test_alembic_offline_sql_contains_schema_before_version_table(capsys):
         'CREATE TABLE stock.alembic_version'
     )
     assert 'CREATE TABLE batch_job' in output
+    assert (
+        'ALTER TABLE stock.batch_job_step_run ADD COLUMN error_message TEXT' in output
+    )
+    assert 'ALTER TABLE stock.batch_job_step_run ADD COLUMN error_log TEXT' in output
 
 
 def test_frozen_baseline_and_catalog_manifest_are_immutable():
