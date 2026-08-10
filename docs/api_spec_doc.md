@@ -488,14 +488,18 @@ API 하나로 뉴스/지수 재수집 없이 저장된 정제 결과만 재사�
         "status": "SUCCEEDED",
         "startedAt": "2026-03-18T06:10:00+09:00",
         "endedAt": "2026-03-18T06:10:00+09:00",
-        "durationMs": 12
+        "durationMs": 12,
+        "errorMessage": null,
+        "errorLog": null
       },
       {
-        "stepCode": "DEDUPE_ARTICLES",
-        "status": "SUCCEEDED",
+        "stepCode": "COLLECT_NEWS",
+        "status": "FAILED",
         "startedAt": "2026-03-18T06:10:00+09:00",
         "endedAt": "2026-03-18T06:10:04+09:00",
-        "durationMs": 4210
+        "durationMs": 4210,
+        "errorMessage": "External provider request failed.",
+        "errorLog": "Traceback (most recent call last): ... Authorization: Bearer [REDACTED]"
       }
     ]
   },
@@ -552,7 +556,9 @@ API 하나로 뉴스/지수 재수집 없이 저장된 정제 결과만 재사�
         "status": "SUCCEEDED",
         "startedAt": "2026-03-18T06:30:06+09:00",
         "endedAt": "2026-03-18T06:30:06+09:00",
-        "durationMs": 8
+        "durationMs": 8,
+        "errorMessage": null,
+        "errorLog": null
       }
     ]
   },
@@ -568,7 +574,11 @@ API 하나로 뉴스/지수 재수집 없이 저장된 정제 결과만 재사�
 `endedAt`과 `durationMs`가 `null`이다. 체크포인트 재개나 재시도로 같은
 스텝이 여러 번 실행되면 항목도 여러 개 나타난다. AI 재처리 잡은 재처리
 대상마다 생성 스텝 항목이 하나씩 생긴다. 이 기능 도입 이전에 실행된
-잡은 빈 배열을 반환한다.
+잡은 빈 배열을 반환한다. `errorMessage`는 운영자 화면에 표시할 수 있도록
+정제된 오류 요약이고, `errorLog`는 민감정보를 마스킹한 진단 로그다. 두 필드는
+성공·진행 중인 스텝과 진단 정보가 없는 기존 스텝에서 `null`이며, 상세 응답을
+만들 때에도 다시 정제·마스킹된다. 이 필드는 배치 상세 응답에만 포함되며
+`GET /batch/jobs` 목록 응답 계약은 변경하지 않는다.
 
 ### Error Code
 

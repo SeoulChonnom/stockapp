@@ -558,7 +558,27 @@ def test_list_batch_jobs_rejects_invalid_token_as_unauthorized(client):
 
 
 def test_get_batch_job_detail_allows_admin(client, sample_batch_job_detail_payload):
-    test_client, _service = client
+    test_client, service = client
+    service.detail_payload['steps'] = [
+        {
+            'stepCode': 'CREATE_JOB',
+            'status': 'SUCCEEDED',
+            'startedAt': '2026-08-07T00:00:00+00:00',
+            'endedAt': '2026-08-07T00:00:01+00:00',
+            'durationMs': 1000,
+            'errorMessage': None,
+            'errorLog': None,
+        },
+        {
+            'stepCode': 'COLLECT_NEWS',
+            'status': 'FAILED',
+            'startedAt': '2026-08-07T00:00:01+00:00',
+            'endedAt': '2026-08-07T00:00:03+00:00',
+            'durationMs': 2000,
+            'errorMessage': 'External provider request failed.',
+            'errorLog': 'Authorization: Bearer api-response-token',
+        },
+    ]
 
     response = test_client.get(
         f'/stock/api/batch/jobs/{sample_batch_job_detail_payload["jobId"]}',
@@ -612,6 +632,11 @@ def test_get_batch_job_detail_allows_admin(client, sample_batch_job_detail_paylo
         sample_batch_job_detail_payload['snapshot']['rawNewsCount']
     )
     assert payload['newsCollection'] is None
+    assert payload['steps'][0]['errorMessage'] is None
+    assert payload['steps'][0]['errorLog'] is None
+    assert payload['steps'][1]['errorMessage'] == 'External provider request failed.'
+    assert 'api-response-token' not in payload['steps'][1]['errorLog']
+    assert '[REDACTED]' in payload['steps'][1]['errorLog']
 
 
 def test_get_batch_job_detail_returns_404_when_missing(client):

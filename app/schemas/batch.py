@@ -154,6 +154,8 @@ class BatchJobStepRunResponse(BaseModel):
     startedAt: datetime | str
     endedAt: datetime | str | None = None
     durationMs: int | None = None
+    errorMessage: str | None = None
+    errorLog: str | None = None
 
 
 class BatchJobDetailResponse(BaseModel):

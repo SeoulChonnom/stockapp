@@ -1032,7 +1032,20 @@ async def test_get_job_detail_includes_step_runs():
             started_at=datetime(2026, 8, 7, 0, 0, tzinfo=UTC),
             ended_at=datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
             duration_ms=1000,
-        )
+            error_message=None,
+            error_log=None,
+        ),
+        SimpleNamespace(
+            step_run_id=12,
+            step_code='COLLECT_NEWS',
+            seq=2,
+            status='FAILED',
+            started_at=datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 7, 0, 0, 3, tzinfo=UTC),
+            duration_ms=2000,
+            error_message='External provider request failed.',
+            error_log='Traceback (most recent call last): [REDACTED]',
+        ),
     ]
     service = BatchesService(repository)
 
@@ -1045,7 +1058,18 @@ async def test_get_job_detail_includes_step_runs():
             'startedAt': '2026-08-07T00:00:00+00:00',
             'endedAt': '2026-08-07T00:00:01+00:00',
             'durationMs': 1000,
-        }
+            'errorMessage': None,
+            'errorLog': None,
+        },
+        {
+            'stepCode': 'COLLECT_NEWS',
+            'status': 'FAILED',
+            'startedAt': '2026-08-07T00:00:01+00:00',
+            'endedAt': '2026-08-07T00:00:03+00:00',
+            'durationMs': 2000,
+            'errorMessage': 'External provider request failed.',
+            'errorLog': 'Traceback (most recent call last): [REDACTED]',
+        },
     ]
     assert repository.list_step_runs_calls == [1001]
 

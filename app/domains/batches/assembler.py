@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
+from app.core.error_diagnostics import mask_error_log
 from app.core.public_diagnostics import sanitize_public_diagnostic
 from app.db.enums import BatchJobType, derive_batch_job_type
 from app.schemas.batch import (
@@ -62,12 +63,21 @@ def assemble_batch_job_list_response(payload: dict[str, Any]) -> BatchJobListRes
 def assemble_batch_job_detail_response(
     payload: dict[str, Any],
 ) -> BatchJobDetailResponse:
+    steps = [
+        {
+            **step,
+            'errorMessage': sanitize_public_diagnostic(step.get('errorMessage')),
+            'errorLog': mask_error_log(step.get('errorLog')),
+        }
+        for step in payload.get('steps', [])
+    ]
     return BatchJobDetailResponse.model_validate(
         {
             **payload,
             'partialMessage': sanitize_public_diagnostic(payload.get('partialMessage')),
             'errorMessage': sanitize_public_diagnostic(payload.get('errorMessage')),
             'logSummary': sanitize_public_diagnostic(payload.get('logSummary')),
+            'steps': steps,
         }
     )
 
@@ -219,6 +229,8 @@ def build_batch_job_detail_payload(
                 startedAt=_as_required_iso(step_run.started_at),
                 endedAt=_as_iso(step_run.ended_at),
                 durationMs=step_run.duration_ms,
+                errorMessage=sanitize_public_diagnostic(step_run.error_message),
+                errorLog=mask_error_log(step_run.error_log),
             )
             for step_run in (step_runs or [])
         ],

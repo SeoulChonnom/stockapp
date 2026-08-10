@@ -88,7 +88,7 @@ def test_batch_list_assembler_preserves_normal_partial_reason(
     assert response['items'][0]['partialMessage'] == reason
 
 
-def test_detail_payload_includes_step_durations():
+def test_detail_payload_includes_step_diagnostics_and_durations():
     job = _sample_market_snapshot_job()
     step_runs = [
         BatchJobStepRunRecord(
@@ -99,15 +99,22 @@ def test_detail_payload_includes_step_durations():
             started_at=datetime(2026, 8, 7, 0, 0, tzinfo=UTC),
             ended_at=datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
             duration_ms=1000,
+            error_message=None,
+            error_log=None,
         ),
         BatchJobStepRunRecord(
             step_run_id=12,
-            step_code='DEDUPE_ARTICLES',
+            step_code='COLLECT_NEWS',
             seq=2,
-            status='RUNNING',
+            status='FAILED',
             started_at=datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
-            ended_at=None,
-            duration_ms=None,
+            ended_at=datetime(2026, 8, 7, 0, 0, 3, tzinfo=UTC),
+            duration_ms=2000,
+            error_message='External provider request failed.',
+            error_log=(
+                'Traceback (most recent call last):\n'
+                'Authorization: Bearer injected-provider-token'
+            ),
         ),
     ]
 
@@ -115,11 +122,14 @@ def test_detail_payload_includes_step_durations():
 
     assert [step['stepCode'] for step in payload['steps']] == [
         'CREATE_JOB',
-        'DEDUPE_ARTICLES',
+        'COLLECT_NEWS',
     ]
     assert payload['steps'][0]['durationMs'] == 1000
-    assert payload['steps'][1]['endedAt'] is None
-    assert payload['steps'][1]['durationMs'] is None
+    assert payload['steps'][0]['errorMessage'] is None
+    assert payload['steps'][0]['errorLog'] is None
+    assert payload['steps'][1]['errorMessage'] == 'External provider request failed.'
+    assert 'injected-provider-token' not in payload['steps'][1]['errorLog']
+    assert '[REDACTED]' in payload['steps'][1]['errorLog']
 
 
 def test_detail_payload_defaults_steps_to_empty_list():
