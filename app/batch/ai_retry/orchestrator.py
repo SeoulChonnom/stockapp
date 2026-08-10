@@ -24,6 +24,7 @@ from app.batch.steps.ai_summary_generators import (
     _generate_global_headline,
     _generate_market_summary,
 )
+from app.core.error_diagnostics import build_step_error_diagnostics
 from app.db.enums import AiSummaryStatus, BatchStepStatus, EventLevel
 from app.db.repositories.ai_retry_repo import PostgresAiRetryRepository
 from app.db.repositories.ai_summary_repo import AiSummaryRepository
@@ -277,13 +278,19 @@ class AiRetryOrchestrator:
                     status=status,
                     partial_message=partial_message,
                 )
-            except Exception:
+            except Exception as exc:
                 await retry_repo.rollback()
                 if current_step_run_id is not None:
+                    diagnostics = build_step_error_diagnostics(
+                        exc,
+                        public_message='AI 재처리 단계 실행 중 오류가 발생했습니다.',
+                    )
                     await _finish_step(
                         job_repo,
                         step_run_id=current_step_run_id,
                         status=BatchStepStatus.FAILED.value,
+                        error_message=diagnostics.error_message,
+                        error_log=diagnostics.error_log,
                     )
                     await retry_repo.commit()
                 raise
@@ -436,11 +443,18 @@ async def _finish_step(
     *,
     step_run_id: int | None,
     status: str,
+    error_message: str | None = None,
+    error_log: str | None = None,
 ) -> None:
     method = getattr(repository, 'finish_step_run', None)
     if step_run_id is None or method is None:
         return
-    await method(step_run_id=step_run_id, status=status)
+    await method(
+        step_run_id=step_run_id,
+        status=status,
+        error_message=error_message,
+        error_log=error_log,
+    )
 
 
 async def _checkpoint(

@@ -55,7 +55,7 @@ class FakeJobRepository:
         self.events = []
         self.begun_steps: list[str] = []
         self.step_run_seq = 0
-        self.finished_step_runs: list[tuple[int, str]] = []
+        self.finished_step_runs: list[dict] = []
 
     async def add_event(self, **kwargs):
         self.events.append(kwargs)
@@ -65,8 +65,22 @@ class FakeJobRepository:
         self.step_run_seq += 1
         return self.step_run_seq
 
-    async def finish_step_run(self, *, step_run_id, status):
-        self.finished_step_runs.append((step_run_id, status))
+    async def finish_step_run(
+        self,
+        *,
+        step_run_id,
+        status,
+        error_message=None,
+        error_log=None,
+    ):
+        self.finished_step_runs.append(
+            {
+                'step_run_id': step_run_id,
+                'status': status,
+                'error_message': error_message,
+                'error_log': error_log,
+            }
+        )
         return True
 
 
@@ -85,6 +99,7 @@ class OperationLoggingSession:
         self.committed_steps: dict[int, str] = {}
         self.next_id = 0
         self.operations: list[tuple] = []
+        self.finished_step_runs: list[dict] = []
 
     def begin_step(self, step_code):
         self.next_id += 1
@@ -93,7 +108,13 @@ class OperationLoggingSession:
         self.operations.append(('begin_step', step_code, step_run_id))
         return step_run_id
 
-    def finish_step_run(self, step_run_id, status):
+    def finish_step_run(
+        self,
+        step_run_id,
+        status,
+        error_message=None,
+        error_log=None,
+    ):
         current = self.pending_steps.get(
             step_run_id, self.committed_steps.get(step_run_id)
         )
@@ -102,6 +123,14 @@ class OperationLoggingSession:
             return False
         self.pending_steps[step_run_id] = status
         self.operations.append(('finish_step_run', step_run_id, status))
+        self.finished_step_runs.append(
+            {
+                'step_run_id': step_run_id,
+                'status': status,
+                'error_message': error_message,
+                'error_log': error_log,
+            }
+        )
         return True
 
     def commit(self):
@@ -128,8 +157,20 @@ class SessionJobRepository:
     async def begin_step(self, *, job_id, lease_token, step_code):
         return self.session.begin_step(step_code)
 
-    async def finish_step_run(self, *, step_run_id, status):
-        return self.session.finish_step_run(step_run_id, status)
+    async def finish_step_run(
+        self,
+        *,
+        step_run_id,
+        status,
+        error_message=None,
+        error_log=None,
+    ):
+        return self.session.finish_step_run(
+            step_run_id,
+            status,
+            error_message,
+            error_log,
+        )
 
 
 class SessionRetryRepository:
@@ -161,7 +202,7 @@ class RaisingSummaryRepository:
 
     async def list_retry_lineage_summaries(self, source_job_id):
         self.session.log(('list_retry_lineage_summaries', source_job_id))
-        raise RuntimeError('lineage lookup failed')
+        raise RuntimeError('lineage lookup failed token=secret-token')
 
 
 class FakeSummaryRepository:
@@ -454,7 +495,7 @@ async def test_ai_retry_closes_step_runs_as_succeeded():
 
     assert job_repo.finished_step_runs
     assert all(
-        status == 'SUCCEEDED' for _, status in job_repo.finished_step_runs
+        step['status'] == 'SUCCEEDED' for step in job_repo.finished_step_runs
     )
     assert len(job_repo.finished_step_runs) == job_repo.step_run_seq
 
@@ -467,6 +508,15 @@ async def test_ai_retry_closes_step_run_as_failed_on_mid_step_exception():
         await orchestrator.run(job_id=4002, lease_token=lease_token)
 
     assert session.committed_steps == {1: 'FAILED'}
+    finished_step = session.finished_step_runs[-1]
+    assert finished_step['status'] == 'FAILED'
+    assert (
+        finished_step['error_message']
+        == 'AI 재처리 단계 실행 중 오류가 발생했습니다.'
+    )
+    assert 'RuntimeError' in finished_step['error_log']
+    assert 'secret-token' not in finished_step['error_log']
+    assert '[REDACTED]' in finished_step['error_log']
 
 
 @pytest.mark.anyio

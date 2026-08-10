@@ -52,7 +52,7 @@ def _build_successful_collection(monkeypatch):
     class FakeJobRepo:
         instance = None
         step_run_seq = 0
-        finished_step_runs: list[tuple[int, str]] = []
+        finished_step_runs: list[dict] = []
 
         def __init__(self, session, lease_token=None):
             _ = (session, lease_token)
@@ -64,8 +64,22 @@ def _build_successful_collection(monkeypatch):
             FakeJobRepo.step_run_seq += 1
             return FakeJobRepo.step_run_seq
 
-        async def finish_step_run(self, *, step_run_id, status):
-            FakeJobRepo.finished_step_runs.append((step_run_id, status))
+        async def finish_step_run(
+            self,
+            *,
+            step_run_id,
+            status,
+            error_message=None,
+            error_log=None,
+        ):
+            FakeJobRepo.finished_step_runs.append(
+                {
+                    'step_run_id': step_run_id,
+                    'status': status,
+                    'error_message': error_message,
+                    'error_log': error_log,
+                }
+            )
             return True
 
         async def add_event(self, **kwargs):
@@ -186,7 +200,14 @@ async def test_collection_step_run_is_closed_as_succeeded(monkeypatch):
 
     await orchestrator.run(job_id=3001, lease_token=lease_token)
 
-    assert job_repo.finished_step_runs == [(1, 'SUCCEEDED')]
+    assert job_repo.finished_step_runs == [
+        {
+            'step_run_id': 1,
+            'status': 'SUCCEEDED',
+            'error_message': None,
+            'error_log': None,
+        }
+    ]
 
 
 def _build_unconfigured_collection(monkeypatch):
@@ -207,7 +228,7 @@ def _build_unconfigured_collection(monkeypatch):
     class FakeJobRepo:
         instance = None
         step_run_seq = 0
-        finished_step_runs: list[tuple[int, str]] = []
+        finished_step_runs: list[dict] = []
 
         def __init__(self, session, lease_token=None):
             _ = (session, lease_token)
@@ -219,8 +240,22 @@ def _build_unconfigured_collection(monkeypatch):
             FakeJobRepo.step_run_seq += 1
             return FakeJobRepo.step_run_seq
 
-        async def finish_step_run(self, *, step_run_id, status):
-            FakeJobRepo.finished_step_runs.append((step_run_id, status))
+        async def finish_step_run(
+            self,
+            *,
+            step_run_id,
+            status,
+            error_message=None,
+            error_log=None,
+        ):
+            FakeJobRepo.finished_step_runs.append(
+                {
+                    'step_run_id': step_run_id,
+                    'status': status,
+                    'error_message': error_message,
+                    'error_log': error_log,
+                }
+            )
             return True
 
         async def add_event(self, **kwargs):
@@ -283,7 +318,16 @@ async def test_step_run_is_closed_as_failed_when_collection_fails(monkeypatch):
 
     await orchestrator.run(job_id=3001, lease_token=lease_token)
 
-    assert job_repo.finished_step_runs == [(1, 'FAILED')]
+    finished_step = job_repo.finished_step_runs[-1]
+    assert finished_step['status'] == 'FAILED'
+    assert (
+        finished_step['error_message']
+        == 'Naver news API credentials are not configured.'
+    )
+    assert (
+        finished_step['error_log']
+        == 'NewsCollectionFailure: no exception traceback is available.'
+    )
     assert job_repo.instance.failure['error_code'] == 'NAVER_NOT_CONFIGURED'
 
 
@@ -443,14 +487,28 @@ async def test_step_run_is_closed_as_failed_on_mid_run_exception_with_lease(
             self.events = []
             self.commits = 0
             self.rollbacks = 0
-            self.finished_step_runs: list[tuple[int, str]] = []
+            self.finished_step_runs: list[dict] = []
             FakeJobRepo.instance = self
 
         async def begin_step(self, **_kwargs):
             return 77
 
-        async def finish_step_run(self, *, step_run_id, status):
-            self.finished_step_runs.append((step_run_id, status))
+        async def finish_step_run(
+            self,
+            *,
+            step_run_id,
+            status,
+            error_message=None,
+            error_log=None,
+        ):
+            self.finished_step_runs.append(
+                {
+                    'step_run_id': step_run_id,
+                    'status': status,
+                    'error_message': error_message,
+                    'error_log': error_log,
+                }
+            )
             return True
 
         async def add_event(self, **kwargs):
@@ -513,9 +571,13 @@ async def test_step_run_is_closed_as_failed_on_mid_run_exception_with_lease(
             provider_factory=TransientProvider,
         ).run(3001, lease_token=lease_token)
 
-    assert FakeJobRepo.instance.finished_step_runs == [
-        (77, 'FAILED'),
-    ]
+    finished_step = FakeJobRepo.instance.finished_step_runs[-1]
+    assert finished_step['status'] == 'FAILED'
+    assert (
+        finished_step['error_message']
+        == '뉴스 수집 단계 실행 중 오류가 발생했습니다.'
+    )
+    assert 'NaverRetryableError' in finished_step['error_log']
 
 
 @pytest.mark.anyio

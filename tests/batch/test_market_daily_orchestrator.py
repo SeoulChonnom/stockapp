@@ -466,7 +466,7 @@ class StepHistoryRepository:
     def __init__(self):
         self.session = RecordingAsyncSession()
         self.begun_steps: list[str] = []
-        self.finished_step_runs: list[tuple[int, str]] = []
+        self.finished_step_runs: list[dict] = []
         self.saved_checkpoints: list[dict] = []
         self.step_run_seq = 0
 
@@ -501,8 +501,22 @@ class StepHistoryRepository:
         self.step_run_seq += 1
         return self.step_run_seq
 
-    async def finish_step_run(self, *, step_run_id, status):
-        self.finished_step_runs.append((step_run_id, status))
+    async def finish_step_run(
+        self,
+        *,
+        step_run_id,
+        status,
+        error_message=None,
+        error_log=None,
+    ):
+        self.finished_step_runs.append(
+            {
+                'step_run_id': step_run_id,
+                'status': status,
+                'error_message': error_message,
+                'error_log': error_log,
+            }
+        )
         return True
 
     async def save_checkpoint(self, *, checkpoint_json, **_kwargs):
@@ -524,7 +538,7 @@ class _StepHistoryStubStep:
     async def execute(self, repository, context):
         _ = repository
         if self._should_fail:
-            raise RuntimeError(f'{self.step_code} failed')
+            raise RuntimeError(f'{self.step_code} failed token=secret-token')
         return context
 
 
@@ -566,7 +580,7 @@ async def test_each_step_run_is_closed_as_succeeded_on_success(monkeypatch):
 
     assert repository.finished_step_runs
     assert all(
-        status == 'SUCCEEDED' for _, status in repository.finished_step_runs
+        step['status'] == 'SUCCEEDED' for step in repository.finished_step_runs
     )
     assert len(repository.finished_step_runs) == len(repository.begun_steps)
 
@@ -580,4 +594,12 @@ async def test_failing_step_run_is_closed_as_failed(monkeypatch):
     with pytest.raises(RuntimeError, match='BUILD_CLUSTERS failed'):
         await orchestrator.run(job_id=1001, lease_token=lease_token)
 
-    assert repository.finished_step_runs[-1][1] == 'FAILED'
+    finished_step = repository.finished_step_runs[-1]
+    assert finished_step['status'] == 'FAILED'
+    assert (
+        finished_step['error_message']
+        == '배치 오케스트레이터 실행 중 오류가 발생했습니다.'
+    )
+    assert 'RuntimeError' in finished_step['error_log']
+    assert 'secret-token' not in finished_step['error_log']
+    assert '[REDACTED]' in finished_step['error_log']

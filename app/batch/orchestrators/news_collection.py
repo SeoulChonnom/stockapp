@@ -13,6 +13,7 @@ from app.batch.providers.naver_news import (
     NAVER_NEWS_PROVIDER_NAME,
     NaverNewsProvider,
 )
+from app.core.error_diagnostics import build_step_error_diagnostics
 from app.db.enums import BatchJobStatus, BatchStepStatus, EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.news_article_raw_repo import NewsArticleRawRepository
@@ -316,12 +317,18 @@ class NaverNewsCollectionOrchestrator:
                         status=BatchStepStatus.SUCCEEDED.value,
                     )
                 await job_repo.commit()
-            except Exception:
+            except Exception as exc:
                 await job_repo.rollback()
                 if step_run_id is not None:
+                    diagnostics = build_step_error_diagnostics(
+                        exc,
+                        public_message='뉴스 수집 단계 실행 중 오류가 발생했습니다.',
+                    )
                     await job_repo.finish_step_run(
                         step_run_id=step_run_id,
                         status=BatchStepStatus.FAILED.value,
+                        error_message=diagnostics.error_message,
+                        error_log=diagnostics.error_log,
                     )
                     await job_repo.commit()
                 raise
@@ -363,6 +370,10 @@ class NaverNewsCollectionOrchestrator:
             await job_repo.finish_step_run(
                 step_run_id=step_run_id,
                 status=BatchStepStatus.FAILED.value,
+                error_message=error_message,
+                error_log=(
+                    'NewsCollectionFailure: no exception traceback is available.'
+                ),
             )
         await job_repo.commit()
 

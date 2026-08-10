@@ -22,6 +22,7 @@ from app.batch.steps import (
     PrepareMarketContextsStep,
 )
 from app.batch.steps.base import BatchStep
+from app.core.error_diagnostics import build_step_error_diagnostics
 from app.core.public_diagnostics import (
     public_external_provider_error,
     sanitize_public_diagnostic,
@@ -206,10 +207,21 @@ class MarketDailyBatchOrchestrator:
                     exception=exc,
                 )
                 await _rollback_active_transaction(repository)
+                error_message = (
+                    exc.error_message
+                    if isinstance(exc, BatchPipelineError)
+                    else '배치 오케스트레이터 실행 중 오류가 발생했습니다.'
+                )
                 if current_step_run_id is not None:
+                    diagnostics = build_step_error_diagnostics(
+                        exc,
+                        public_message=error_message,
+                    )
                     await repository.finish_step_run(
                         step_run_id=current_step_run_id,
                         status=BatchStepStatus.FAILED.value,
+                        error_message=diagnostics.error_message,
+                        error_log=diagnostics.error_log,
                     )
                     await repository.commit()
                     current_step_run_id = None
@@ -219,11 +231,6 @@ class MarketDailyBatchOrchestrator:
                     exc.error_code
                     if isinstance(exc, BatchPipelineError)
                     else 'INTERNAL_BATCH_ERROR'
-                )
-                error_message = (
-                    exc.error_message
-                    if isinstance(exc, BatchPipelineError)
-                    else '배치 오케스트레이터 실행 중 오류가 발생했습니다.'
                 )
                 await repository.add_event(
                     job_id=job_id,
