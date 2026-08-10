@@ -454,17 +454,16 @@ async def test_news_collection_raises_sanitized_retry_for_transient_http_status(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize('status_code', [429, 500, 503])
+@pytest.mark.parametrize(
+    'status_code',
+    [429, 500, 503, None],
+    ids=['429', '500', '503', 'secret-bearing-runtime-error'],
+)
 async def test_step_run_is_closed_as_failed_on_mid_run_exception_with_lease(
     monkeypatch,
     status_code,
 ):
-    """A mid-run exception (e.g. the transient-retry path) must close the
-    in-progress step run as FAILED synchronously, instead of leaving it
-    RUNNING for the recover_expired_claims sweep to close later. This test
-    passes a lease_token so begin_step/finish_step_run are actually
-    exercised, unlike the sibling transient-failure test above.
-    """
+    """A mid-run exception must close the step with safe diagnostics."""
     run = SimpleNamespace(
         run_id=51,
         window_start_at=datetime(2026, 7, 31, 0, 30, tzinfo=UTC),
@@ -546,8 +545,10 @@ async def test_step_run_is_closed_as_failed_on_mid_run_exception_with_lease(
         def __init__(self, session):
             _ = session
 
-    class TransientProvider:
+    class FailingProvider:
         def is_configured(self):
+            if status_code is None:
+                raise RuntimeError('provider failure token=secret-token')
             return True
 
         async def collect_for_keyword(self, **_kwargs):
@@ -565,10 +566,13 @@ async def test_step_run_is_closed_as_failed_on_mid_run_exception_with_lease(
     monkeypatch.setattr(module, 'NewsArticleRawRepository', FakeRawRepo)
 
     lease_token = uuid4()
-    with pytest.raises(module.NaverRetryableError):
+    expected_exception = (
+        RuntimeError if status_code is None else module.NaverRetryableError
+    )
+    with pytest.raises(expected_exception):
         await module.NaverNewsCollectionOrchestrator(
             session_maker=FakeSessionMaker(),
-            provider_factory=TransientProvider,
+            provider_factory=FailingProvider,
         ).run(3001, lease_token=lease_token)
 
     finished_step = FakeJobRepo.instance.finished_step_runs[-1]
@@ -577,7 +581,13 @@ async def test_step_run_is_closed_as_failed_on_mid_run_exception_with_lease(
         finished_step['error_message']
         == '뉴스 수집 단계 실행 중 오류가 발생했습니다.'
     )
-    assert 'NaverRetryableError' in finished_step['error_log']
+    expected_exception_class = (
+        'RuntimeError' if status_code is None else 'NaverRetryableError'
+    )
+    assert expected_exception_class in finished_step['error_log']
+    if status_code is None:
+        assert 'secret-token' not in finished_step['error_log']
+        assert '[REDACTED]' in finished_step['error_log']
 
 
 @pytest.mark.anyio

@@ -497,6 +497,10 @@ async def test_ai_retry_closes_step_runs_as_succeeded():
     assert all(
         step['status'] == 'SUCCEEDED' for step in job_repo.finished_step_runs
     )
+    assert all(
+        step['error_message'] is None for step in job_repo.finished_step_runs
+    )
+    assert all(step['error_log'] is None for step in job_repo.finished_step_runs)
     assert len(job_repo.finished_step_runs) == job_repo.step_run_seq
 
 

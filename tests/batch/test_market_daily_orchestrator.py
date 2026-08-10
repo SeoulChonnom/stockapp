@@ -582,6 +582,10 @@ async def test_each_step_run_is_closed_as_succeeded_on_success(monkeypatch):
     assert all(
         step['status'] == 'SUCCEEDED' for step in repository.finished_step_runs
     )
+    assert all(
+        step['error_message'] is None for step in repository.finished_step_runs
+    )
+    assert all(step['error_log'] is None for step in repository.finished_step_runs)
     assert len(repository.finished_step_runs) == len(repository.begun_steps)
 
 
