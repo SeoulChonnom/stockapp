@@ -26,7 +26,7 @@ MANIFEST_PATH = (
 # NOTE: literal, not derived from ScriptDirectory — update this whenever a new
 # alembic revision becomes the head, so this test independently catches a
 # broken/forked revision chain instead of trivially agreeing with production code.
-LATEST_ALEMBIC_HEAD = '20260807_01_step_run'
+LATEST_ALEMBIC_HEAD = '20260810_01_step_errors'
 
 
 def _canonical_manifest() -> dict:

@@ -192,6 +192,8 @@ CREATE TABLE batch_job_step_run (
     started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     ended_at TIMESTAMPTZ NULL,
     duration_ms INTEGER NULL,
+    error_message TEXT NULL,
+    error_log TEXT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_batch_job_step_run_job_seq UNIQUE (batch_job_id, seq),

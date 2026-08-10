@@ -586,21 +586,43 @@ async def test_begin_step_returns_none_and_skips_insert_when_lease_lost():
 
 
 @pytest.mark.anyio
-async def test_finish_step_run_closes_running_row_with_duration():
+async def test_finish_step_run_persists_diagnostics_for_failed_running_row():
     session = RecordingAsyncSession(results=[DummyResult([777])])
     repo = BatchJobRepository(session)
 
-    finished = await repo.finish_step_run(step_run_id=777, status='SUCCEEDED')
+    finished = await repo.finish_step_run(
+        step_run_id=777,
+        status='FAILED',
+        error_message='External provider request failed.',
+        error_log='Traceback ... [REDACTED]',
+    )
 
     assert finished is True
     sql = ' '.join(str(session.statements[0]).split()).lower()
     assert 'update stock.batch_job_step_run' in sql
     assert 'ended_at = now()' in sql
     assert "where id = :step_run_id and status = 'running'" in sql
-    assert session.parameters[0] == {
-        'step_run_id': 777,
-        'status': 'SUCCEEDED',
-    }
+    assert session.parameters[0]['step_run_id'] == 777
+    assert session.parameters[0]['status'] == 'FAILED'
+    assert session.parameters[0]['error_message'] == 'External provider request failed.'
+    assert session.parameters[0]['error_log'] == 'Traceback ... [REDACTED]'
+
+
+@pytest.mark.anyio
+async def test_finish_step_run_clears_diagnostics_for_succeeded_row():
+    session = RecordingAsyncSession(results=[DummyResult([777])])
+    repo = BatchJobRepository(session)
+
+    finished = await repo.finish_step_run(
+        step_run_id=777,
+        status='SUCCEEDED',
+        error_message='Should not be persisted.',
+        error_log='Should not be persisted.',
+    )
+
+    assert finished is True
+    assert session.parameters[0]['error_message'] is None
+    assert session.parameters[0]['error_log'] is None
 
 
 @pytest.mark.anyio
@@ -627,6 +649,8 @@ async def test_list_step_runs_returns_records_in_seq_order():
                         'started_at': datetime(2026, 8, 7, 0, 0, tzinfo=UTC),
                         'ended_at': datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
                         'duration_ms': 1000,
+                        'error_message': 'External provider request failed.',
+                        'error_log': 'Traceback ... [REDACTED]',
                     },
                     {
                         'step_run_id': 12,
@@ -636,6 +660,8 @@ async def test_list_step_runs_returns_records_in_seq_order():
                         'started_at': datetime(2026, 8, 7, 0, 0, 1, tzinfo=UTC),
                         'ended_at': None,
                         'duration_ms': None,
+                        'error_message': None,
+                        'error_log': None,
                     },
                 ]
             )
@@ -650,7 +676,11 @@ async def test_list_step_runs_returns_records_in_seq_order():
         'DEDUPE_ARTICLES',
     ]
     assert records[0].duration_ms == 1000
+    assert records[0].error_message == 'External provider request failed.'
+    assert records[0].error_log == 'Traceback ... [REDACTED]'
     assert records[1].ended_at is None
+    assert records[1].error_message is None
+    assert records[1].error_log is None
     sql = normalize_sql(session.statements[0]).lower()
     assert 'from stock.batch_job_step_run' in sql
     assert 'order by seq' in sql
@@ -670,3 +700,7 @@ async def test_recover_expired_claims_closes_orphan_step_runs():
     assert 'update stock.batch_job_step_run' in orphan_sql
     assert "sr.status = 'running'" in orphan_sql
     assert "j.status <> 'running'" in orphan_sql
+    assert 'error_message = ' in orphan_sql
+    assert 'batch worker stopped before the step completed.' in orphan_sql
+    assert 'error_log = ' in orphan_sql
+    assert 'batch step was closed during expired worker lease recovery.' in orphan_sql

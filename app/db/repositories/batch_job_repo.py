@@ -454,7 +454,14 @@ class BatchJobRepository(PostgresRepository):
         )
         return int(result.scalar_one())
 
-    async def finish_step_run(self, *, step_run_id: int, status: str) -> bool:
+    async def finish_step_run(
+        self,
+        *,
+        step_run_id: int,
+        status: str,
+        error_message: str | None = None,
+        error_log: str | None = None,
+    ) -> bool:
         statement = text(
             """
             UPDATE {step_run_table}
@@ -462,6 +469,8 @@ class BatchJobRepository(PostgresRepository):
                 status = CAST(:status AS batch_step_status_enum),
                 ended_at = now(),
                 duration_ms = {step_duration_ms_expr},
+                error_message = :error_message,
+                error_log = :error_log,
                 updated_at = now()
             WHERE id = :step_run_id
               AND status = '{status_running}'
@@ -474,7 +483,16 @@ class BatchJobRepository(PostgresRepository):
         )
         result = await self.session.execute(
             statement,
-            {'step_run_id': step_run_id, 'status': status},
+            {
+                'step_run_id': step_run_id,
+                'status': status,
+                'error_message': (
+                    error_message if status == BatchStepStatus.FAILED.value else None
+                ),
+                'error_log': (
+                    error_log if status == BatchStepStatus.FAILED.value else None
+                ),
+            },
         )
         return result.scalar_one_or_none() is not None
 
@@ -488,7 +506,9 @@ class BatchJobRepository(PostgresRepository):
                 status,
                 started_at,
                 ended_at,
-                duration_ms
+                duration_ms,
+                error_message,
+                error_log
             FROM {step_run_table}
             WHERE batch_job_id = :job_id
             ORDER BY seq
@@ -612,6 +632,8 @@ class BatchJobRepository(PostgresRepository):
                 duration_ms = GREATEST(
                     (EXTRACT(EPOCH FROM (now() - sr.started_at)) * 1000)::int, 0
                 ),
+                error_message = 'Batch worker stopped before the step completed.',
+                error_log = 'Batch step was closed during expired worker lease recovery.',
                 updated_at = now()
             FROM {batch_job_table} AS j
             WHERE sr.batch_job_id = j.id

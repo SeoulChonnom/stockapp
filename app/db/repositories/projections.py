@@ -208,6 +208,8 @@ class BatchJobStepRunRecord:
     started_at: datetime
     ended_at: datetime | None = None
     duration_ms: int | None = None
+    error_message: str | None = None
+    error_log: str | None = None
 
 
 @dataclass(slots=True)
