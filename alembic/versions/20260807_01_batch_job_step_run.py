@@ -3,6 +3,11 @@
 Revision ID: 20260807_01_step_run
 Revises: 20260731_00_baseline
 Create Date: 2026-08-07
+
+``SET LOCAL search_path`` pins the canonical schema for this revision's
+transaction. ``alembic/env.py`` already sets it session-wide; this repeats it
+locally so the unqualified DDL below cannot resolve against ``public`` if the
+revision is ever replayed through another runner.
 """
 
 from alembic import op
@@ -13,6 +18,8 @@ branch_labels = None
 depends_on = None
 
 _UPGRADE_SQL = """
+SET LOCAL search_path TO stock, public;
+
 CREATE TYPE batch_step_status_enum AS ENUM ('RUNNING', 'SUCCEEDED', 'FAILED');
 
 CREATE TABLE batch_job_step_run (
@@ -37,6 +44,8 @@ CREATE TABLE batch_job_step_run (
 """
 
 _DOWNGRADE_SQL = """
+SET LOCAL search_path TO stock, public;
+
 DROP TABLE IF EXISTS batch_job_step_run;
 DROP TYPE IF EXISTS batch_step_status_enum;
 """

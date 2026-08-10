@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Final
@@ -31,10 +32,52 @@ _ALEMBIC_INI = _REPOSITORY_ROOT / 'alembic.ini'
 _SCHEMA_MANIFEST = (
     _REPOSITORY_ROOT / 'db' / 'alembic' / 'manifests' / '20260731_schema_manifest.json'
 )
+# PostgreSQL diagnostic fields that only ever carry catalog identifiers, never
+# row data — safe to log verbatim alongside the SQLSTATE.
+_SAFE_DIAGNOSTIC_FIELDS: Final = (
+    'schema_name',
+    'table_name',
+    'column_name',
+    'constraint_name',
+    'datatype_name',
+)
 
 
 class DatabaseMigrationError(RuntimeError):
     """Raised when automatic database migration cannot complete safely."""
+
+
+def _exception_chain(exception: BaseException) -> Iterator[BaseException]:
+    seen: set[int] = set()
+    current: BaseException | None = exception
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _safe_failure_detail(exception: BaseException) -> str:
+    """Describe a migration failure without repeating any driver message.
+
+    Driver messages can embed the connection URL, its credentials, or offending
+    row values, so only the exception classes, the SQLSTATE, and PostgreSQL's
+    diagnostic object names — all catalog identifiers — are reported.
+    """
+    classes: list[str] = []
+    details: list[str] = []
+
+    def record(field: str, value: object) -> None:
+        entry = f'{field}={value}'
+        if value and entry not in details:
+            details.append(entry)
+
+    for error in _exception_chain(exception):
+        classes.append(type(error).__name__)
+        record('sqlstate', getattr(error, 'sqlstate', None))
+        diagnostic = getattr(error, 'diag', None)
+        for field in _SAFE_DIAGNOSTIC_FIELDS:
+            record(field, getattr(diagnostic, field, None))
+    return ' '.join(['chain=' + '<-'.join(classes), *details])
 
 
 def _load_schema_manifest() -> dict:
@@ -231,11 +274,16 @@ def run_startup_migrations(
                 )
             finally:
                 _release_advisory_lock(connection)
-    except DatabaseMigrationError:
+    except DatabaseMigrationError as exc:
+        # Every DatabaseMigrationError message is an authored constant, so it is
+        # safe to log in full.
+        LOGGER.error('database_migration event=upgrade_failed reason=%s', exc)
         raise
     except Exception as exc:
+        detail = _safe_failure_detail(exc)
+        LOGGER.error('database_migration event=upgrade_failed %s', detail)
         raise DatabaseMigrationError(
-            f'Database migration failed ({type(exc).__name__}).'
+            f'Database migration failed ({type(exc).__name__}). {detail}'
         ) from None
     finally:
         if owns_engine:

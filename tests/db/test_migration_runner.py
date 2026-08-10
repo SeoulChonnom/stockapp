@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import traceback
 from copy import deepcopy
@@ -616,6 +617,95 @@ def test_alembic_offline_sql_contains_schema_before_version_table(capsys):
         'ALTER TABLE stock.batch_job_step_run ADD COLUMN error_message TEXT' in output
     )
     assert 'ALTER TABLE stock.batch_job_step_run ADD COLUMN error_log TEXT' in output
+
+
+def test_alembic_sets_search_path_before_any_unqualified_ddl(capsys):
+    # Revisions write unqualified DDL. Only the frozen baseline sets search_path
+    # inline, so env.py must set it for every revision that follows — otherwise a
+    # database already stamped at the baseline resolves against "$user", public.
+    config = Config(str(REPOSITORY_ROOT / 'alembic.ini'))
+    config.set_main_option(
+        'sqlalchemy.url',
+        'postgresql+psycopg://unused:unused@localhost/unused',
+    )
+
+    command.upgrade(config, 'head', sql=True)
+
+    output = capsys.readouterr().out
+    assert 'SET search_path TO "stock", public' in output
+    assert output.index('SET search_path TO "stock", public') < output.index(
+        'CREATE TABLE batch_job'
+    )
+    # The head revision repeats it locally so replaying it through another runner
+    # cannot land batch_job_step_run in public.
+    assert output.index('SET LOCAL search_path TO stock, public') < output.index(
+        'CREATE TABLE batch_job_step_run'
+    )
+
+
+def test_safe_failure_detail_reports_sqlstate_without_the_driver_message():
+    class FakeDiagnostic:
+        schema_name = None
+        table_name = 'batch_job'
+        column_name = None
+        constraint_name = None
+        datatype_name = None
+
+    class FakeDriverError(Exception):
+        sqlstate = '42P01'
+        diag = FakeDiagnostic()
+
+    driver_error = FakeDriverError(
+        'relation "batch_job" does not exist on '
+        'postgresql://admin:secret@db.example.test/stock'
+    )
+    try:
+        raise driver_error
+    except FakeDriverError as cause:
+        wrapped = RuntimeError('(FakeDriverError) admin:secret leaked here')
+        wrapped.__cause__ = cause
+
+    detail = migration_runner._safe_failure_detail(wrapped)
+
+    assert (
+        detail
+        == 'chain=RuntimeError<-FakeDriverError sqlstate=42P01 table_name=batch_job'
+    )
+    assert 'secret' not in detail
+    assert 'postgresql://' not in detail
+
+
+def test_startup_migration_logs_the_safe_failure_detail(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    class ConnectionContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return None
+
+    class FakeEngine:
+        def connect(self):
+            return ConnectionContext()
+
+    def fail_upgrade(*_args, **_kwargs):
+        raise RuntimeError('postgresql://admin:secret@db.example.test/stock is down')
+
+    for name in ('_acquire_advisory_lock', '_prepare_schema', '_release_advisory_lock'):
+        monkeypatch.setattr(migration_runner, name, lambda *_a, **_k: None)
+    monkeypatch.setattr(migration_runner, '_upgrade_locked', fail_upgrade)
+
+    with (
+        caplog.at_level(logging.ERROR, logger='app.db.migrations'),
+        pytest.raises(migration_runner.DatabaseMigrationError),
+    ):
+        migration_runner.run_startup_migrations(_settings(), engine=FakeEngine())
+
+    assert 'event=upgrade_failed' in caplog.text
+    assert 'chain=RuntimeError' in caplog.text
+    assert 'secret' not in caplog.text
 
 
 def test_frozen_baseline_and_catalog_manifest_are_immutable():

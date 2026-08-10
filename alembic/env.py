@@ -6,7 +6,11 @@ from logging.config import fileConfig
 from sqlalchemy import Connection, create_engine, pool, text
 
 from alembic import context
-from app.db.identifiers import quote_postgres_identifier, validate_postgres_identifier
+from app.db.identifiers import (
+    build_search_path_sql,
+    quote_postgres_identifier,
+    validate_postgres_identifier,
+)
 
 config = context.config
 
@@ -38,6 +42,20 @@ def _version_table_schema() -> str:
 
 
 def _configure_context(connection: Connection, *, schema: str) -> None:
+    # Both online paths land here, including the connection migration_runner
+    # supplies, so the schema and the search_path are established exactly once
+    # for every caller. Revisions write unqualified DDL and only the frozen
+    # baseline sets search_path inline, which left every later revision
+    # resolving against the default "$user", public on a database that an
+    # earlier deploy had already stamped.
+    connection.execute(
+        text(
+            'CREATE SCHEMA IF NOT EXISTS '
+            + quote_postgres_identifier(schema, kind='schema')
+        )
+    )
+    connection.execute(text(build_search_path_sql(schema)))
+    connection.commit()
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -67,6 +85,7 @@ def run_migrations_offline() -> None:
             'CREATE SCHEMA IF NOT EXISTS '
             + quote_postgres_identifier(schema, kind='schema')
         )
+        context.execute(build_search_path_sql(schema))
         context.run_migrations()
 
 
@@ -83,13 +102,6 @@ def run_migrations_online() -> None:
     )
     try:
         with connectable.connect() as connection:
-            connection.execute(
-                text(
-                    'CREATE SCHEMA IF NOT EXISTS '
-                    + quote_postgres_identifier(schema, kind='schema')
-                )
-            )
-            connection.commit()
             _configure_context(connection, schema=schema)
     finally:
         connectable.dispose()
