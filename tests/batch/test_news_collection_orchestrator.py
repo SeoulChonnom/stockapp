@@ -441,9 +441,7 @@ async def test_news_collection_raises_sanitized_retry_for_transient_http_status(
             provider_factory=TransientProvider,
         ).run(3001)
 
-    assert FakeRunRepo.instance.diagnostics[0].error_code == (
-        'NAVER_TRANSIENT_FAILURE'
-    )
+    assert FakeRunRepo.instance.diagnostics[0].error_code == ('NAVER_TRANSIENT_FAILURE')
     assert FakeJobRepo.instance.events[-1]['context_json']['statusCode'] == (
         status_code
     )
@@ -578,8 +576,7 @@ async def test_step_run_is_closed_as_failed_on_mid_run_exception_with_lease(
     finished_step = FakeJobRepo.instance.finished_step_runs[-1]
     assert finished_step['status'] == 'FAILED'
     assert (
-        finished_step['error_message']
-        == '뉴스 수집 단계 실행 중 오류가 발생했습니다.'
+        finished_step['error_message'] == '뉴스 수집 단계 실행 중 오류가 발생했습니다.'
     )
     expected_exception_class = (
         'RuntimeError' if status_code is None else 'NaverRetryableError'

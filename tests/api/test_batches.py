@@ -628,8 +628,9 @@ def test_get_batch_job_detail_allows_admin(client, sample_batch_job_detail_paylo
     assert payload['jobId'] == sample_batch_job_detail_payload['jobId']
     assert payload['logSummary'] == sample_batch_job_detail_payload['logSummary']
     assert payload['jobType'] == 'MARKET_SNAPSHOT'
-    assert payload['snapshot']['rawNewsCount'] == (
-        sample_batch_job_detail_payload['snapshot']['rawNewsCount']
+    assert (
+        payload['snapshot']['rawNewsCount']
+        == (sample_batch_job_detail_payload['snapshot']['rawNewsCount'])
     )
     assert payload['newsCollection'] is None
     assert payload['steps'][0]['errorMessage'] is None

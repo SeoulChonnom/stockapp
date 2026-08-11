@@ -249,9 +249,7 @@ async def test_start_naver_news_collection_accepts_bounded_historical_slot():
 
     result = await service.start_naver_news_collection(
         user_id='cron-admin',
-        slot_end_at=datetime(
-            2026, 7, 30, 23, 30, tzinfo=batches_service_module.KST
-        ),
+        slot_end_at=datetime(2026, 7, 30, 23, 30, tzinfo=batches_service_module.KST),
     )
 
     assert result['windowStartAt'].isoformat() == '2026-07-30T23:00:00+09:00'
@@ -719,8 +717,12 @@ async def test_start_market_daily_batch_failed_retry_conflicts_with_active_job()
     repository = FakeBatchJobRepository()
     repository.idempotent_job = failed_job
     repository.retry_failed_job_error = IntegrityError(
-        'UPDATE batch_job', {}, Exception('duplicate key value violates unique '
-        'constraint "uq_batch_job_one_active_market_daily_per_day"')
+        'UPDATE batch_job',
+        {},
+        Exception(
+            'duplicate key value violates unique '
+            'constraint "uq_batch_job_one_active_market_daily_per_day"'
+        ),
     )
     service = BatchesService(repository)
 
@@ -910,6 +912,7 @@ async def test_get_job_detail_news_collection_fills_news_collection_not_snapshot
         inserted_count=120,
         coverage_complete=True,
     )
+
     class FakeRunByJobIdRepository:
         def __init__(self, run: object) -> None:
             self.run = run

@@ -15,9 +15,7 @@ _CREDENTIAL_KEY_PATTERN = (
     r'(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|'
     r'credential(?:s)?|jwt(?:[_-]?secret)?|password|passwd|secret|token)'
 )
-_QUOTED_VALUE_CONTENT_PATTERN = (
-    r'(?:\\[\s\S]|(?!(?:\\|(?P=value_quote)))[\s\S])*'
-)
+_QUOTED_VALUE_CONTENT_PATTERN = r'(?:\\[\s\S]|(?!(?:\\|(?P=value_quote)))[\s\S])*'
 _QUOTED_AUTHORIZATION_PATTERN = re.compile(
     r'(?P<prefix>(?P<key_quote>["\']?)authorization(?P=key_quote)\s*'
     r'(?:=|:)\s*(?P<value_quote>["\'])(?:bearer|basic)\s+)'

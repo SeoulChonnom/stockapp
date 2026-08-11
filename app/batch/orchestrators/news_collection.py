@@ -313,9 +313,7 @@ class NaverNewsCollectionOrchestrator:
                     partial_message=partial_message,
                     error_code='NAVER_AUTH_FAILED' if auth_failed else None,
                     error_message=(
-                        'Naver news API authentication failed.'
-                        if auth_failed
-                        else None
+                        'Naver news API authentication failed.' if auth_failed else None
                     ),
                     log_summary=(
                         f'Collected {inserted_count} new articles from '

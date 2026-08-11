@@ -31,7 +31,9 @@ async def test_get_db_session_rolls_back_when_dependency_consumer_raises(
 
     fake_session = FakeSession()
     fake_context = FakeSessionContext(fake_session)
-    monkeypatch.setattr(session_module, 'get_session_maker', lambda: lambda: fake_context)
+    monkeypatch.setattr(
+        session_module, 'get_session_maker', lambda: lambda: fake_context
+    )
 
     dependency = session_module.get_db_session()
     assert await anext(dependency) is fake_session

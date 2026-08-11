@@ -80,9 +80,7 @@ def test_migration_files_execute_whole_and_are_idempotent(postgres_connection):
         """
     ).fetchall()
 
-    assert constraints == [
-        ('UNIQUE (business_date, market_type, dedupe_hash)',)
-    ]
+    assert constraints == [('UNIQUE (business_date, market_type, dedupe_hash)',)]
     assert keywords == [
         ('KR', '코스피', True),
         ('US', '미국 증시', True),

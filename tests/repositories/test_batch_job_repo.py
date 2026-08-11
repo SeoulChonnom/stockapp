@@ -546,9 +546,7 @@ async def test_release_failed_claim_is_token_fenced_and_preserves_checkpoint():
 @pytest.mark.anyio
 async def test_begin_step_records_step_run_and_returns_its_id():
     lease_token = uuid4()
-    session = RecordingAsyncSession(
-        results=[DummyResult([1001]), DummyResult([777])]
-    )
+    session = RecordingAsyncSession(results=[DummyResult([1001]), DummyResult([777])])
     repo = BatchJobRepository(session)
 
     step_run_id = await repo.begin_step(

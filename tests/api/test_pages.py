@@ -152,7 +152,9 @@ def test_get_daily_page_uses_business_date_query(client, sample_daily_page_paylo
     assert data['metadata']['isLatest'] is True
 
 
-def test_get_daily_page_distinguishes_missing_version(client, sample_daily_page_payload):
+def test_get_daily_page_distinguishes_missing_version(
+    client, sample_daily_page_payload
+):
     response = client.get(
         '/stock/api/pages/daily',
         params={

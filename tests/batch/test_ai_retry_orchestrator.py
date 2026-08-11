@@ -550,12 +550,8 @@ async def test_ai_retry_closes_step_runs_as_succeeded():
     await orchestrator.run(job_id=4001, lease_token=lease_token)
 
     assert job_repo.finished_step_runs
-    assert all(
-        step['status'] == 'SUCCEEDED' for step in job_repo.finished_step_runs
-    )
-    assert all(
-        step['error_message'] is None for step in job_repo.finished_step_runs
-    )
+    assert all(step['status'] == 'SUCCEEDED' for step in job_repo.finished_step_runs)
+    assert all(step['error_message'] is None for step in job_repo.finished_step_runs)
     assert all(step['error_log'] is None for step in job_repo.finished_step_runs)
     assert len(job_repo.finished_step_runs) == job_repo.step_run_seq
 
@@ -571,8 +567,7 @@ async def test_ai_retry_closes_step_run_as_failed_on_mid_step_exception():
     finished_step = session.finished_step_runs[-1]
     assert finished_step['status'] == 'FAILED'
     assert (
-        finished_step['error_message']
-        == 'AI 재처리 단계 실행 중 오류가 발생했습니다.'
+        finished_step['error_message'] == 'AI 재처리 단계 실행 중 오류가 발생했습니다.'
     )
     assert 'RuntimeError' in finished_step['error_log']
     assert 'secret-token' not in finished_step['error_log']
@@ -586,13 +581,9 @@ async def test_ai_retry_commits_running_step_before_step_work_runs():
     with pytest.raises(RuntimeError, match='lineage lookup failed'):
         await orchestrator.run(job_id=4002, lease_token=lease_token)
 
-    begin_index = session.operations.index(
-        ('begin_step', AI_RETRY_SELECT_STEP, 1)
-    )
+    begin_index = session.operations.index(('begin_step', AI_RETRY_SELECT_STEP, 1))
     commit_index = session.operations.index(('commit',))
-    work_index = session.operations.index(
-        ('list_retry_lineage_summaries', 10)
-    )
+    work_index = session.operations.index(('list_retry_lineage_summaries', 10))
     assert begin_index < commit_index < work_index
 
 

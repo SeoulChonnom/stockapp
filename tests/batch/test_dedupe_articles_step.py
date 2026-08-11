@@ -134,13 +134,9 @@ class FakeProcessedRepo:
 
 
 class FakeContentProvider:
-    async def fetch_article_content(
-        self, *, origin_link, naver_link, fallback_summary
-    ):
+    async def fetch_article_content(self, *, origin_link, naver_link, fallback_summary):
         _ = naver_link
-        return load_module(
-            'app.batch.providers.article_content'
-        ).ArticleContentResult(
+        return load_module('app.batch.providers.article_content').ArticleContentResult(
             body_text=f'body:{origin_link}',
             body_excerpt=f'body:{origin_link}',
             source_summary=fallback_summary,
@@ -321,9 +317,7 @@ async def test_dedupe_articles_preserves_same_raw_article_in_both_markets():
                     provider_article_key='shared-provider-key',
                     market_type=market_type,
                     business_date=None,
-                    search_keyword=(
-                        '코스피' if market_type == 'KR' else '미국 증시'
-                    ),
+                    search_keyword=('코스피' if market_type == 'KR' else '미국 증시'),
                     title='글로벌 증시 동반 상승',
                     publisher_name='테스트뉴스',
                     published_at=datetime(2026, 3, 17, 1, 0, tzinfo=UTC),

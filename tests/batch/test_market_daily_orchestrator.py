@@ -572,19 +572,13 @@ def _build_orchestrator_failing_at(monkeypatch, step_code: str):
 
 @pytest.mark.anyio
 async def test_each_step_run_is_closed_as_succeeded_on_success(monkeypatch):
-    repository, orchestrator, lease_token = _build_successful_orchestrator(
-        monkeypatch
-    )
+    repository, orchestrator, lease_token = _build_successful_orchestrator(monkeypatch)
 
     await orchestrator.run(job_id=1001, lease_token=lease_token)
 
     assert repository.finished_step_runs
-    assert all(
-        step['status'] == 'SUCCEEDED' for step in repository.finished_step_runs
-    )
-    assert all(
-        step['error_message'] is None for step in repository.finished_step_runs
-    )
+    assert all(step['status'] == 'SUCCEEDED' for step in repository.finished_step_runs)
+    assert all(step['error_message'] is None for step in repository.finished_step_runs)
     assert all(step['error_log'] is None for step in repository.finished_step_runs)
     assert len(repository.finished_step_runs) == len(repository.begun_steps)
 
