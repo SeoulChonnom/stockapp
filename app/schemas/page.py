@@ -138,6 +138,19 @@ class PageVersionSummaryResponse(BaseModel):
     )
 
 
+class PageIssueResponse(BaseModel):
+    """A single structured diagnostic behind ``partialMessage``.
+
+    Sourced from the page's persisted ``metadata_json.issues``. Every
+    ``message`` has already passed through ``sanitize_public_diagnostic``,
+    so it is safe to render directly.
+    """
+
+    category: str
+    code: str
+    message: str
+
+
 class DailyPageResponse(BaseModel):
     pageId: int
     businessDate: date
@@ -147,6 +160,7 @@ class DailyPageResponse(BaseModel):
     globalHeadline: str | None = None
     generatedAt: datetime | str
     partialMessage: str | None = None
+    issues: list[PageIssueResponse]
     markets: list[MarketSectionResponse]
     metadata: PageMetadataResponse
     navigation: PageNavigationResponse
@@ -192,6 +206,7 @@ __all__ = [
     'MarketAnalysisResponse',
     'MarketMetadataResponse',
     'MarketSectionResponse',
+    'PageIssueResponse',
     'PageMetadataResponse',
     'PageNavigationResponse',
     'PageVersionSummaryResponse',

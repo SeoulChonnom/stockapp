@@ -307,6 +307,7 @@ def build_daily_page_payload() -> dict[str, Any]:
         'globalHeadline': '기술주 강세와 외국인 매수세 회복으로 미·한 증시 모두 강세',
         'generatedAt': '2026-03-18T06:12:10+00:00',
         'partialMessage': None,
+        'issues': [],
         'markets': [
             {
                 'marketType': 'US',

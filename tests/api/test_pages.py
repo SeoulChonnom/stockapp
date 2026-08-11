@@ -101,9 +101,11 @@ def test_get_latest_page_allows_user_and_admin_roles(
         'globalHeadline',
         'generatedAt',
         'partialMessage',
+        'issues',
         'markets',
         'metadata',
     } <= set(data)
+    assert data['issues'] == []
     assert data['pageId'] == sample_daily_page_payload['pageId']
     assert data['markets'][0]['marketType'] == 'US'
     assert (
