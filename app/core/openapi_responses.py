@@ -49,6 +49,17 @@ FORBIDDEN_RESPONSE: ResponsesSpec = error_response(
     'Authenticated user lacks the required role. Codes: AUTH_FORBIDDEN.',
 )
 
+MARKET_DAILY_CONFLICT_RESPONSE: ResponsesSpec = error_response(
+    409,
+    'A batch is already running or a page already exists. '
+    'Codes: BATCH_ALREADY_RUNNING, PAGE_ALREADY_EXISTS, IDEMPOTENCY_KEY_REUSED. '
+    'BATCH_ALREADY_RUNNING carries error.details.jobId, the id of the run '
+    'already in flight, so clients can link straight to it; it is omitted only '
+    'in the rare case where that job left the active set before the conflict '
+    'was reported. PAGE_ALREADY_EXISTS carries error.details.pageId and '
+    'error.details.status for the page that blocked the run.',
+)
+
 # Applies to every route: the generic exception handler can fire anywhere.
 BASE_RESPONSES: ResponsesSpec = merge_responses(SERVER_ERROR_RESPONSE)
 
@@ -64,6 +75,7 @@ __all__ = [
     'AUTH_RESPONSES',
     'BASE_RESPONSES',
     'FORBIDDEN_RESPONSE',
+    'MARKET_DAILY_CONFLICT_RESPONSE',
     'SERVER_ERROR_RESPONSE',
     'UNAUTHORIZED_RESPONSE',
     'error_response',

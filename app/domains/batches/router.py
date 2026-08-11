@@ -22,6 +22,7 @@ from app.batch.background import (
 from app.batch.logging import log_safe_exception
 from app.core.openapi_responses import (
     AUTH_RESPONSES,
+    MARKET_DAILY_CONFLICT_RESPONSE,
     error_response,
     merge_responses,
 )
@@ -96,11 +97,7 @@ _MARKET_DAILY_RESPONSES = merge_responses(
         404,
         'No existing page found to rebuild. Codes: PAGE_NOT_FOUND.',
     ),
-    error_response(
-        409,
-        'A batch is already running or a page already exists. '
-        'Codes: BATCH_ALREADY_RUNNING, PAGE_ALREADY_EXISTS, IDEMPOTENCY_KEY_REUSED.',
-    ),
+    MARKET_DAILY_CONFLICT_RESPONSE,
 )
 _BATCH_JOB_DETAIL_RESPONSES = merge_responses(
     AUTH_RESPONSES,

@@ -166,7 +166,16 @@ class BatchJobRepository(PostgresRepository):
         row = result.mappings().one_or_none()
         return self._model_from_mapping(BatchJobRecord, row) if row else None
 
-    async def has_active_job_for_business_date(self, business_date: date) -> bool:
+    async def find_active_job_id_for_business_date(
+        self, business_date: date
+    ) -> int | None:
+        """Return the id of the active market-daily job for a date, if any.
+
+        The predicate mirrors the partial unique index
+        ``uq_batch_job_one_active_market_daily_per_day`` exactly, so a caller
+        that loses an insert race against that index can use this to identify
+        the job that won. Returns ``None`` when no such job is active.
+        """
         statement = text(
             """
             SELECT id
@@ -182,7 +191,8 @@ class BatchJobRepository(PostgresRepository):
             )
         ).bindparams(bindparam('business_date', business_date))
         result = await self.session.execute(statement)
-        return result.scalar_one_or_none() is not None
+        row = result.scalar_one_or_none()
+        return int(row) if row is not None else None
 
     async def has_completed_page_for_business_date(self, business_date: date) -> bool:
         statement = text(
