@@ -20,6 +20,11 @@ from app.batch.background import (
     get_in_process_batch_scheduler,
 )
 from app.batch.logging import log_safe_exception
+from app.core.openapi_responses import (
+    AUTH_RESPONSES,
+    error_response,
+    merge_responses,
+)
 from app.core.response import ApiSuccess
 from app.core.settings import get_settings
 from app.db.enums import BatchJobStatus, BatchJobType
@@ -77,11 +82,51 @@ BatchSchedulerDep = Annotated[
     Depends(get_batch_scheduler),
 ]
 
+_NEWS_COLLECTION_RESPONSES = merge_responses(
+    AUTH_RESPONSES,
+    error_response(
+        409,
+        'The requested news collection slot cannot be run. '
+        'Codes: NEWS_SLOT_INVALID, NEWS_SLOT_NOT_COMPLETED, NEWS_SLOT_OUT_OF_RANGE.',
+    ),
+)
+_MARKET_DAILY_RESPONSES = merge_responses(
+    AUTH_RESPONSES,
+    error_response(
+        404,
+        'No existing page found to rebuild. Codes: PAGE_NOT_FOUND.',
+    ),
+    error_response(
+        409,
+        'A batch is already running or a page already exists. '
+        'Codes: BATCH_ALREADY_RUNNING, PAGE_ALREADY_EXISTS, IDEMPOTENCY_KEY_REUSED.',
+    ),
+)
+_BATCH_JOB_DETAIL_RESPONSES = merge_responses(
+    AUTH_RESPONSES,
+    error_response(404, 'Batch job not found. Codes: BATCH_JOB_NOT_FOUND.'),
+)
+_AI_RETRY_RESPONSES = merge_responses(
+    AUTH_RESPONSES,
+    error_response(
+        404,
+        'Batch job or its source page not found. '
+        'Codes: BATCH_JOB_NOT_FOUND, AI_RETRY_SOURCE_PAGE_NOT_FOUND.',
+    ),
+    error_response(
+        409,
+        'AI retry cannot be started for this job. '
+        'Codes: BATCH_JOB_NOT_TERMINAL, IDEMPOTENCY_KEY_REUSED, '
+        'AI_RETRY_ALREADY_RUNNING.',
+    ),
+)
+
 
 @router.post(
     '/news-collection',
     response_model=ApiSuccess[NewsCollectionRunResponse],
     status_code=status.HTTP_202_ACCEPTED,
+    responses=_NEWS_COLLECTION_RESPONSES,
 )
 async def start_naver_news_collection(
     background_tasks: BackgroundTasks,
@@ -105,6 +150,7 @@ async def start_naver_news_collection(
     '/market-daily',
     response_model=ApiSuccess[BatchRunResponse],
     status_code=status.HTTP_202_ACCEPTED,
+    responses=_MARKET_DAILY_RESPONSES,
 )
 async def start_market_daily_batch(
     background_tasks: BackgroundTasks,
@@ -135,7 +181,11 @@ async def start_market_daily_batch(
     return ApiSuccess(data=assemble_batch_run_response(result))
 
 
-@router.get('/jobs', response_model=ApiSuccess[BatchJobListResponse])
+@router.get(
+    '/jobs',
+    response_model=ApiSuccess[BatchJobListResponse],
+    responses=AUTH_RESPONSES,
+)
 async def list_batch_jobs(
     _: BatchOperatorDep,
     service: BatchesServiceDep,
@@ -157,7 +207,11 @@ async def list_batch_jobs(
     return ApiSuccess(data=assemble_batch_job_list_response(result))
 
 
-@router.get('/jobs/{jobId}', response_model=ApiSuccess[BatchJobDetailResponse])
+@router.get(
+    '/jobs/{jobId}',
+    response_model=ApiSuccess[BatchJobDetailResponse],
+    responses=_BATCH_JOB_DETAIL_RESPONSES,
+)
 async def get_batch_job_detail(
     _: BatchOperatorDep,
     service: BatchesServiceDep,
@@ -171,6 +225,7 @@ async def get_batch_job_detail(
     '/jobs/{jobId}/retry-ai',
     response_model=ApiSuccess[AiRetryRunResponse],
     status_code=status.HTTP_202_ACCEPTED,
+    responses=_AI_RETRY_RESPONSES,
 )
 async def retry_ai_summaries(
     background_tasks: BackgroundTasks,

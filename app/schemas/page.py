@@ -106,7 +106,7 @@ class PageMetadataResponse(BaseModel):
     processedNewsCount: int
     clusterCount: int
     lastUpdatedAt: datetime | str
-    isLatest: bool = False
+    isLatest: bool
 
     _normalize_last_updated_at = field_validator('lastUpdatedAt', mode='before')(
         _normalize_timestamp

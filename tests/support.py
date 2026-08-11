@@ -457,6 +457,7 @@ def build_daily_page_payload() -> dict[str, Any]:
             'processedNewsCount': 114,
             'clusterCount': 21,
             'lastUpdatedAt': '2026-03-18T06:12:10+00:00',
+            'isLatest': True,
         },
     }
 
