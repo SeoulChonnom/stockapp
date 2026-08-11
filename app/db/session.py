@@ -28,11 +28,21 @@ def get_async_engine() -> AsyncEngine:
 
     @event.listens_for(engine.sync_engine, 'connect')
     def _set_search_path(dbapi_connection, _connection_record) -> None:
-        cursor = dbapi_connection.cursor()
+        # SET search_path runs inside psycopg's implicit transaction, and the
+        # pool's reset_on_return='rollback' issues ROLLBACK on first checkin,
+        # silently reverting it unless it is committed. Toggling autocommit
+        # around the statement commits it immediately instead of relying on
+        # a session commit that may never come (e.g. read-only checkouts).
+        previous_autocommit = dbapi_connection.autocommit
+        dbapi_connection.autocommit = True
         try:
-            cursor.execute(build_search_path_sql(settings.database_schema))
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute(build_search_path_sql(settings.database_schema))
+            finally:
+                cursor.close()
         finally:
-            cursor.close()
+            dbapi_connection.autocommit = previous_autocommit
 
     return engine
 

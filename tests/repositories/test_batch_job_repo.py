@@ -634,6 +634,18 @@ async def test_finish_step_run_returns_false_when_already_closed():
 
 
 @pytest.mark.anyio
+async def test_finish_step_run_casts_status_to_schema_qualified_enum():
+    session = RecordingAsyncSession(results=[DummyResult([777])])
+    repo = BatchJobRepository(session)
+
+    await repo.finish_step_run(step_run_id=777, status='SUCCEEDED')
+
+    sql = ' '.join(str(session.statements[0]).split()).lower()
+    assert 'as stock.batch_step_status_enum' in sql
+    assert 'as batch_step_status_enum' not in sql
+
+
+@pytest.mark.anyio
 async def test_list_step_runs_returns_records_in_seq_order():
     session = RecordingAsyncSession(
         results=[

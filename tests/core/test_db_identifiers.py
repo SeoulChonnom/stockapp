@@ -71,6 +71,9 @@ def test_get_async_engine_sets_validated_quoted_search_path(
             return None
 
     class DummyConnection:
+        def __init__(self) -> None:
+            self.autocommit = False
+
         def cursor(self) -> DummyCursor:
             return DummyCursor()
 
@@ -109,8 +112,10 @@ def test_get_async_engine_sets_validated_quoted_search_path(
     session_module.get_async_engine()
 
     handler = listener['handler']
-    handler(DummyConnection(), None)
+    connection = DummyConnection()
+    handler(connection, None)
     assert executed_sql == ['SET search_path TO "stock", public']
+    assert connection.autocommit is False
     assert engine_kwargs['pool_pre_ping'] is True
     assert engine_kwargs['pool_size'] == 7
     assert engine_kwargs['max_overflow'] == 2

@@ -466,7 +466,7 @@ class BatchJobRepository(PostgresRepository):
             """
             UPDATE {step_run_table}
             SET
-                status = CAST(:status AS batch_step_status_enum),
+                status = CAST(:status AS {status_enum}),
                 ended_at = now(),
                 duration_ms = {step_duration_ms_expr},
                 error_message = :error_message,
@@ -477,6 +477,7 @@ class BatchJobRepository(PostgresRepository):
             RETURNING id
             """.format(
                 step_run_table=qualify_db_identifier('batch_job_step_run'),
+                status_enum=qualify_db_identifier('batch_step_status_enum'),
                 step_duration_ms_expr=STEP_DURATION_MS_EXPR,
                 status_running=BatchStepStatus.RUNNING.value,
             )
