@@ -274,6 +274,69 @@ def test_get_archive_lists_latest_snapshot_per_date(
     assert payload['pagination']['totalCount'] == 2
 
 
+def test_daily_page_exposes_existing_neighbor_dates_not_calendar_arithmetic(
+    client, sample_daily_page_payload
+):
+    response = client.get(
+        '/stock/api/pages/daily',
+        params={'businessDate': sample_daily_page_payload['businessDate']},
+        headers=build_test_bearer_headers('USER'),
+    )
+
+    assert response.status_code == 200
+    navigation = response.json()['data']['navigation']
+    assert set(navigation) == {'previousBusinessDate', 'nextBusinessDate'}
+    # 2026-03-17 minus one calendar day is 2026-03-16, which has no page.
+    assert navigation['previousBusinessDate'] == '2026-03-13'
+    assert navigation['nextBusinessDate'] is None
+
+
+def test_latest_page_always_carries_navigation_with_no_next_date(client):
+    response = client.get(
+        '/stock/api/pages/daily/latest', headers=build_test_bearer_headers('USER')
+    )
+
+    assert response.status_code == 200
+    data = response.json()['data']
+    assert 'navigation' in data
+    assert data['navigation']['nextBusinessDate'] is None
+
+
+def test_daily_page_exposes_version_picker_entries(client, sample_daily_page_payload):
+    response = client.get(
+        '/stock/api/pages/daily',
+        params={'businessDate': sample_daily_page_payload['businessDate']},
+        headers=build_test_bearer_headers('USER'),
+    )
+
+    assert response.status_code == 200
+    versions = response.json()['data']['versions']
+    assert len(versions) == 3
+    assert [version['versionNo'] for version in versions] == [3, 2, 1]
+    assert set(versions[0]) == {
+        'pageId',
+        'versionNo',
+        'status',
+        'generatedAt',
+        'isLatest',
+    }
+    assert versions[0]['isLatest'] is True
+    assert [version['isLatest'] for version in versions[1:]] == [False, False]
+    assert versions[0]['generatedAt'].endswith('Z')
+
+
+def test_page_by_id_carries_navigation_and_versions(client, sample_daily_page_payload):
+    response = client.get(
+        f'/stock/api/pages/{sample_daily_page_payload["pageId"]}',
+        headers=build_test_bearer_headers('USER'),
+    )
+
+    assert response.status_code == 200
+    data = response.json()['data']
+    assert data['navigation']['previousBusinessDate'] == '2026-03-13'
+    assert [version['versionNo'] for version in data['versions']] == [3, 2, 1]
+
+
 def test_get_page_by_id_returns_404_when_missing(client):
     response = client.get(
         '/stock/api/pages/999', headers=build_test_bearer_headers('USER')

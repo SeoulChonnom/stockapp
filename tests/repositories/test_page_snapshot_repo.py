@@ -121,6 +121,95 @@ async def test_get_next_version_no_takes_advisory_lock_before_allocating_version
 
 
 @pytest.mark.anyio
+async def test_get_adjacent_business_dates_resolves_both_sides_in_one_query(
+    sample_business_date,
+):
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult(
+                [
+                    {
+                        'previous_business_date': date(2026, 3, 13),
+                        'next_business_date': date(2026, 3, 18),
+                    }
+                ]
+            )
+        ]
+    )
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.get_adjacent_business_dates(sample_business_date)
+
+    assert result == {
+        'previous_business_date': date(2026, 3, 13),
+        'next_business_date': date(2026, 3, 18),
+    }
+    assert len(session.statements) == 1
+    sql = normalize_sql(session.statements[0]).lower()
+    assert 'max(business_date) filter' in sql
+    assert 'min(business_date) filter' in sql
+    assert "business_date < '2026-03-17'" in sql
+    assert "business_date > '2026-03-17'" in sql
+    # The date reaches SQL as a bound parameter, never as interpolated text.
+    assert ':business_date' in str(session.statements[0])
+
+
+@pytest.mark.anyio
+async def test_get_adjacent_business_dates_returns_nulls_for_only_page(
+    sample_business_date,
+):
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult(
+                [
+                    {
+                        'previous_business_date': None,
+                        'next_business_date': None,
+                    }
+                ]
+            )
+        ]
+    )
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.get_adjacent_business_dates(sample_business_date)
+
+    assert result == {
+        'previous_business_date': None,
+        'next_business_date': None,
+    }
+
+
+@pytest.mark.anyio
+async def test_list_page_versions_orders_newest_first_under_a_hard_limit(
+    sample_business_date, sample_page_version_rows
+):
+    session = RecordingAsyncSession(results=[DummyResult(sample_page_version_rows)])
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.list_page_versions(sample_business_date)
+
+    assert [row['version_no'] for row in jsonable(result)] == [3, 2, 1]
+    sql = normalize_sql(session.statements[0]).lower()
+    assert "where business_date = '2026-03-17'" in sql
+    assert 'order by version_no desc' in sql
+    assert f'limit {page_repo_module.PAGE_VERSION_LIST_LIMIT}' in sql
+    assert 'max(version_no) over (partition by business_date)' in sql
+    assert ':business_date' in str(session.statements[0])
+    assert ':limit' in str(session.statements[0])
+
+
+@pytest.mark.anyio
+async def test_list_page_versions_binds_a_caller_supplied_limit(sample_business_date):
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = PageSnapshotRepository(session)
+
+    await repo.list_page_versions(sample_business_date, limit=5)
+
+    assert 'limit 5' in normalize_sql(session.statements[0]).lower()
+
+
+@pytest.mark.anyio
 async def test_list_archive_page_headers_prefers_latest_version_per_day(
     sample_archive_list_payload,
 ):

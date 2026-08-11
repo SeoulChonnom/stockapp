@@ -78,6 +78,8 @@ def test_daily_page_assembler_normalizes_utc_timestamps_to_z(
     sample_page_index_rows,
     sample_page_cluster_rows,
     sample_page_article_link_rows,
+    sample_adjacent_business_dates_row,
+    sample_page_version_rows,
 ):
     payload = pages_assembler_module.build_daily_page_payload(
         {**sample_page_snapshot_row, 'is_latest': True},
@@ -85,6 +87,8 @@ def test_daily_page_assembler_normalizes_utc_timestamps_to_z(
         sample_page_index_rows,
         sample_page_cluster_rows,
         sample_page_article_link_rows,
+        neighbors=sample_adjacent_business_dates_row,
+        versions=sample_page_version_rows,
     )
 
     assert payload['generatedAt'] == '2026-03-18T06:12:10Z'
@@ -99,6 +103,8 @@ def test_daily_page_assembler_keeps_legacy_session_snapshot_nullable(
     sample_page_index_rows,
     sample_page_cluster_rows,
     sample_page_article_link_rows,
+    sample_adjacent_business_dates_row,
+    sample_page_version_rows,
 ):
     payload = pages_assembler_module.build_daily_page_payload(
         sample_page_snapshot_row,
@@ -106,6 +112,8 @@ def test_daily_page_assembler_keeps_legacy_session_snapshot_nullable(
         sample_page_index_rows,
         sample_page_cluster_rows,
         sample_page_article_link_rows,
+        neighbors=sample_adjacent_business_dates_row,
+        versions=sample_page_version_rows,
     )
 
     market_metadata = payload['markets'][0]['metadata']
@@ -124,6 +132,8 @@ def test_daily_page_assembler_exposes_market_session_snapshot(
     sample_page_index_rows,
     sample_page_cluster_rows,
     sample_page_article_link_rows,
+    sample_adjacent_business_dates_row,
+    sample_page_version_rows,
 ):
     markets = [
         {
@@ -153,6 +163,8 @@ def test_daily_page_assembler_exposes_market_session_snapshot(
         indices,
         sample_page_cluster_rows,
         sample_page_article_link_rows,
+        neighbors=sample_adjacent_business_dates_row,
+        versions=sample_page_version_rows,
     )
 
     metadata = payload['markets'][0]['metadata']

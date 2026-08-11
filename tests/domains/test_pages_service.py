@@ -25,8 +25,12 @@ class FakePageSnapshotRepository:
         article_links,
         archive_items,
         archive_total_count,
+        adjacent_business_dates,
+        page_versions,
     ):
         self.page_header = page_header
+        self.adjacent_business_dates = adjacent_business_dates
+        self.page_versions = page_versions
         self.markets = markets
         self.indices = indices
         self.clusters = clusters
@@ -96,6 +100,26 @@ class FakePageSnapshotRepository:
         self.concurrent_detail_calls -= 1
         return self.article_links
 
+    async def get_adjacent_business_dates(self, business_date):
+        self.concurrent_detail_calls += 1
+        self.max_concurrent_detail_calls = max(
+            self.max_concurrent_detail_calls, self.concurrent_detail_calls
+        )
+        await asyncio.sleep(0)
+        self.calls.append(('get_adjacent_business_dates', business_date))
+        self.concurrent_detail_calls -= 1
+        return self.adjacent_business_dates
+
+    async def list_page_versions(self, business_date, *, limit=20):
+        self.concurrent_detail_calls += 1
+        self.max_concurrent_detail_calls = max(
+            self.max_concurrent_detail_calls, self.concurrent_detail_calls
+        )
+        await asyncio.sleep(0)
+        self.calls.append(('list_page_versions', business_date, limit))
+        self.concurrent_detail_calls -= 1
+        return self.page_versions
+
     async def list_archive_page_headers(self, **kwargs):
         self.calls.append(('list_archive_page_headers', kwargs))
         return self.archive_items
@@ -113,6 +137,8 @@ def page_repository(
     sample_page_cluster_rows,
     sample_page_article_link_rows,
     sample_archive_list_payload,
+    sample_adjacent_business_dates_row,
+    sample_page_version_rows,
 ):
     return FakePageSnapshotRepository(
         page_header=sample_page_snapshot_row,
@@ -122,6 +148,8 @@ def page_repository(
         article_links=sample_page_article_link_rows,
         archive_items=sample_archive_list_payload['items'],
         archive_total_count=sample_archive_list_payload['pagination']['totalCount'],
+        adjacent_business_dates=sample_adjacent_business_dates_row,
+        page_versions=sample_page_version_rows,
     )
 
 
@@ -184,6 +212,94 @@ async def test_pages_service_distinguishes_missing_page_version(page_repository)
         ('get_page_header_by_business_date', BUSINESS_DATE, 999),
         ('exists_page_for_business_date', BUSINESS_DATE),
     ]
+
+
+@pytest.mark.anyio
+async def test_pages_service_uses_nearest_existing_dates_across_calendar_gap(
+    page_repository,
+):
+    """2026-03-13 -> 2026-03-17 is a four-day gap; ±1 day would 404."""
+    service = PagesService(page_repository)
+
+    payload = jsonable(await service.get_page_by_date(BUSINESS_DATE))
+
+    assert payload['navigation'] == {
+        'previousBusinessDate': '2026-03-13',
+        'nextBusinessDate': None,
+    }
+    assert payload['businessDate'] == '2026-03-17'
+    assert ('get_adjacent_business_dates', BUSINESS_DATE) in page_repository.calls
+
+
+@pytest.mark.anyio
+async def test_pages_service_reports_null_navigation_for_only_page(page_repository):
+    page_repository.adjacent_business_dates = {
+        'previous_business_date': None,
+        'next_business_date': None,
+    }
+    service = PagesService(page_repository)
+
+    payload = jsonable(await service.get_page_by_date(BUSINESS_DATE))
+
+    assert payload['navigation'] == {
+        'previousBusinessDate': None,
+        'nextBusinessDate': None,
+    }
+
+
+@pytest.mark.anyio
+async def test_pages_service_reports_both_neighbors_when_present(page_repository):
+    page_repository.adjacent_business_dates = {
+        'previous_business_date': date(2026, 3, 13),
+        'next_business_date': date(2026, 3, 18),
+    }
+    service = PagesService(page_repository)
+
+    payload = jsonable(await service.get_page_by_id(501))
+
+    assert payload['navigation'] == {
+        'previousBusinessDate': '2026-03-13',
+        'nextBusinessDate': '2026-03-18',
+    }
+
+
+@pytest.mark.anyio
+async def test_latest_page_has_no_next_business_date(page_repository):
+    service = PagesService(page_repository)
+
+    payload = jsonable(await service.get_latest_page())
+
+    assert payload['navigation']['nextBusinessDate'] is None
+    assert payload['navigation']['previousBusinessDate'] == '2026-03-13'
+
+
+@pytest.mark.anyio
+async def test_pages_service_exposes_every_version_newest_first(page_repository):
+    service = PagesService(page_repository)
+
+    payload = jsonable(await service.get_page_by_date(BUSINESS_DATE))
+
+    assert [version['versionNo'] for version in payload['versions']] == [3, 2, 1]
+    assert [version['pageId'] for version in payload['versions']] == [501, 500, 499]
+    assert [version['isLatest'] for version in payload['versions']] == [
+        True,
+        False,
+        False,
+    ]
+    assert payload['versions'][1]['status'] == 'PARTIAL'
+    assert payload['versions'][0]['generatedAt'] == '2026-03-18T06:12:10Z'
+    assert ('list_page_versions', BUSINESS_DATE, 20) in page_repository.calls
+
+
+@pytest.mark.anyio
+async def test_navigation_and_versions_share_the_page_detail_round_trip(
+    page_repository,
+):
+    service = PagesService(page_repository)
+
+    await service.get_page_by_date(BUSINESS_DATE)
+
+    assert page_repository.max_concurrent_detail_calls > 3
 
 
 @pytest.mark.anyio

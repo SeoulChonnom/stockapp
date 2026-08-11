@@ -15,6 +15,8 @@ from app.schemas.page import (
     MarketMetadataResponse,
     MarketSectionResponse,
     PageMetadataResponse,
+    PageNavigationResponse,
+    PageVersionSummaryResponse,
     RepresentativeArticleResponse,
 )
 
@@ -46,6 +48,32 @@ def _as_date(value: Any) -> date:
     return date.fromisoformat(str(value))
 
 
+def _as_optional_date(value: Any) -> date | None:
+    return None if value is None else _as_date(value)
+
+
+def _build_navigation(neighbors: dict[str, Any]) -> PageNavigationResponse:
+    return PageNavigationResponse(
+        previousBusinessDate=_as_optional_date(neighbors.get('previous_business_date')),
+        nextBusinessDate=_as_optional_date(neighbors.get('next_business_date')),
+    )
+
+
+def _build_versions(
+    versions: list[dict[str, Any]],
+) -> list[PageVersionSummaryResponse]:
+    return [
+        PageVersionSummaryResponse(
+            pageId=row['id'],
+            versionNo=row['version_no'],
+            status=row['status'],
+            generatedAt=_as_required_iso(row['generated_at']),
+            isLatest=bool(row['is_latest']),
+        )
+        for row in versions
+    ]
+
+
 def assemble_daily_page_response(payload: dict[str, Any]) -> DailyPageResponse:
     safe_markets = []
     for market in payload.get('markets', []):
@@ -69,6 +97,9 @@ def build_daily_page_payload(
     indices: list[dict[str, Any]],
     clusters: list[dict[str, Any]],
     article_links: list[dict[str, Any]],
+    *,
+    neighbors: dict[str, Any],
+    versions: list[dict[str, Any]],
 ) -> dict[str, Any]:
     indices_by_market: dict[int, list[IndexCardResponse]] = defaultdict(list)
     for row in indices:
@@ -173,6 +204,8 @@ def build_daily_page_payload(
             lastUpdatedAt=_as_required_iso(page['last_updated_at']),
             isLatest=bool(page.get('is_latest', False)),
         ),
+        navigation=_build_navigation(neighbors),
+        versions=_build_versions(versions),
     ).model_dump(mode='json')
 
 

@@ -9,6 +9,7 @@ from tests.support import (
     JWT_ISSUER,
     JWT_REFRESH_TOKEN_TYPE,
     JWT_TEST_SECRET,
+    build_adjacent_business_dates_row,
     build_archive_item_payload,
     build_archive_list_payload,
     build_batch_job_detail_payload,
@@ -23,6 +24,7 @@ from tests.support import (
     build_page_index_rows,
     build_page_market_rows,
     build_page_snapshot_row,
+    build_page_version_rows,
     build_processed_article_rows,
     build_raw_article_rows,
     build_test_jwt_subject,
@@ -95,6 +97,16 @@ def sample_batch_job_detail_payload() -> dict[str, Any]:
 @pytest.fixture
 def sample_page_snapshot_row() -> dict[str, Any]:
     return build_page_snapshot_row()
+
+
+@pytest.fixture
+def sample_page_version_rows() -> list[dict[str, Any]]:
+    return build_page_version_rows()
+
+
+@pytest.fixture
+def sample_adjacent_business_dates_row() -> dict[str, Any]:
+    return build_adjacent_business_dates_row()
 
 
 @pytest.fixture

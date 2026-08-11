@@ -113,6 +113,31 @@ class PageMetadataResponse(BaseModel):
     )
 
 
+class PageNavigationResponse(BaseModel):
+    """Nearest business dates that actually have a page.
+
+    Both fields are required but nullable: the client always receives the
+    keys, and ``null`` means "no such neighbor exists", never "not computed".
+    Calendar arithmetic on ``businessDate`` is not a valid substitute — the
+    page table only holds dates a batch produced.
+    """
+
+    previousBusinessDate: date | None
+    nextBusinessDate: date | None
+
+
+class PageVersionSummaryResponse(BaseModel):
+    pageId: int
+    versionNo: int
+    status: str
+    generatedAt: datetime | str
+    isLatest: bool
+
+    _normalize_generated_at = field_validator('generatedAt', mode='before')(
+        _normalize_timestamp
+    )
+
+
 class DailyPageResponse(BaseModel):
     pageId: int
     businessDate: date
@@ -124,6 +149,8 @@ class DailyPageResponse(BaseModel):
     partialMessage: str | None = None
     markets: list[MarketSectionResponse]
     metadata: PageMetadataResponse
+    navigation: PageNavigationResponse
+    versions: list[PageVersionSummaryResponse]
 
     _normalize_generated_at = field_validator('generatedAt', mode='before')(
         _normalize_timestamp
@@ -166,6 +193,8 @@ __all__ = [
     'MarketMetadataResponse',
     'MarketSectionResponse',
     'PageMetadataResponse',
+    'PageNavigationResponse',
+    'PageVersionSummaryResponse',
     'PaginationResponse',
     'RepresentativeArticleResponse',
 ]

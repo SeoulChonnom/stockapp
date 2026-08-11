@@ -46,6 +46,11 @@ _PAGE_HEADER_INNER_COLUMNS_SQL = (
     'over (partition by business_date)) as is_latest'
 )
 
+# Upper bound for the version picker payload. A business date realistically
+# holds a handful of versions (one per batch rerun); the cap only exists so a
+# pathological date cannot return an unbounded list on every page render.
+PAGE_VERSION_LIST_LIMIT = 20
+
 
 class PageSnapshotRepository(PostgresRepository):
     def __init__(self, session: AsyncSession) -> None:
@@ -163,6 +168,65 @@ class PageSnapshotRepository(PostgresRepository):
         result = await self.session.execute(statement)
         value = result.scalar_one_or_none()
         return int(value) if value is not None else None
+
+    async def get_adjacent_business_dates(
+        self, business_date: date
+    ) -> dict[str, date | None]:
+        """Nearest existing business dates on either side of ``business_date``.
+
+        Uses strict comparisons so the lookup is correct even when
+        ``business_date`` itself has no page row, and resolves both neighbors
+        in a single round trip.
+        """
+        statement = text(
+            """
+            select
+                max(business_date) filter (
+                    where business_date < :business_date
+                ) as previous_business_date,
+                min(business_date) filter (
+                    where business_date > :business_date
+                ) as next_business_date
+            from {page_table}
+            """.format(page_table=qualify_db_identifier('market_daily_page'))
+        ).bindparams(bindparam('business_date', business_date))
+        result = await self.session.execute(statement)
+        row = self._first_row(result)
+        if row is None:
+            return {'previous_business_date': None, 'next_business_date': None}
+        mapping = self._row_to_dict(row)
+        return {
+            'previous_business_date': mapping.get('previous_business_date'),
+            'next_business_date': mapping.get('next_business_date'),
+        }
+
+    async def list_page_versions(
+        self,
+        business_date: date,
+        *,
+        limit: int = PAGE_VERSION_LIST_LIMIT,
+    ) -> list[dict]:
+        statement = text(
+            """
+            select
+                id,
+                business_date,
+                version_no,
+                status,
+                generated_at,
+                (version_no = max(version_no) over (partition by business_date))
+                    as is_latest
+            from {page_table}
+            where business_date = :business_date
+            order by version_no desc
+            limit :limit
+            """.format(page_table=qualify_db_identifier('market_daily_page'))
+        ).bindparams(
+            bindparam('business_date', business_date),
+            bindparam('limit', limit),
+        )
+        result = await self.session.execute(statement)
+        return [self._row_to_dict(row) for row in result.all()]
 
     async def get_page_markets(self, page_id: int) -> list[dict]:
         statement = text(
@@ -385,4 +449,4 @@ class PageSnapshotRepository(PostgresRepository):
         return {'where': where, 'bindparams': params}
 
 
-__all__ = ['PageSnapshotRepository']
+__all__ = ['PAGE_VERSION_LIST_LIMIT', 'PageSnapshotRepository']
