@@ -14,7 +14,7 @@ Use `uv` for local workflows.
 Set `UV_CACHE_DIR=/tmp/uv-cache` if the default cache path is restricted in your environment.
 
 ## Coding Style & Naming Conventions
-Follow existing Python style: 4-space indentation, explicit type hints, and small modules with clear separation between routers, services, assemblers, and repositories. Use `snake_case` for functions, variables, and module names; `PascalCase` for classes; and keep FastAPI schemas focused on API contracts. No repo-wide formatter or linter is configured yet, so keep imports tidy, prefer descriptive names, and match surrounding code before introducing new patterns.
+Follow existing Python style: 4-space indentation, explicit type hints, and small modules with clear separation between routers, services, assemblers, and repositories. Use `snake_case` for functions, variables, and module names; `PascalCase` for classes; and keep FastAPI schemas focused on API contracts. Ruff is configured repo-wide in `pyproject.toml`: 88-column lines, single-quoted strings, `E`/`F`/`I`/`UP`/`B`/`TID` lint rules, and no relative imports. Run `uv run ruff format .` and `uv run ruff check .` before submitting, and use `uv run vulture` to spot dead code. Beyond what Ruff enforces, prefer descriptive names and match surrounding code before introducing new patterns.
 
 ## Testing Guidelines
 Tests use `pytest` with `pytest-asyncio`/AnyIO where needed. Name files `test_*.py` and keep them aligned with the production area they cover. Prefer narrowly scoped unit tests in `tests/domains/`, `tests/repositories/`, and `tests/batch/`; reserve `tests/integration/` for live or external-service flows. Reuse fixtures from `tests/conftest.py` and `tests/support.py` instead of rebuilding payload factories.
