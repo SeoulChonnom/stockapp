@@ -50,6 +50,12 @@ _PAGE_HEADER_INNER_COLUMNS_SQL = (
 # holds a handful of versions (one per batch rerun); the cap only exists so a
 # pathological date cannot return an unbounded list on every page render.
 PAGE_VERSION_LIST_LIMIT = 20
+PUBLIC_PAGE_STATUSES: tuple[str, ...] = ('READY', 'PARTIAL')
+
+
+def _public_page_status_predicate(column: str = 'status') -> str:
+    statuses = ', '.join(f"'{status}'" for status in PUBLIC_PAGE_STATUSES)
+    return f'{column} IN ({statuses})'
 
 
 class PageSnapshotRepository(PostgresRepository):
@@ -73,6 +79,25 @@ class PageSnapshotRepository(PostgresRepository):
         row = self._first_row(result)
         return self._row_to_dict(row) if row else None
 
+    async def get_latest_public_page_header(self) -> dict | None:
+        statement = text(
+            """
+            select
+                {columns}
+            from {page_table}
+            where {public_status_predicate}
+            order by business_date desc, version_no desc, id desc
+            limit 1
+            """.format(
+                columns=_PAGE_HEADER_LATEST_COLUMNS_SQL,
+                page_table=qualify_db_identifier('market_daily_page'),
+                public_status_predicate=_public_page_status_predicate(),
+            )
+        )
+        result = await self.session.execute(statement)
+        row = self._first_row(result)
+        return self._row_to_dict(row) if row else None
+
     async def get_page_header_by_business_date(
         self,
         business_date: date,
@@ -88,13 +113,15 @@ class PageSnapshotRepository(PostgresRepository):
                         {inner_columns}
                     from {page_table}
                     where business_date = :business_date
+                        and {public_status_predicate}
                 ) page_versions
-                order by version_no desc
+                order by business_date desc, version_no desc, id desc
                 limit 1
                 """.format(
                     outer_columns=_PAGE_HEADER_OUTER_COLUMNS_SQL,
                     inner_columns=_PAGE_HEADER_INNER_COLUMNS_SQL,
                     page_table=qualify_db_identifier('market_daily_page'),
+                    public_status_predicate=_public_page_status_predicate(),
                 )
             ).bindparams(bindparam('business_date', business_date))
         else:
@@ -157,6 +184,22 @@ class PageSnapshotRepository(PostgresRepository):
         result = await self.session.execute(statement)
         return self._first_row(result) is not None
 
+    async def exists_public_page_for_business_date(self, business_date: date) -> bool:
+        statement = text(
+            """
+            select 1
+            from {page_table}
+            where business_date = :business_date
+                and {public_status_predicate}
+            limit 1
+            """.format(
+                page_table=qualify_db_identifier('market_daily_page'),
+                public_status_predicate=_public_page_status_predicate(),
+            )
+        ).bindparams(bindparam('business_date', business_date))
+        result = await self.session.execute(statement)
+        return self._first_row(result) is not None
+
     async def get_latest_version_no(self, business_date: date) -> int | None:
         statement = text(
             """
@@ -189,6 +232,35 @@ class PageSnapshotRepository(PostgresRepository):
                 ) as next_business_date
             from {page_table}
             """.format(page_table=qualify_db_identifier('market_daily_page'))
+        ).bindparams(bindparam('business_date', business_date))
+        result = await self.session.execute(statement)
+        row = self._first_row(result)
+        if row is None:
+            return {'previous_business_date': None, 'next_business_date': None}
+        mapping = self._row_to_dict(row)
+        return {
+            'previous_business_date': mapping.get('previous_business_date'),
+            'next_business_date': mapping.get('next_business_date'),
+        }
+
+    async def get_adjacent_public_business_dates(
+        self, business_date: date
+    ) -> dict[str, date | None]:
+        statement = text(
+            """
+            select
+                max(business_date) filter (
+                    where business_date < :business_date
+                ) as previous_business_date,
+                min(business_date) filter (
+                    where business_date > :business_date
+                ) as next_business_date
+            from {page_table}
+            where {public_status_predicate}
+            """.format(
+                page_table=qualify_db_identifier('market_daily_page'),
+                public_status_predicate=_public_page_status_predicate(),
+            )
         ).bindparams(bindparam('business_date', business_date))
         result = await self.session.execute(statement)
         row = self._first_row(result)
@@ -374,7 +446,21 @@ class PageSnapshotRepository(PostgresRepository):
         )
         statement = text(
             """
-            SELECT DISTINCT ON (business_date)
+            WITH latest_public AS (
+                SELECT DISTINCT ON (business_date)
+                    id,
+                    business_date,
+                    version_no,
+                    page_title,
+                    status,
+                    global_headline,
+                    generated_at,
+                    partial_message
+                FROM {page_table}
+                WHERE {public_status_predicate}
+                ORDER BY business_date DESC, version_no DESC, id DESC
+            )
+            SELECT
                 id AS "pageId",
                 business_date AS "businessDate",
                 page_title AS "pageTitle",
@@ -382,12 +468,13 @@ class PageSnapshotRepository(PostgresRepository):
                 status,
                 generated_at AS "generatedAt",
                 partial_message AS "partialMessage"
-            FROM {page_table}
+            FROM latest_public
             {where_clause}
-            ORDER BY business_date DESC, version_no DESC, id DESC
+            ORDER BY business_date DESC
             LIMIT :limit OFFSET :offset
             """.format(
                 page_table=qualify_db_identifier('market_daily_page'),
+                public_status_predicate=_public_page_status_predicate(),
                 where_clause=filters['where'],
             )
         ).bindparams(
@@ -410,15 +497,26 @@ class PageSnapshotRepository(PostgresRepository):
         )
         statement = text(
             """
-            SELECT COUNT(*)
-            FROM (
-                SELECT DISTINCT ON (business_date) business_date
+            WITH latest_public AS (
+                SELECT DISTINCT ON (business_date)
+                    id,
+                    business_date,
+                    version_no,
+                    page_title,
+                    status,
+                    global_headline,
+                    generated_at,
+                    partial_message
                 FROM {page_table}
-                {where_clause}
+                WHERE {public_status_predicate}
                 ORDER BY business_date DESC, version_no DESC, id DESC
-            ) AS archive_dates
+            )
+            SELECT COUNT(*)
+            FROM latest_public
+            {where_clause}
             """.format(
                 page_table=qualify_db_identifier('market_daily_page'),
+                public_status_predicate=_public_page_status_predicate(),
                 where_clause=filters['where'],
             )
         ).bindparams(*filters['bindparams'])
@@ -449,4 +547,8 @@ class PageSnapshotRepository(PostgresRepository):
         return {'where': where, 'bindparams': params}
 
 
-__all__ = ['PAGE_VERSION_LIST_LIMIT', 'PageSnapshotRepository']
+__all__ = [
+    'PAGE_VERSION_LIST_LIMIT',
+    'PUBLIC_PAGE_STATUSES',
+    'PageSnapshotRepository',
+]
