@@ -6,6 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.batch.diagnostics import (
+    INDEX_FETCH_FAILED,
+    INDEX_FUTURE_SOURCE_DATE,
+    INDEX_STALE_SOURCE_DATE,
+)
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.market_index_provider import MarketIndexFetchResult
 from app.batch.steps.collect_market_indices import CollectMarketIndicesStep
@@ -102,6 +107,7 @@ async def test_matching_index_source_is_info_and_not_partial():
     ).run(repository, _context())
 
     assert result.partial_reasons == []
+    assert result.partial_categories == {}
     assert len(index_repo.rows) == 1
     assert index_repo.rows[0].source_date == expected
     assert context_repo.source_updates[0]['source_date'] == expected
@@ -134,6 +140,7 @@ async def test_stale_index_source_is_persisted_and_marks_partial():
 
     assert len(index_repo.rows) == 1
     assert any('stale source date' in reason for reason in result.partial_reasons)
+    assert result.partial_categories == {INDEX_STALE_SOURCE_DATE: 1}
 
 
 @pytest.mark.anyio
@@ -158,6 +165,7 @@ async def test_future_index_source_is_rejected_and_marks_partial():
     assert index_repo.rows == []
     assert context_repo.source_updates == []
     assert any('future source date' in reason for reason in result.partial_reasons)
+    assert result.partial_categories[INDEX_FUTURE_SOURCE_DATE] == 1
 
 
 @pytest.mark.anyio
@@ -190,3 +198,4 @@ async def test_missing_ticker_marks_partial():
         'Market index collection failed for ^GSPC' in reason
         for reason in result.partial_reasons
     )
+    assert result.partial_categories[INDEX_FETCH_FAILED] == 1

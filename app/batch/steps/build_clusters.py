@@ -7,6 +7,7 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
+from app.batch.diagnostics import CLUSTER_ENRICHMENT_FALLBACK
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.llm_provider import BatchLlmProvider
 from app.batch.steps.base import BatchStep, require_repository_session
@@ -286,12 +287,11 @@ async def _persist_cluster_enrichment(
             if isinstance(error_context, dict)
             else 'LLM provider is not configured.'
         )
-        partial_reason = (
+        context.add_partial(
+            CLUSTER_ENRICHMENT_FALLBACK,
             f'Cluster enrichment fallback for {market_type} '
-            f'cluster {cluster_rank}: {diagnostic}'
+            f'cluster {cluster_rank}: {diagnostic}',
         )
-        if partial_reason not in context.partial_reasons:
-            context.partial_reasons.append(partial_reason)
         await repository.add_event(
             job_id=context.job_id,
             step_code=step_code,

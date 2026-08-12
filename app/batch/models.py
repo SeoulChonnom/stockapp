@@ -34,6 +34,33 @@ class BatchExecutionContext:
     partial_reasons: list[str] = field(default_factory=list)
     warning_messages: list[str] = field(default_factory=list)
     log_messages: list[str] = field(default_factory=list)
+    partial_categories: dict[str, int] = field(default_factory=dict)
+
+    def add_partial(
+        self,
+        category: str,
+        reason: str | None = None,
+        *,
+        warning: str | None = None,
+    ) -> None:
+        """Record a PARTIAL diagnostic together with the category it belongs to.
+
+        Every producer of a PARTIAL signal must go through here so the finalized
+        log summary can report why a job degraded. A reason paired with its
+        warning counts once, and re-recording an identical message is a no-op so
+        checkpoint-resumed steps never inflate the counters.
+        """
+        recorded = False
+        if reason is not None and reason not in self.partial_reasons:
+            self.partial_reasons.append(reason)
+            recorded = True
+        if warning is not None and warning not in self.warning_messages:
+            self.warning_messages.append(warning)
+            recorded = True
+        if recorded:
+            self.partial_categories[category] = (
+                self.partial_categories.get(category, 0) + 1
+            )
 
     def to_checkpoint(self) -> dict[str, Any]:
         """Serialize resumable batch progress to a JSON-compatible mapping."""
@@ -65,6 +92,7 @@ class BatchExecutionContext:
             'partialReasons': self.partial_reasons,
             'warningMessages': self.warning_messages,
             'logMessages': self.log_messages,
+            'partialCategories': self.partial_categories,
         }
 
     @classmethod
@@ -122,6 +150,7 @@ class BatchExecutionContext:
             partial_reasons=_checkpoint_string_list(payload, 'partialReasons'),
             warning_messages=_checkpoint_string_list(payload, 'warningMessages'),
             log_messages=_checkpoint_string_list(payload, 'logMessages'),
+            partial_categories=_checkpoint_int_dict(payload, 'partialCategories'),
         )
 
 

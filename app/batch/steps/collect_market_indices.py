@@ -4,6 +4,12 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, time
 from typing import Any
 
+from app.batch.diagnostics import (
+    INDEX_FETCH_FAILED,
+    INDEX_FUTURE_SOURCE_DATE,
+    INDEX_NONE_COLLECTED,
+    INDEX_STALE_SOURCE_DATE,
+)
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.market_index_provider import (
     YFINANCE_PROVIDER_NAME,
@@ -75,12 +81,11 @@ class CollectMarketIndicesStep(BatchStep):
         for failure in failures:
             ticker = _failure_value(failure, 'ticker')
             error_class = _failure_value(failure, 'error_class')
-            partial_reason = (
+            context.add_partial(
+                INDEX_FETCH_FAILED,
                 f'Market index collection failed for {ticker}: '
-                f'{EXTERNAL_PROVIDER_FAILURE_MESSAGE}'
+                f'{EXTERNAL_PROVIDER_FAILURE_MESSAGE}',
             )
-            if partial_reason not in context.partial_reasons:
-                context.partial_reasons.append(partial_reason)
             await repository.add_event(
                 job_id=context.job_id,
                 step_code=self.step_code,
@@ -96,7 +101,9 @@ class CollectMarketIndicesStep(BatchStep):
                 },
             )
         if not results:
-            context.partial_reasons.append('시장 지수 데이터를 수집하지 못했습니다.')
+            context.add_partial(
+                INDEX_NONE_COLLECTED, '시장 지수 데이터를 수집하지 못했습니다.'
+            )
             await repository.add_event(
                 job_id=context.job_id,
                 step_code=self.step_code,
@@ -115,13 +122,12 @@ class CollectMarketIndicesStep(BatchStep):
                 else context.business_date
             )
             if result.source_date > expected_session_date:
-                partial_reason = (
+                context.add_partial(
+                    INDEX_FUTURE_SOURCE_DATE,
                     f'{result.market_type}:{result.index_code} returned future '
                     f'source date {result.source_date.isoformat()} after expected '
-                    f'session {expected_session_date.isoformat()}.'
+                    f'session {expected_session_date.isoformat()}.',
                 )
-                if partial_reason not in context.partial_reasons:
-                    context.partial_reasons.append(partial_reason)
                 await repository.add_event(
                     job_id=context.job_id,
                     step_code=self.step_code,
@@ -168,13 +174,12 @@ class CollectMarketIndicesStep(BatchStep):
                 result.source_date
             )
             if result.source_date < expected_session_date:
-                partial_reason = (
+                context.add_partial(
+                    INDEX_STALE_SOURCE_DATE,
                     f'{result.market_type}:{result.index_code} used stale source '
                     f'date {result.source_date.isoformat()} before expected session '
-                    f'{expected_session_date.isoformat()}.'
+                    f'{expected_session_date.isoformat()}.',
                 )
-                if partial_reason not in context.partial_reasons:
-                    context.partial_reasons.append(partial_reason)
                 level = EventLevel.WARN.value
                 message = 'Market index source date is stale.'
             else:
@@ -204,9 +209,9 @@ class CollectMarketIndicesStep(BatchStep):
             )
 
         if inserted_count == 0:
-            partial_reason = '시장 지수 데이터를 수집하지 못했습니다.'
-            if partial_reason not in context.partial_reasons:
-                context.partial_reasons.append(partial_reason)
+            context.add_partial(
+                INDEX_NONE_COLLECTED, '시장 지수 데이터를 수집하지 못했습니다.'
+            )
 
         context.collected_index_count += inserted_count
         context.log_messages.append(f'Collected {inserted_count} market index row(s).')

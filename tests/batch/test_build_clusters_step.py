@@ -15,6 +15,9 @@ projections_module = load_module('app.db.repositories.projections')
 
 BuildClustersStep = build_clusters_module.BuildClustersStep
 BatchExecutionContext = load_module('app.batch.models').BatchExecutionContext
+CLUSTER_ENRICHMENT_FALLBACK = load_module(
+    'app.batch.diagnostics'
+).CLUSTER_ENRICHMENT_FALLBACK
 
 
 @dataclass
@@ -304,6 +307,9 @@ async def test_build_clusters_records_llm_fallback_error_context(monkeypatch):
     assert 'secret-token' not in serialized
     assert 'RetryInfo' not in serialized
     assert 'googleapis.com' not in serialized
+    assert context.partial_categories == {
+        CLUSTER_ENRICHMENT_FALLBACK: len(context.partial_reasons)
+    }
 
 
 @pytest.mark.anyio

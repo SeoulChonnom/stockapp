@@ -15,6 +15,7 @@ projections_module = load_module('app.db.repositories.projections')
 DedupeArticlesStep = dedupe_module.DedupeArticlesStep
 BatchExecutionContext = load_module('app.batch.models').BatchExecutionContext
 Settings = load_module('app.core.settings').Settings
+NEWS_COVERAGE_INCOMPLETE = load_module('app.batch.diagnostics').NEWS_COVERAGE_INCOMPLETE
 
 
 @dataclass
@@ -300,6 +301,7 @@ async def test_dedupe_articles_marks_batch_partial_when_ingestion_has_gap():
 
     assert context.raw_news_count == 2
     assert context.partial_reasons == ['US news ingestion coverage is incomplete.']
+    assert context.partial_categories == {NEWS_COVERAGE_INCOMPLETE: 1}
 
 
 @pytest.mark.anyio
