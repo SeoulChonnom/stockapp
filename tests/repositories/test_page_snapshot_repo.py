@@ -40,6 +40,62 @@ async def test_get_latest_page_header_orders_by_latest_business_date_then_versio
 
 
 @pytest.mark.anyio
+async def test_get_latest_public_page_header_selects_ready_or_partial_before_ordering(
+    sample_page_snapshot_row,
+):
+    session = RecordingAsyncSession(results=[DummyResult([sample_page_snapshot_row])])
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.get_latest_public_page_header()
+
+    assert jsonable(result)['id'] == sample_page_snapshot_row['id']
+    sql = normalize_sql(session.statements[0]).lower()
+    assert "where status in ('ready', 'partial')" in sql
+    assert 'order by business_date desc, version_no desc, id desc' in sql
+    assert sql.index("where status in ('ready', 'partial')") < sql.index(
+        'order by business_date desc, version_no desc, id desc'
+    )
+
+
+@pytest.mark.anyio
+async def test_get_page_header_by_business_date_without_version_selects_public_version(
+    sample_page_snapshot_row,
+):
+    session = RecordingAsyncSession(results=[DummyResult([sample_page_snapshot_row])])
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.get_page_header_by_business_date(
+        sample_page_snapshot_row['business_date']
+    )
+
+    assert jsonable(result)['id'] == sample_page_snapshot_row['id']
+    sql = normalize_sql(session.statements[0]).lower()
+    assert "business_date = '2026-03-17'" in sql
+    assert "status in ('ready', 'partial')" in sql
+    assert sql.index("status in ('ready', 'partial')") < sql.index(
+        'order by version_no desc'
+    )
+
+
+@pytest.mark.anyio
+async def test_get_page_header_by_business_date_with_version_keeps_failed_versions_available(
+    sample_page_snapshot_row,
+):
+    session = RecordingAsyncSession(results=[DummyResult([sample_page_snapshot_row])])
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.get_page_header_by_business_date(
+        sample_page_snapshot_row['business_date'], version_no=3
+    )
+
+    assert jsonable(result)['id'] == sample_page_snapshot_row['id']
+    sql = normalize_sql(session.statements[0]).lower()
+    assert "where business_date = '2026-03-17'" in sql
+    assert 'where version_no = 3' in sql
+    assert "status in ('ready', 'partial')" not in sql
+
+
+@pytest.mark.anyio
 async def test_get_page_header_by_business_date_uses_explicit_version_when_provided(
     sample_page_snapshot_row,
 ):
@@ -84,6 +140,21 @@ async def test_exists_page_for_business_date_checks_date_boundary(sample_busines
     sql = normalize_sql(session.statements[0])
     assert 'select 1' in sql.lower()
     assert 'business_date' in sql
+
+
+@pytest.mark.anyio
+async def test_exists_public_page_for_business_date_ignores_failed_only_dates(
+    sample_business_date,
+):
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.exists_public_page_for_business_date(sample_business_date)
+
+    assert result is False
+    sql = normalize_sql(session.statements[0]).lower()
+    assert "business_date = '2026-03-17'" in sql
+    assert "status in ('ready', 'partial')" in sql
 
 
 @pytest.mark.anyio
@@ -181,6 +252,36 @@ async def test_get_adjacent_business_dates_returns_nulls_for_only_page(
 
 
 @pytest.mark.anyio
+async def test_get_adjacent_public_business_dates_ignores_failed_only_dates(
+    sample_business_date,
+):
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult(
+                [
+                    {
+                        'previous_business_date': date(2026, 3, 13),
+                        'next_business_date': date(2026, 3, 18),
+                    }
+                ]
+            )
+        ]
+    )
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.get_adjacent_public_business_dates(sample_business_date)
+
+    assert result == {
+        'previous_business_date': date(2026, 3, 13),
+        'next_business_date': date(2026, 3, 18),
+    }
+    sql = normalize_sql(session.statements[0]).lower()
+    assert "where status in ('ready', 'partial')" in sql
+    assert "business_date < '2026-03-17'" in sql
+    assert "business_date > '2026-03-17'" in sql
+
+
+@pytest.mark.anyio
 async def test_list_page_versions_orders_newest_first_under_a_hard_limit(
     sample_business_date, sample_page_version_rows
 ):
@@ -231,6 +332,34 @@ async def test_list_archive_page_headers_prefers_latest_version_per_day(
     assert 'business_date' in sql
     assert 'status = cast(upper(' in sql.lower()
     assert ('distinct on' in sql.lower()) or ('row_number()' in sql.lower())
+
+
+@pytest.mark.anyio
+async def test_archive_ready_filter_excludes_latest_partial_instead_of_old_ready():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.list_archive_page_headers(
+        from_date=date(2026, 3, 16),
+        to_date=date(2026, 3, 17),
+        status='READY',
+    )
+
+    assert result == []
+    sql = normalize_sql(session.statements[0]).lower()
+    expected_cte = (
+        'with latest_public as ( select distinct on (business_date) id, '
+        'business_date, version_no, page_title, status, global_headline, '
+        'generated_at, partial_message from stock.market_daily_page '
+        "where status in ('ready', 'partial') order by business_date desc, "
+        'version_no desc, id desc )'
+    )
+    assert expected_cte in sql
+    cte_end = sql.index(') select id as "pageid"')
+    assert "business_date >= '2026-03-16'" in sql[cte_end:]
+    assert "business_date <= '2026-03-17'" in sql[cte_end:]
+    assert 'status = cast(upper(' in sql[cte_end:]
+    assert sql.endswith('order by business_date desc limit 30 offset 0')
 
 
 @pytest.mark.anyio
