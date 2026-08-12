@@ -49,6 +49,15 @@ class FakePagesService:
             return self.page_payload
         raise NotFoundError('PAGE_NOT_FOUND', '요청한 페이지를 찾을 수 없습니다.')
 
+    async def get_date_navigation(self, business_date):
+        page_exists = str(business_date) == self.page_payload['businessDate']
+        return {
+            'businessDate': business_date,
+            'pageExists': page_exists,
+            'previousBusinessDate': None,
+            'nextBusinessDate': None,
+        }
+
 
 class FakeArchiveService:
     def __init__(self, archive_payload: dict):
@@ -190,6 +199,43 @@ def test_get_historical_ready_page_sets_conservative_cache_headers(
 def test_get_daily_page_requires_business_date(client):
     response = client.get(
         '/stock/api/pages/daily', headers=build_test_bearer_headers('USER')
+    )
+
+    assert response.status_code == 422
+
+
+def test_get_page_date_navigation_returns_required_contract_keys(client):
+    response = client.get(
+        '/stock/api/pages/navigation',
+        params={'businessDate': '2026-08-13'},
+        headers=build_test_bearer_headers('USER'),
+    )
+
+    assert response.status_code == 200
+    assert set(response.json()['data']) == {
+        'businessDate',
+        'pageExists',
+        'previousBusinessDate',
+        'nextBusinessDate',
+    }
+
+
+def test_get_page_date_navigation_returns_200_for_missing_date(client):
+    response = client.get(
+        '/stock/api/pages/navigation',
+        params={'businessDate': '2026-08-13'},
+        headers=build_test_bearer_headers('USER'),
+    )
+
+    assert response.status_code == 200
+    assert response.json()['data']['pageExists'] is False
+
+
+def test_get_page_date_navigation_rejects_malformed_date(client):
+    response = client.get(
+        '/stock/api/pages/navigation',
+        params={'businessDate': 'not-a-date'},
+        headers=build_test_bearer_headers('USER'),
     )
 
     assert response.status_code == 422

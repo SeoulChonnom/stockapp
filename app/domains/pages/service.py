@@ -52,6 +52,20 @@ class PagesService:
         page = await self._ensure_latest_flag(page)
         return await self._build_page(page)
 
+    async def get_date_navigation(
+        self, business_date: date
+    ) -> dict[str, date | bool | None]:
+        page_exists = await self._repo.exists_public_page_for_business_date(
+            business_date
+        )
+        neighbors = await self._repo.get_adjacent_public_business_dates(business_date)
+        return {
+            'businessDate': business_date,
+            'pageExists': page_exists,
+            'previousBusinessDate': neighbors['previous_business_date'],
+            'nextBusinessDate': neighbors['next_business_date'],
+        }
+
     async def _ensure_latest_flag(self, page: dict[str, Any]) -> dict[str, Any]:
         if 'is_latest' in page:
             return page

@@ -15,7 +15,7 @@ from app.core.response import ApiSuccess
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.domains.pages.assembler import assemble_daily_page_response
 from app.domains.pages.service import PagesService
-from app.schemas.page import DailyPageResponse
+from app.schemas.page import DailyPageResponse, PageDateNavigationResponse
 
 router = APIRouter(prefix='/pages', tags=['pages'])
 
@@ -76,6 +76,20 @@ async def get_page_by_business_date(
     data = assemble_daily_page_response(payload)
     _set_historical_cache_headers(response, data)
     return ApiSuccess(data=data)
+
+
+@router.get(
+    '/navigation',
+    response_model=ApiSuccess[PageDateNavigationResponse],
+    responses=AUTH_RESPONSES,
+)
+async def get_page_date_navigation(
+    _: UserDep,
+    service: PagesServiceDep,
+    businessDate: Annotated[date, Query(alias='businessDate')],
+) -> ApiSuccess[PageDateNavigationResponse]:
+    data = await service.get_date_navigation(businessDate)
+    return ApiSuccess(data=PageDateNavigationResponse(**data))
 
 
 @router.get(

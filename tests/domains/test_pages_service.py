@@ -38,6 +38,8 @@ class FakePageSnapshotRepository:
         self.archive_items = archive_items
         self.archive_total_count = archive_total_count
         self.has_page_for_date = True
+        self.has_public_page_for_date = True
+        self.adjacent_public_business_dates = adjacent_business_dates
         self.concurrent_detail_calls = 0
         self.max_concurrent_detail_calls = 0
         self.calls: list[tuple] = []
@@ -57,6 +59,10 @@ class FakePageSnapshotRepository:
     async def exists_page_for_business_date(self, business_date):
         self.calls.append(('exists_page_for_business_date', business_date))
         return self.has_page_for_date
+
+    async def exists_public_page_for_business_date(self, business_date):
+        self.calls.append(('exists_public_page_for_business_date', business_date))
+        return self.has_public_page_for_date
 
     async def get_latest_version_no(self, business_date):
         self.calls.append(('get_latest_version_no', business_date))
@@ -109,6 +115,10 @@ class FakePageSnapshotRepository:
         self.calls.append(('get_adjacent_business_dates', business_date))
         self.concurrent_detail_calls -= 1
         return self.adjacent_business_dates
+
+    async def get_adjacent_public_business_dates(self, business_date):
+        self.calls.append(('get_adjacent_public_business_dates', business_date))
+        return self.adjacent_public_business_dates
 
     async def list_page_versions(self, business_date, *, limit=20):
         self.concurrent_detail_calls += 1
@@ -211,6 +221,99 @@ async def test_pages_service_distinguishes_missing_page_version(page_repository)
     assert page_repository.calls == [
         ('get_page_header_by_business_date', BUSINESS_DATE, 999),
         ('exists_page_for_business_date', BUSINESS_DATE),
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ('page_exists', 'neighbors', 'expected'),
+    [
+        pytest.param(
+            True,
+            {
+                'previous_business_date': date(2026, 8, 12),
+                'next_business_date': date(2026, 8, 14),
+            },
+            {
+                'businessDate': date(2026, 8, 13),
+                'pageExists': True,
+                'previousBusinessDate': date(2026, 8, 12),
+                'nextBusinessDate': date(2026, 8, 14),
+            },
+            id='existing',
+        ),
+        pytest.param(
+            False,
+            {
+                'previous_business_date': date(2026, 8, 12),
+                'next_business_date': date(2026, 8, 14),
+            },
+            {
+                'businessDate': date(2026, 8, 13),
+                'pageExists': False,
+                'previousBusinessDate': date(2026, 8, 12),
+                'nextBusinessDate': date(2026, 8, 14),
+            },
+            id='missing',
+        ),
+        pytest.param(
+            True,
+            {
+                'previous_business_date': None,
+                'next_business_date': date(2026, 8, 14),
+            },
+            {
+                'businessDate': date(2026, 8, 13),
+                'pageExists': True,
+                'previousBusinessDate': None,
+                'nextBusinessDate': date(2026, 8, 14),
+            },
+            id='earliest',
+        ),
+        pytest.param(
+            True,
+            {
+                'previous_business_date': date(2026, 8, 12),
+                'next_business_date': None,
+            },
+            {
+                'businessDate': date(2026, 8, 13),
+                'pageExists': True,
+                'previousBusinessDate': date(2026, 8, 12),
+                'nextBusinessDate': None,
+            },
+            id='latest',
+        ),
+        pytest.param(
+            False,
+            {
+                'previous_business_date': date(2026, 8, 12),
+                'next_business_date': date(2026, 8, 14),
+            },
+            {
+                'businessDate': date(2026, 8, 13),
+                'pageExists': False,
+                'previousBusinessDate': date(2026, 8, 12),
+                'nextBusinessDate': date(2026, 8, 14),
+            },
+            id='failed-only',
+        ),
+    ],
+)
+async def test_pages_service_returns_public_date_navigation(
+    page_repository, page_exists, neighbors, expected
+):
+    requested_date = date(2026, 8, 13)
+    page_repository.has_public_page_for_date = page_exists
+    page_repository.adjacent_public_business_dates = neighbors
+    service = PagesService(page_repository)
+
+    result = await service.get_date_navigation(requested_date)
+
+    assert result == expected
+    assert page_repository.calls == [
+        ('exists_public_page_for_business_date', requested_date),
+        ('get_adjacent_public_business_dates', requested_date),
     ]
 
 

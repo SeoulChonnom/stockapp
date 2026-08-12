@@ -126,6 +126,15 @@ class PageNavigationResponse(BaseModel):
     nextBusinessDate: date | None
 
 
+class PageDateNavigationResponse(BaseModel):
+    """Availability and nearest public page dates for a requested date."""
+
+    businessDate: date
+    pageExists: bool
+    previousBusinessDate: date | None
+    nextBusinessDate: date | None
+
+
 class PageVersionSummaryResponse(BaseModel):
     pageId: int
     versionNo: int
@@ -207,6 +216,7 @@ __all__ = [
     'MarketMetadataResponse',
     'MarketSectionResponse',
     'PageIssueResponse',
+    'PageDateNavigationResponse',
     'PageMetadataResponse',
     'PageNavigationResponse',
     'PageVersionSummaryResponse',
