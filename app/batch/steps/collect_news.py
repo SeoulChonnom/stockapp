@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from app.batch.diagnostics import NEWS_COLLECT_FAILED, NEWS_PAGINATION_CAP
 from app.batch.exceptions import BatchPipelineError
 from app.batch.models import BatchExecutionContext
 from app.batch.providers import NAVER_NEWS_PROVIDER_NAME, NaverNewsProvider
@@ -109,16 +110,14 @@ class CollectNewsStep(BatchStep):
                             f'(HTTP {status_code}).'
                         ),
                     ) from exc
-                warning_message = (
-                    f'Failed to collect Naver news for keyword: {keyword.keyword}'
-                )
-                context.warning_messages.append(warning_message)
-                partial_reason = (
+                context.add_partial(
+                    NEWS_COLLECT_FAILED,
                     f'Naver news collection failed for keyword '
-                    f"'{keyword.keyword}': {EXTERNAL_PROVIDER_FAILURE_MESSAGE}"
+                    f"'{keyword.keyword}': {EXTERNAL_PROVIDER_FAILURE_MESSAGE}",
+                    warning=(
+                        f'Failed to collect Naver news for keyword: {keyword.keyword}'
+                    ),
                 )
-                if partial_reason not in context.partial_reasons:
-                    context.partial_reasons.append(partial_reason)
                 market_coverage_complete[keyword.market_type] = False
                 await repository.add_event(
                     job_id=context.job_id,
@@ -140,12 +139,11 @@ class CollectNewsStep(BatchStep):
             coverage_complete = bool(getattr(collection, 'coverage_complete', True))
             if not coverage_complete:
                 market_coverage_complete[keyword.market_type] = False
-                partial_reason = (
+                context.add_partial(
+                    NEWS_PAGINATION_CAP,
                     'Naver news pagination cap was reached before covering '
-                    f"the persisted window for keyword '{keyword.keyword}'."
+                    f"the persisted window for keyword '{keyword.keyword}'.",
                 )
-                if partial_reason not in context.partial_reasons:
-                    context.partial_reasons.append(partial_reason)
             await repository.add_event(
                 job_id=context.job_id,
                 step_code=self.step_code,

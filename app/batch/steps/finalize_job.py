@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.batch.diagnostics import build_log_summary
 from app.batch.models import BatchExecutionContext
 from app.batch.policies import determine_batch_status
 from app.batch.steps.base import BatchStep
@@ -36,9 +37,7 @@ class FinalizeJobStep(BatchStep):
                     f'Fallback processing was used {context.fallback_count} time(s).'
                 )
         status = determine_batch_status(context)
-        log_summary = sanitize_public_diagnostic(
-            ' '.join(context.log_messages) if context.log_messages else None
-        )
+        log_summary = sanitize_public_diagnostic(build_log_summary(context))
         await repository.mark_job_completed(
             job_id=context.job_id,
             status=status,

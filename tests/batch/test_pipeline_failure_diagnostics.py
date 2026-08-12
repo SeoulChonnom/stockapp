@@ -708,4 +708,6 @@ async def test_orchestrator_failure_persists_only_last_committed_context(
     assert repository.completed['ai_fallback_count'] == 1
     assert repository.completed['ai_failed_count'] == 0
     assert repository.completed['partial_message'] == 'Committed collection warning.'
-    assert repository.completed['log_summary'] == 'Committed collection progress.'
+    assert repository.completed['log_summary'] == (
+        'Committed collection progress. PARTIAL diagnostics: UNCATEGORIZED x1.'
+    )

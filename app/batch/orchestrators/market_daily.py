@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.batch.diagnostics import build_log_summary
 from app.batch.exceptions import BatchLeaseLostError, BatchPipelineError
 from app.batch.logging import log_batch_lifecycle
 from app.batch.models import BatchExecutionContext
@@ -288,7 +289,7 @@ class MarketDailyBatchOrchestrator:
                         error_code=error_code,
                         error_message=sanitize_public_diagnostic(error_message),
                         log_summary=sanitize_public_diagnostic(
-                            ' '.join(failure_context.log_messages) or None
+                            build_log_summary(failure_context)
                         ),
                     )
                 else:

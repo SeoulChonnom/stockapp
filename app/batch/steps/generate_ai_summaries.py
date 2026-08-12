@@ -6,6 +6,7 @@ from functools import partial
 from typing import Any, TypedDict, cast
 
 from app.batch.ai_summary_targets import build_ai_summary_target_key
+from app.batch.diagnostics import AI_SUMMARY_FALLBACK, AI_SUMMARY_NO_CLUSTERS
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
 from app.batch.steps.ai_summary_generators import (
@@ -77,8 +78,9 @@ class GenerateAiSummariesStep(BatchStep):
         )
         indices = await index_repo.list_indices_by_business_date(context.business_date)
         if not clusters:
-            reason = '요약 생성에 필요한 클러스터가 없습니다.'
-            context.partial_reasons.append(reason)
+            context.add_partial(
+                AI_SUMMARY_NO_CLUSTERS, '요약 생성에 필요한 클러스터가 없습니다.'
+            )
             await repository.add_event(
                 job_id=context.job_id,
                 step_code=self.step_code,
@@ -355,8 +357,7 @@ async def _persist_summary_result(
     context.fallback_count += int(payload['fallback_used'])
     if payload['fallback_used']:
         partial_reason, fallback_detail = _build_fallback_report(payload, summary_job)
-        if partial_reason not in context.partial_reasons:
-            context.partial_reasons.append(partial_reason)
+        context.add_partial(AI_SUMMARY_FALLBACK, partial_reason)
         fallback_details.append(fallback_detail)
         await repository.add_event(
             job_id=context.job_id,

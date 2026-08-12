@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from app.batch.diagnostics import NEWS_COVERAGE_INCOMPLETE
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import (
     build_dedupe_hash,
@@ -130,8 +131,10 @@ class DedupeArticlesStep(BatchStep):
                 coverage_complete=coverage_complete,
             )
             if not coverage_complete:
-                context.partial_reasons.append(
-                    f'{market_context.market_type} news ingestion coverage is incomplete.'
+                context.add_partial(
+                    NEWS_COVERAGE_INCOMPLETE,
+                    f'{market_context.market_type} news ingestion coverage '
+                    'is incomplete.',
                 )
         raw_articles = list(raw_article_targets.values())
         context.raw_news_count = len(raw_article_ids)

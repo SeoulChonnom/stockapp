@@ -8,8 +8,11 @@ import pytest  # pyright: ignore[reportMissingImports]
 from tests.support import load_module
 
 batch_models_module = load_module('app.batch.models')
+diagnostics_module = load_module('app.batch.diagnostics')
 steps_module = load_module('app.batch.steps')
 
+AI_SUMMARY_NO_CLUSTERS = diagnostics_module.AI_SUMMARY_NO_CLUSTERS
+INDEX_NONE_COLLECTED = diagnostics_module.INDEX_NONE_COLLECTED
 BatchExecutionContext = batch_models_module.BatchExecutionContext
 BuildClustersStep = steps_module.BuildClustersStep
 BuildPageSnapshotStep = steps_module.BuildPageSnapshotStep
@@ -171,6 +174,14 @@ def expected_log_fragment(step_cls):
     raise AssertionError(f'Unexpected step class: {step_cls}')
 
 
+def expected_partial_categories(step_cls) -> dict[str, int]:
+    if step_cls is CollectMarketIndicesStep:
+        return {INDEX_NONE_COLLECTED: 1}
+    if step_cls is GenerateAiSummariesStep:
+        return {AI_SUMMARY_NO_CLUSTERS: 1}
+    return {}
+
+
 def context_messages(context: BatchExecutionContext) -> list[str]:
     return [
         *context.log_messages,
@@ -223,6 +234,7 @@ async def test_remaining_batch_steps_emit_lifecycle_events_and_preserve_context(
     }
     expected = expected_log_fragment(step_cls)
     assert expected in context_messages(context)
+    assert context.partial_categories == expected_partial_categories(step_cls)
 
 
 @pytest.mark.anyio
