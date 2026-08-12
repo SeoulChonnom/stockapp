@@ -5,6 +5,10 @@
 - 기준 요청서: `../stockfront/docs/backend-requests-2026-08-12.md`
 - 상태: 사용자 승인 완료
 
+이 통합 설계는 B1~B5 제품 계약의 canonical source이다. 구현 계획은 이 계약을
+코드와 테스트로 옮기는 exact 실행 절차이며, 두 문서에 차이가 발견되면 구현 전에
+통합 설계의 승인 내용을 기준으로 두 문서를 먼저 동기화한다.
+
 ## 1. 목적과 범위
 
 이 문서는 Market Brief UI 개선을 위해 프런트엔드가 요청한 B1~B5 계약을
@@ -109,7 +113,7 @@ UP | DOWN | MIXED | FLAT
 {
   "category": "AI_SUMMARY",
   "code": "KEY_POINTS_GENERATION_FAILED",
-  "message": "오늘의 핵심 요약을 생성하지 못했습니다."
+  "message": "오늘의 핵심 포인트를 준비하지 못했습니다."
 }
 ```
 
@@ -184,11 +188,15 @@ ConflictStatus: NOT_CHECKED | NONE | FOUND
 - 동일 kind를 중복할 수 없다.
 - 유효 문장이 없는 문단과 섹션은 제거한다.
 - 분석 전체가 없으면 `sections: []`이다.
-- 모든 문장은 최소 1개의 `sourceArticleIds`를 가져야 한다.
+- 모든 문장의 primary `sourceArticleIds`는 최소 1개이며 중복이 없어야 한다.
 - `ClusterArticleResponse.processedArticleId`는 필수 정수로 변경한다.
 - source ID는 같은 클러스터 응답의 `articles[].processedArticleId`만 참조한다.
-- 존재하지 않거나 중복된 source ID는 검증 실패이다.
-- 근거를 잃은 문장은 제거하고 빈 상위 컨테이너도 순차적으로 제거한다.
+- primary `sourceArticleIds`가 비어 있거나, 중복됐거나, 같은 클러스터 응답에
+  없는 ID를 포함하면 해당 문장만 제거하고 `INVALID_SOURCE_REFERENCE`를 기록한다.
+- primary 근거가 잘못된 한 문장 때문에 다른 유효 문장까지 버리거나 분석 전체를
+  즉시 `UNAVAILABLE`로 만들지 않는다.
+- 문장을 제거한 뒤 빈 문단과 섹션을 순차적으로 제거한다. 입력부터 비어 있던 문단과
+  섹션도 결과에서 생략한다.
 
 ### 4.3 충돌 계약
 
@@ -202,11 +210,17 @@ ConflictStatus: NOT_CHECKED | NONE | FOUND
 }
 ```
 
-- `FOUND`이면 충돌 기사 ID가 1개 이상이고 conflict note가 필수다.
-- `NONE` 또는 `NOT_CHECKED`이면 충돌 기사 배열은 비우고 note는 `null`이다.
+- `FOUND`이면 `conflictingSourceArticleIds`가 1개 이상이고 중복이 없어야 하며
+  conflict note가 필수다.
+- `NONE` 또는 `NOT_CHECKED`이면 `conflictingSourceArticleIds`는 정확히 빈 배열이고
+  note는 `null`이다.
 - 지지 기사와 충돌 기사 ID는 서로 중복될 수 없다.
 - 충돌한 기사도 같은 클러스터에 속해야 한다.
 - conflict note는 차이를 설명하되 어느 기사가 옳은지 단정하지 않는다.
+- primary source가 유효하더라도 `FOUND` 필드 조합, conflict ID의 클러스터 포함
+  여부, source/conflict ID 중복, note 조합 중 하나가 잘못되면 문장은 유지한다.
+  대신 해당 문장의 conflict 필드를 `NOT_CHECKED`, `[]`, `null`로 정규화하고
+  `CONFLICT_CHECK_FAILED`를 기록한다.
 - 전체 conflict status 집계 우선순위는 `FOUND`, `NOT_CHECKED`, `NONE`이다.
 - 충돌 발견은 정상 분석 결과이므로 그 자체로 `PARTIAL`이 되지 않는다.
 - 충돌 검사를 완료하지 못한 경우 분석 상태는 `PARTIAL`이다.
@@ -218,6 +232,77 @@ ConflictStatus: NOT_CHECKED | NONE | FOUND
 | `READY` | 유효 섹션이 있고 생성, 근거, 충돌 검증을 완료함 |
 | `PARTIAL` | 유효 섹션은 있으나 일부 문장이 제거됐거나 충돌 검사가 미완료됨 |
 | `UNAVAILABLE` | 표시할 유효 문장이 없음 |
+
+검증 상태 전이는 다음과 같이 고정한다.
+
+- 유효 문장이 남고 primary 근거 오류로 문장을 하나 이상 제거했거나 conflict 정보를
+  하나 이상 `NOT_CHECKED`로 낮췄으면 `PARTIAL`이다.
+- 정상적으로 검증된 `FOUND`는 degradation이 아니며 다른 오류가 없다면 `READY`다.
+- primary 근거 오류 문장을 모두 제거한 뒤 문장이 하나도 남지 않으면
+  `UNAVAILABLE`, `sections: []`, aggregate `conflictStatus: NOT_CHECKED`로 만든다.
+  `NO_GROUNDED_SENTENCES`를 추가하되 원인이 된 `INVALID_SOURCE_REFERENCE`도 보존한다.
+- provider 실패, malformed top-level 응답, 해석할 수 없는 section 구조(kind, 고정
+  title, 순서, 중복 kind)는 부분 복구하지 않는다. section, paragraph, sentence 원소가
+  object가 아니거나 `paragraphs` 또는 `sentences`가 배열이 아닌 nested shape도 같은
+  구조 실패다. 전체를 `UNAVAILABLE`로 만들고 `ANALYSIS_GENERATION_FAILED`를 기록한다.
+- `analysisIssues`는 최초 발견 순서를 유지하며 같은 code를 중복 기록하지 않는다.
+- 입력부터 비어 있던 컨테이너를 생략하는 정상화만으로는 상태를 낮추지 않는다.
+  잘못된 문장을 제거한 결과 컨테이너가 비었다면 문장 제거 규칙에 따라 상태를 낮춘다.
+
+primary 근거는 유효하지만 conflict evidence가 잘못된 문장은 다음처럼 보존한다.
+
+```json
+{
+  "analysisStatus": "PARTIAL",
+  "analysisIssues": [
+    {
+      "code": "CONFLICT_CHECK_FAILED",
+      "message": "일부 분석 문장의 충돌 근거를 확인하지 못했습니다."
+    }
+  ],
+  "conflictStatus": "NOT_CHECKED",
+  "sections": [
+    {
+      "kind": "impact",
+      "title": "시장 영향",
+      "paragraphs": [
+        {
+          "sentences": [
+            {
+              "text": "반도체 업종 약세가 지수에 부담을 줬습니다.",
+              "sourceArticleIds": [1024],
+              "conflictStatus": "NOT_CHECKED",
+              "conflictingSourceArticleIds": [],
+              "conflictNote": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+primary 근거 오류로 모든 문장이 제거된 경우에는 원인과 최종 상태를 함께 제공한다.
+
+```json
+{
+  "analysisStatus": "UNAVAILABLE",
+  "analysisGeneratedAt": null,
+  "analysisIssues": [
+    {
+      "code": "INVALID_SOURCE_REFERENCE",
+      "message": "일부 분석 문장의 근거 기사를 확인하지 못했습니다."
+    },
+    {
+      "code": "NO_GROUNDED_SENTENCES",
+      "message": "근거를 확인할 수 있는 분석 문장이 없습니다."
+    }
+  ],
+  "conflictStatus": "NOT_CHECKED",
+  "sections": []
+}
+```
 
 `UNAVAILABLE` 응답은 다음과 같다.
 
@@ -236,14 +321,14 @@ ConflictStatus: NOT_CHECKED | NONE | FOUND
 }
 ```
 
-공개 이슈 코드는 다음 네 개로 제한한다.
+공개 이슈 코드는 다음 네 개로 제한하고 message도 서버 고정값을 사용한다.
 
-```text
-ANALYSIS_GENERATION_FAILED
-NO_GROUNDED_SENTENCES
-INVALID_SOURCE_REFERENCE
-CONFLICT_CHECK_FAILED
-```
+| code | message |
+|---|---|
+| `ANALYSIS_GENERATION_FAILED` | 분석을 생성하지 못했습니다. |
+| `NO_GROUNDED_SENTENCES` | 근거를 확인할 수 있는 분석 문장이 없습니다. |
+| `INVALID_SOURCE_REFERENCE` | 일부 분석 문장의 근거 기사를 확인하지 못했습니다. |
+| `CONFLICT_CHECK_FAILED` | 일부 분석 문장의 충돌 근거를 확인하지 못했습니다. |
 
 분석 실패는 클러스터 상세 API 전체 HTTP 실패로 전파하지 않는다.
 
@@ -899,7 +984,9 @@ GET /pages/navigation?businessDate=2026-08-13
 
 - Pydantic 필수성, enum, 배열 길이와 순서
 - B1 전체 성공 및 원자적 빈 배열 실패
-- B2 source ID 부분집합, 빈 컨테이너 제거, conflict 집계
+- B2 source ID 오류 문장 격리, 빈 컨테이너 제거, conflict 저하 정규화와 집계
+- B2 전 문장 제거 시 원인 이슈와 `NO_GROUNDED_SENTENCES`의 중복 없는 보존
+- B2 malformed top-level/section 구조의 전체 `ANALYSIS_GENERATION_FAILED` 처리
 - OpenAPI 계약 snapshot
 - API 정상, 빈 결과, 422, 500
 - 날짜별 최신 공개 버전 선택

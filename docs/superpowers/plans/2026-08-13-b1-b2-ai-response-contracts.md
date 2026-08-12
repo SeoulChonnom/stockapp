@@ -8,6 +8,8 @@
 
 **Tech Stack:** FastAPI, Pydantic v2, Gemini JSON client, existing `ai_summary` JSONB fields, pytest/AnyIO.
 
+**Contract source:** `docs/superpowers/specs/2026-08-13-fe-backend-contracts-design.md` is the canonical product contract. This plan is its exact execution procedure. If the two differ, synchronize them to the approved integrated design before implementing either interpretation.
+
 ---
 
 ## Task 1: Define strict Pydantic wire models
@@ -23,8 +25,8 @@
 ```json
 [
   {"kind":"direction","label":"시장 방향","text":"주요 지수가 상승했습니다.","direction":"UP"},
-  {"kind":"driver","label":"핵심 동인","text":"반도체 업종 강세가 상승을 이끌었습니다."},
-  {"kind":"watch","label":"주의 포인트","text":"다음 거래일 금리 발표를 확인해야 합니다."}
+  {"kind":"driver","label":"주요 원인","text":"반도체 업종 강세가 상승을 이끌었습니다."},
+  {"kind":"watch","label":"관전 포인트","text":"다음 거래일 금리 발표를 확인해야 합니다."}
 ]
 ```
 
@@ -57,11 +59,13 @@ class AnalysisSectionResponse(BaseModel):
 Add `AnalysisIssueResponse(code: Literal[...], message: str)` for the four approved issue codes. Configure the key-point discriminated union with `extra='forbid'` so a direction on driver/watch is rejected instead of ignored.
 
 5. Use Pydantic model validators to enforce:
-   - every source list is nonempty and unique;
+   - primary `sourceArticleIds` is always nonempty and unique;
+   - `conflictingSourceArticleIds` is nonempty and unique only for `FOUND`, and is exactly empty for `NONE`/`NOT_CHECKED`;
    - source and conflicting-source IDs are disjoint;
    - `FOUND` requires conflicting IDs and a nonblank note;
    - non-`FOUND` requires empty conflicting IDs and null note;
    - `UNAVAILABLE` requires `sections=[]`, `analysisGeneratedAt=None`, and aggregate `NOT_CHECKED`.
+   These validators protect the already-normalized public wire shape. Sentence-level pruning and conflict degradation happen in `validate_analysis_sections` before response-model construction.
 6. Make `processedArticleId: int` required in both `app/schemas/page.py::ArticleLinkResponse` and `app/schemas/cluster.py::ClusterArticleResponse`.
 7. Run and observe failures before schema edits, then run until green:
 
@@ -90,7 +94,7 @@ git commit -m "feat: AI 응답 스키마 계약 정의"
     'issue': {
         'category': 'AI_SUMMARY',
         'code': 'KEY_POINTS_GENERATION_FAILED',
-        'message': '핵심 포인트를 생성하지 못했습니다.',
+        'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
     },
 }
 ```
@@ -98,21 +102,80 @@ git commit -m "feat: AI 응답 스키마 계약 정의"
 2. Cover wrong length, wrong order, wrong fixed label, blank text, invalid direction, direction on driver/watch, non-object payload, and extra/missing kinds.
 3. Implement immutable constants for kind order and labels plus typed normalization helpers. Do not repair semantic errors by reordering or guessing; reject the entire key-point payload to `[]`.
 4. Add `aggregate_conflict_status(sentences)` with priority `FOUND > NOT_CHECKED > NONE` and tests for empty/mixed input.
-5. Add `validate_analysis_sections(payload, valid_article_ids)` returning normalized sections plus machine-readable issues. Cover:
-   - unsupported section kind/title/order;
-   - empty sections omitted from output;
-   - unknown or missing source IDs → `INVALID_SOURCE_REFERENCE`;
-   - no grounded sentences → `NO_GROUNDED_SENTENCES`;
-   - malformed conflict evidence → `CONFLICT_CHECK_FAILED`;
-   - provider/malformed top-level response → `ANALYSIS_GENERATION_FAILED`.
-6. The validator must not silently drop a bad citation while keeping its sentence. Any invalid source reference makes the analysis `UNAVAILABLE`; conflict-check-only failures may produce `PARTIAL` with sentence status `NOT_CHECKED` if grounding remains valid.
-7. Run:
+5. Define these immutable public issue code/message pairs and assert exact equality in tests:
+
+```python
+ANALYSIS_ISSUE_MESSAGES = {
+    'ANALYSIS_GENERATION_FAILED': '분석을 생성하지 못했습니다.',
+    'NO_GROUNDED_SENTENCES': '근거를 확인할 수 있는 분석 문장이 없습니다.',
+    'INVALID_SOURCE_REFERENCE': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+    'CONFLICT_CHECK_FAILED': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+}
+```
+
+6. Add `validate_analysis_sections(payload, valid_article_ids)` returning normalized sections, `analysisStatus`, aggregate `conflictStatus`, and de-duplicated machine-readable issues. Test these exact transitions:
+   - provider failure, non-object top level, non-array `sections`, unsupported kind/title/order, or duplicate kind → entire `UNAVAILABLE`, `sections=[]`, aggregate `NOT_CHECKED`, one `ANALYSIS_GENERATION_FAILED`;
+   - a section, paragraph, or sentence item that is not an object, non-array `paragraphs`, or non-array `sentences` is an uninterpretable nested shape → the same entire `UNAVAILABLE` plus one `ANALYSIS_GENERATION_FAILED`; do not salvage sibling sections or sentences;
+   - a sentence whose primary `sourceArticleIds` is empty, contains duplicates, or contains an ID outside `valid_article_ids` → remove only that sentence and add one `INVALID_SOURCE_REFERENCE` code regardless of how many sentences fail;
+   - if another valid sentence remains after primary-source pruning → retain it, prune now-empty paragraphs/sections, and return `PARTIAL`;
+   - if no sentence remains after pruning → `UNAVAILABLE`, `sections=[]`, aggregate `NOT_CHECKED`, and add `NO_GROUNDED_SENTENCES` while retaining the de-duplicated causal `INVALID_SOURCE_REFERENCE`;
+   - if primary sources are valid but the `FOUND` field combination is invalid, a conflict ID is outside `valid_article_ids`, primary/conflict IDs overlap, or the note combination is invalid → keep the sentence, normalize its conflict fields to `NOT_CHECKED`, `[]`, `None`, add one `CONFLICT_CHECK_FAILED`, and return `PARTIAL`;
+   - a valid `FOUND` is normal evidence, participates in aggregate priority `FOUND > NOT_CHECKED > NONE`, and can remain `READY`;
+   - omit input-empty and pruning-empty paragraphs/sections; input-empty container omission alone does not degrade status.
+   Add `build_unavailable_analysis(*issue_codes)` in the same pure module so provider exhaustion uses the same fixed messages, code de-duplication, `sections=[]`, and aggregate `NOT_CHECKED` as malformed-output fallback.
+
+7. Use this assertion shape for conflict-only degradation so the implementation cannot discard grounded text:
+
+```python
+assert result == {
+    'analysisStatus': 'PARTIAL',
+    'analysisIssues': [{
+        'code': 'CONFLICT_CHECK_FAILED',
+        'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+    }],
+    'conflictStatus': 'NOT_CHECKED',
+    'sections': [{
+        'kind': 'impact',
+        'title': '시장 영향',
+        'paragraphs': [{'sentences': [{
+            'text': '반도체 업종 약세가 지수에 부담을 줬습니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': 'NOT_CHECKED',
+            'conflictingSourceArticleIds': [],
+            'conflictNote': None,
+        }]}],
+    }],
+}
+```
+
+8. The validator must never keep a sentence with invalid primary grounding, but it must isolate that failure to the sentence. Do not turn the whole analysis `UNAVAILABLE` while another grounded sentence remains. Preserve issue order by first discovery and never emit the same issue code twice.
+9. Assert the all-primary-sources-rejected result exactly, including issue order and messages:
+
+```python
+assert result == {
+    'analysisStatus': 'UNAVAILABLE',
+    'analysisIssues': [
+        {
+            'code': 'INVALID_SOURCE_REFERENCE',
+            'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+        },
+        {
+            'code': 'NO_GROUNDED_SENTENCES',
+            'message': '근거를 확인할 수 있는 분석 문장이 없습니다.',
+        },
+    ],
+    'conflictStatus': 'NOT_CHECKED',
+    'sections': [],
+}
+```
+
+10. Run:
 
 ```bash
 UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/batch/test_ai_output_contracts.py -q
 ```
 
-8. Commit:
+11. Commit:
 
 ```bash
 git add app/batch/ai_output_contracts.py tests/batch/test_ai_output_contracts.py
@@ -134,7 +197,7 @@ git commit -m "feat: AI 출력 검증기 추가"
    - headline success + key-point failure preserves headline and stores empty key points;
    - headline failure + key-point success preserves key points;
    - both success stores both;
-   - malformed key points produce the fixed issue.
+   - malformed key points produce `KEY_POINTS_GENERATION_FAILED` with the exact public message `오늘의 핵심 포인트를 준비하지 못했습니다.`.
 3. Introduce `_generate_global_outputs` which runs `_generate_global_headline` and `_generate_key_points` under the existing bounded summary target. Do not add a new `ai_summary_type_enum` value. Merge into the persisted `GLOBAL_HEADLINE.metadata_json`:
 
 ```python
@@ -170,19 +233,19 @@ git commit -m "feat: 일간 핵심 포인트 생성 및 저장"
 - Modify: `tests/domains/test_page_assembler.py`
 - Modify: `tests/api/test_pages.py`
 
-1. Add failing snapshot tests for success and failure. `create_page(metadata_json={'keyPoints': key_points, 'issues': issues, 'warnings': warnings})` must include `keyPoints`; failure must append the `KEY_POINTS_GENERATION_FAILED` issue and result in `PARTIAL`.
+1. Add failing snapshot tests for success and failure. `create_page(metadata_json={'keyPoints': key_points, 'issues': issues, 'warnings': warnings})` must include `keyPoints`; failure must append `{'category': 'AI_SUMMARY', 'code': 'KEY_POINTS_GENERATION_FAILED', 'message': '오늘의 핵심 포인트를 준비하지 못했습니다.'}` and result in `PARTIAL`.
 2. Update `_structured_page_issues` so the explicit B1 issue is not collapsed into generic `AI_SUMMARY_FALLBACK`.
 3. Copy key points from the `GLOBAL_HEADLINE` summary metadata into `market_daily_page.metadata_json.keyPoints`. On rebuild, copy the source page metadata without calling a provider.
 4. Update the page assembler to read `keyPoints` only from persisted page metadata and validate through the response model. Missing legacy metadata maps to `[]`; current-batch generation failure has the explicit issue and partial status.
 5. Make page article-link reads exclude legacy rows whose `processed_article_id` became null; current snapshot writes must reject a null ID. This keeps the required API field truthful without inventing identifiers.
 6. Add API assertions that key points always exist and are not regenerated between repeated reads.
-6. Run:
+7. Run:
 
 ```bash
 UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/batch/test_build_page_snapshot_rebuild.py tests/domains/test_page_assembler.py tests/api/test_pages.py -q
 ```
 
-7. Commit:
+8. Commit:
 
 ```bash
 git add app/batch/steps/build_page_snapshot.py app/domains/pages/assembler.py tests/batch/test_build_page_snapshot_rebuild.py tests/domains/test_page_assembler.py tests/api/test_pages.py
@@ -204,8 +267,14 @@ git commit -m "feat: 페이지 스냅샷에 핵심 포인트 반영"
    - every sentence cites one or more supplied IDs;
    - no invented IDs;
    - conflict status semantics and disjoint ID sets.
-3. Add tests for a fully grounded `READY` result, grounded result with conflict-check degradation (`PARTIAL`), unknown citation (`UNAVAILABLE`), empty grounded output (`UNAVAILABLE`), and provider failure (`UNAVAILABLE`).
-4. Update `_generate_cluster_detail_summary` to call `validate_analysis_sections`. Persist normalized sections in `paragraphs`; persist `analysisStatus`, `analysisIssues`, and aggregate `conflictStatus` in `metadata_json`.
+3. Add tests for:
+   - fully grounded `READY`, including a valid `FOUND` that stays `READY`;
+   - one unknown/empty/duplicate primary citation plus one valid sentence → bad sentence removed, `INVALID_SOURCE_REFERENCE`, remaining sections, `PARTIAL`;
+   - every sentence rejected for invalid primary citation → `INVALID_SOURCE_REFERENCE` and `NO_GROUNDED_SENTENCES` once each, `sections=[]`, aggregate `NOT_CHECKED`, `UNAVAILABLE`;
+   - valid primary grounding plus malformed conflict evidence → sentence retained with conflict fields normalized to `NOT_CHECKED`, `[]`, `None`, `CONFLICT_CHECK_FAILED`, `PARTIAL`;
+   - empty grounded output → `NO_GROUNDED_SENTENCES`, `UNAVAILABLE`;
+   - provider failure or malformed top-level/section structure → `ANALYSIS_GENERATION_FAILED`, `UNAVAILABLE`; nested cases must include non-object section/paragraph/sentence items, non-array `paragraphs`, and non-array `sentences`, and must prove that valid siblings are not partially salvaged.
+4. Update `_generate_cluster_detail_summary` to call `validate_analysis_sections`. Persist only normalized, nonempty sections in `paragraphs`; persist `analysisStatus`, de-duplicated `analysisIssues`, and aggregate `conflictStatus` in `metadata_json`.
 5. Fallback must be explicit, not the legacy `news_cluster.analysis_paragraphs_json` string list:
 
 ```python
@@ -254,7 +323,7 @@ git commit -m "feat: 근거 기반 클러스터 분석 생성"
   "long": null,
   "analysisStatus": "UNAVAILABLE",
   "analysisGeneratedAt": null,
-  "analysisIssues": [{"code":"ANALYSIS_GENERATION_FAILED","message":"분석을 사용할 수 없습니다."}],
+  "analysisIssues": [{"code":"ANALYSIS_GENERATION_FAILED","message":"분석을 생성하지 못했습니다."}],
   "conflictStatus": "NOT_CHECKED",
   "sections": []
 }
