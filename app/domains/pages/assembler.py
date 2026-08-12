@@ -181,6 +181,8 @@ def build_daily_page_payload(
     article_links_by_market: dict[int, list[ArticleLinkResponse]] = defaultdict(list)
     article_group_ranks: dict[str, int] = defaultdict(int)
     for row in article_links:
+        if row.get('processed_article_id') is None or row.get('cluster_uid') is None:
+            continue
         cluster_uid = str(row['cluster_uid'])
         article_group_ranks[cluster_uid] += 1
         article_links_by_market[row['page_market_id']].append(

@@ -268,6 +268,57 @@ def test_daily_page_assembler_normalizes_utc_timestamps_to_z(
     assert payload['markets'][0]['metadata']['lastUpdatedAt'] == '2026-03-18T06:20:00Z'
 
 
+def test_daily_page_assembler_excludes_legacy_links_without_public_ids(
+    sample_page_snapshot_row,
+    sample_page_market_rows,
+    sample_page_index_rows,
+    sample_page_cluster_rows,
+    sample_page_article_link_rows,
+    sample_adjacent_business_dates_row,
+    sample_page_version_rows,
+):
+    valid_link = {
+        **sample_page_article_link_rows[1],
+        'display_order': 3,
+    }
+    null_processed_link = {
+        **sample_page_article_link_rows[0],
+        'display_order': 1,
+        'processed_article_id': None,
+    }
+    null_cluster_link = {
+        **sample_page_article_link_rows[0],
+        'display_order': 2,
+        'cluster_uid': None,
+    }
+
+    payload = build_daily_page_payload(
+        sample_page_snapshot_row,
+        sample_page_market_rows,
+        sample_page_index_rows,
+        sample_page_cluster_rows,
+        [null_processed_link, null_cluster_link, valid_link],
+        neighbors=sample_adjacent_business_dates_row,
+        versions=sample_page_version_rows,
+    )
+
+    assert payload['markets'][0]['articleLinks'] == [
+        {
+            'processedArticleId': 4002,
+            'clusterId': '51f0d9a0-9fc5-4f15-a4f9-62856f128683',
+            'clusterTitle': '엔비디아 및 반도체 강세에 기술주 상승',
+            'title': '엔비디아 강세에 반도체 섹터 동반 상승',
+            'publisherName': '연합뉴스',
+            'publishedAt': '2026-03-17T22:40:00Z',
+            'originLink': 'https://example.com/article2',
+            'naverLink': 'https://search.naver.com/article2',
+            'similarGroupId': 'sim-51f0d9a0-9fc5-4f15-a4f9-62856f128683-1',
+            'isSimilarGroupRepresentative': True,
+            'exactDuplicateCount': 0,
+        }
+    ]
+
+
 def test_daily_page_assembler_keeps_legacy_session_snapshot_nullable(
     sample_page_snapshot_row,
     sample_page_market_rows,
