@@ -270,29 +270,41 @@ def normalize_sql(statement: Any) -> str:
 
 def build_representative_article() -> dict[str, Any]:
     return {
+        'processedArticleId': 2001,
         'title': '엔비디아 급등에 반도체 강세',
         'publisherName': '매일경제',
         'publishedAt': '2026-03-17T23:15:00+00:00',
         'originLink': 'https://example.com/article1',
         'naverLink': 'https://search.naver.com/article1',
+        'similarGroupId': f'sim-{CLUSTER_UID}-1',
+        'isSimilarGroupRepresentative': True,
+        'exactDuplicateCount': 0,
     }
 
 
 def build_related_articles() -> list[dict[str, Any]]:
     return [
         {
+            'processedArticleId': 2002,
             'title': '엔비디아 강세에 반도체 섹터 동반 상승',
             'publisherName': '연합뉴스',
             'publishedAt': '2026-03-17T22:40:00+00:00',
             'originLink': 'https://example.com/article2',
             'naverLink': 'https://search.naver.com/article2',
+            'similarGroupId': f'sim-{CLUSTER_UID}-2',
+            'isSimilarGroupRepresentative': True,
+            'exactDuplicateCount': 0,
         },
         {
+            'processedArticleId': 2003,
             'title': '대형 기술주 재평가로 나스닥 반등',
             'publisherName': '한국경제',
             'publishedAt': '2026-03-17T21:55:00+00:00',
             'originLink': 'https://example.com/article3',
             'naverLink': 'https://search.naver.com/article3',
+            'similarGroupId': f'sim-{CLUSTER_UID}-3',
+            'isSimilarGroupRepresentative': True,
+            'exactDuplicateCount': 0,
         },
     ]
 
@@ -308,6 +320,7 @@ def build_daily_page_payload() -> dict[str, Any]:
         'generatedAt': '2026-03-18T06:12:10+00:00',
         'partialMessage': None,
         'issues': [],
+        'keyPoints': [],
         'markets': [
             {
                 'marketType': 'US',
@@ -352,6 +365,9 @@ def build_daily_page_payload() -> dict[str, Any]:
                         'publishedAt': '2026-03-17T23:15:00+00:00',
                         'originLink': 'https://example.com/article1',
                         'naverLink': 'https://search.naver.com/article1',
+                        'similarGroupId': f'sim-{CLUSTER_UID}-1',
+                        'isSimilarGroupRepresentative': True,
+                        'exactDuplicateCount': 0,
                     },
                     {
                         'processedArticleId': 2002,
@@ -362,6 +378,9 @@ def build_daily_page_payload() -> dict[str, Any]:
                         'publishedAt': '2026-03-17T22:40:00+00:00',
                         'originLink': 'https://example.com/article2',
                         'naverLink': 'https://search.naver.com/article2',
+                        'similarGroupId': f'sim-{CLUSTER_UID}-2',
+                        'isSimilarGroupRepresentative': True,
+                        'exactDuplicateCount': 0,
                     },
                 ],
                 'metadata': {
@@ -432,6 +451,9 @@ def build_daily_page_payload() -> dict[str, Any]:
                         'publishedAt': '2026-03-17T22:05:00+00:00',
                         'originLink': 'https://example.com/article4',
                         'naverLink': 'https://search.naver.com/article4',
+                        'similarGroupId': f'sim-{SECOND_CLUSTER_UID}-1',
+                        'isSimilarGroupRepresentative': True,
+                        'exactDuplicateCount': 0,
                     },
                     {
                         'processedArticleId': 3002,
@@ -442,6 +464,9 @@ def build_daily_page_payload() -> dict[str, Any]:
                         'publishedAt': '2026-03-17T21:20:00+00:00',
                         'originLink': 'https://example.com/article5',
                         'naverLink': 'https://search.naver.com/article5',
+                        'similarGroupId': f'sim-{SECOND_CLUSTER_UID}-2',
+                        'isSimilarGroupRepresentative': True,
+                        'exactDuplicateCount': 0,
                     },
                 ],
                 'metadata': {
@@ -526,24 +551,42 @@ def build_cluster_detail_payload() -> dict[str, Any]:
         'summary': {
             'short': '반도체 업종 강세가 나스닥 상승을 견인했다.',
             'long': 'PPI 둔화 신호와 장기 금리 하락이 나스닥 중심 랠리를 자극했다.',
-            'analysis': [
-                '대형 기술주 매수세 유입',
-                '금리 우려는 잔존',
-                '다음 거래일에는 CPI 발표와 대형주 실적이 중요 변수다.',
+            'analysisStatus': 'UNAVAILABLE',
+            'analysisGeneratedAt': None,
+            'analysisIssues': [
+                {
+                    'code': 'NO_GROUNDED_SENTENCES',
+                    'message': '근거를 확인할 수 있는 분석 문장이 없습니다.',
+                }
             ],
+            'conflictStatus': 'NOT_CHECKED',
+            'sections': [],
         },
         'representativeArticle': build_representative_article(),
         'articles': [
             {
+                'processedArticleId': 2001,
                 'title': '엔비디아 급등에 반도체 강세',
                 'publisherName': '매일경제',
                 'publishedAt': '2026-03-17T23:15:00+00:00',
                 'originLink': 'https://example.com/article1',
                 'naverLink': 'https://search.naver.com/article1',
+                'similarGroupId': f'sim-{CLUSTER_UID}-1',
+                'isSimilarGroupRepresentative': True,
+                'exactDuplicateCount': 0,
             },
             *build_related_articles(),
         ],
+        'articleGrouping': {
+            'status': 'UNAVAILABLE',
+            'generatedAt': None,
+            'issue': {
+                'code': 'SIMILARITY_GROUPING_FAILED',
+                'message': '유사 기사 묶음을 생성하지 못했습니다.',
+            },
+        },
         'lastUpdatedAt': '2026-03-18T06:12:10+00:00',
+        'articleCount': 3,
     }
 
 

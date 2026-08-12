@@ -179,17 +179,25 @@ def build_daily_page_payload(
         )
 
     article_links_by_market: dict[int, list[ArticleLinkResponse]] = defaultdict(list)
+    article_group_ranks: dict[str, int] = defaultdict(int)
     for row in article_links:
+        cluster_uid = str(row['cluster_uid'])
+        article_group_ranks[cluster_uid] += 1
         article_links_by_market[row['page_market_id']].append(
             ArticleLinkResponse(
-                processedArticleId=row.get('processed_article_id'),
-                clusterId=str(row['cluster_uid']) if row.get('cluster_uid') else None,
+                processedArticleId=row['processed_article_id'],
+                clusterId=cluster_uid,
                 clusterTitle=row.get('cluster_title'),
                 title=row['title'],
                 publisherName=row.get('publisher_name'),
                 publishedAt=_as_iso(row.get('published_at')),
                 originLink=row['origin_link'],
                 naverLink=row.get('naver_link'),
+                similarGroupId=(
+                    f'sim-{cluster_uid}-{article_group_ranks[cluster_uid]}'
+                ),
+                isSimilarGroupRepresentative=True,
+                exactDuplicateCount=0,
             )
         )
 
@@ -241,6 +249,7 @@ def build_daily_page_payload(
             PageIssueResponse(**entry)
             for entry in _page_issues_from_metadata(page.get('metadata_json'))
         ],
+        keyPoints=[],
         markets=market_sections,
         metadata=PageMetadataResponse(
             rawNewsCount=page['raw_news_count'],

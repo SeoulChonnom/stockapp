@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import UTC, date, datetime
 
 import pytest  # pyright: ignore[reportMissingImports]
+from pydantic import ValidationError
 
 from tests.support import jsonable, load_module
 
@@ -13,10 +14,174 @@ assemble_daily_page_response = pages_assembler_module.assemble_daily_page_respon
 build_daily_page_payload = pages_assembler_module.build_daily_page_payload
 
 
+KEY_POINTS = [
+    {
+        'kind': 'direction',
+        'label': '시장 방향',
+        'text': '주요 지수가 상승했습니다.',
+        'direction': 'UP',
+    },
+    {
+        'kind': 'driver',
+        'label': '주요 원인',
+        'text': '반도체 업종 강세가 상승을 이끌었습니다.',
+    },
+    {
+        'kind': 'watch',
+        'label': '관전 포인트',
+        'text': '다음 거래일 금리 발표를 확인해야 합니다.',
+    },
+]
+
+
+def test_daily_page_requires_exact_key_point_success_shape(
+    sample_daily_page_payload,
+):
+    payload = {**sample_daily_page_payload, 'keyPoints': KEY_POINTS}
+
+    response = jsonable(assemble_daily_page_response(payload))
+
+    assert response['keyPoints'] == KEY_POINTS
+
+
+@pytest.mark.parametrize('direction', ['UP', 'DOWN', 'MIXED', 'FLAT'])
+def test_daily_page_accepts_approved_direction_values(
+    direction,
+    sample_daily_page_payload,
+):
+    key_points = deepcopy(KEY_POINTS)
+    key_points[0]['direction'] = direction
+
+    response = jsonable(
+        assemble_daily_page_response(
+            {**sample_daily_page_payload, 'keyPoints': key_points}
+        )
+    )
+
+    assert response['keyPoints'][0]['direction'] == direction
+
+
+def test_daily_page_rejects_unapproved_direction(sample_daily_page_payload):
+    key_points = deepcopy(KEY_POINTS)
+    key_points[0]['direction'] = 'SIDEWAYS'
+
+    with pytest.raises(ValidationError):
+        assemble_daily_page_response(
+            {**sample_daily_page_payload, 'keyPoints': key_points}
+        )
+
+
+def test_daily_page_rejects_noncanonical_key_point_label(
+    sample_daily_page_payload,
+):
+    key_points = deepcopy(KEY_POINTS)
+    key_points[1]['label'] = '원인'
+
+    with pytest.raises(ValidationError):
+        assemble_daily_page_response(
+            {**sample_daily_page_payload, 'keyPoints': key_points}
+        )
+
+
+@pytest.mark.parametrize('index', [1, 2], ids=['driver', 'watch'])
+def test_daily_page_rejects_direction_on_non_direction_key_point(
+    index,
+    sample_daily_page_payload,
+):
+    key_points = deepcopy(KEY_POINTS)
+    key_points[index]['direction'] = 'UP'
+
+    with pytest.raises(ValidationError):
+        assemble_daily_page_response(
+            {**sample_daily_page_payload, 'keyPoints': key_points}
+        )
+
+
+@pytest.mark.parametrize(
+    'key_points',
+    [None, KEY_POINTS[:2], [KEY_POINTS[1], KEY_POINTS[0], KEY_POINTS[2]]],
+    ids=['null', 'partial', 'wrong-order'],
+)
+def test_daily_page_rejects_invalid_key_point_collection(
+    key_points,
+    sample_daily_page_payload,
+):
+    with pytest.raises(ValidationError):
+        assemble_daily_page_response(
+            {**sample_daily_page_payload, 'keyPoints': key_points}
+        )
+
+
+def test_daily_page_rejects_omitted_key_points(sample_daily_page_payload):
+    payload = deepcopy(sample_daily_page_payload)
+    del payload['keyPoints']
+
+    with pytest.raises(ValidationError):
+        assemble_daily_page_response(payload)
+
+
+def test_daily_page_represents_key_point_failure_as_empty_array(
+    sample_daily_page_payload,
+):
+    response = jsonable(
+        assemble_daily_page_response({**sample_daily_page_payload, 'keyPoints': []})
+    )
+
+    assert response['keyPoints'] == []
+
+
+def test_daily_page_article_grouping_placeholders_are_truthful(
+    sample_daily_page_payload,
+):
+    payload = {**sample_daily_page_payload, 'keyPoints': []}
+
+    response = jsonable(assemble_daily_page_response(payload))
+
+    article = response['markets'][0]['articleLinks'][0]
+    assert article['processedArticleId'] == 2001
+    assert article['similarGroupId'] == 'sim-51f0d9a0-9fc5-4f15-a4f9-62856f128683-1'
+    assert article['isSimilarGroupRepresentative'] is True
+    assert article['exactDuplicateCount'] == 0
+
+
+@pytest.mark.parametrize(
+    'field',
+    ['similarGroupId', 'isSimilarGroupRepresentative', 'exactDuplicateCount'],
+)
+def test_daily_page_article_grouping_fields_are_required(
+    field,
+    sample_daily_page_payload,
+):
+    payload = deepcopy(sample_daily_page_payload)
+    del payload['markets'][0]['articleLinks'][0][field]
+
+    with pytest.raises(ValidationError):
+        assemble_daily_page_response(payload)
+
+
+@pytest.mark.parametrize('processed_article_id', ['missing', None])
+def test_daily_page_article_links_require_integer_processed_article_id(
+    processed_article_id,
+    sample_daily_page_payload,
+):
+    payload = deepcopy(sample_daily_page_payload)
+    payload['keyPoints'] = []
+    article = payload['markets'][0]['articleLinks'][0]
+    if processed_article_id == 'missing':
+        del article['processedArticleId']
+    else:
+        article['processedArticleId'] = processed_article_id
+
+    with pytest.raises(ValidationError):
+        assemble_daily_page_response(payload)
+
+
 def test_daily_page_assembler_keeps_market_nested_article_links(
     sample_daily_page_payload,
 ):
-    response = jsonable(assemble_daily_page_response(sample_daily_page_payload))
+    response = jsonable(
+        assemble_daily_page_response({**sample_daily_page_payload, 'keyPoints': []})
+    )
 
     assert response['pageId'] == 501
     assert response['markets'][0]['marketType'] == 'US'
@@ -37,7 +202,9 @@ def test_daily_page_assembler_keeps_market_nested_article_links(
 
 
 def test_daily_page_assembler_preserves_display_order(sample_daily_page_payload):
-    response = jsonable(assemble_daily_page_response(sample_daily_page_payload))
+    response = jsonable(
+        assemble_daily_page_response({**sample_daily_page_payload, 'keyPoints': []})
+    )
 
     assert [market['marketType'] for market in response['markets']] == ['US', 'KR']
     assert response['markets'][1]['indices'][0]['indexCode'] == 'KS11'
@@ -60,6 +227,7 @@ def test_daily_page_assembler_redacts_legacy_provider_diagnostics(
     )
     payload['partialMessage'] = f'{naver_reason}; {raw_provider_reason}'
     payload['markets'][0]['metadata']['partialMessage'] = raw_provider_reason
+    payload['keyPoints'] = []
 
     response = jsonable(assemble_daily_page_response(payload))
     serialized = repr(response)
@@ -391,6 +559,7 @@ def test_daily_page_assembler_response_redacts_issue_messages(
             'message': raw_provider_reason,
         },
     ]
+    payload['keyPoints'] = []
 
     response = jsonable(assemble_daily_page_response(payload))
     serialized = repr(response)

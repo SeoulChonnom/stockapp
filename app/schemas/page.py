@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.common import normalize_timestamp as _normalize_timestamp
 
@@ -46,8 +47,39 @@ class ClusterCardResponse(BaseModel):
     representativeArticle: RepresentativeArticleResponse
 
 
+class DirectionKeyPointResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    kind: Literal['direction']
+    label: Literal['시장 방향']
+    text: str
+    direction: Literal['UP', 'DOWN', 'MIXED', 'FLAT']
+
+
+class DriverKeyPointResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    kind: Literal['driver']
+    label: Literal['주요 원인']
+    text: str
+
+
+class WatchKeyPointResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    kind: Literal['watch']
+    label: Literal['관전 포인트']
+    text: str
+
+
+KeyPointResponse = Annotated[
+    DirectionKeyPointResponse | DriverKeyPointResponse | WatchKeyPointResponse,
+    Field(discriminator='kind'),
+]
+
+
 class ArticleLinkResponse(BaseModel):
-    processedArticleId: int | None = None
+    processedArticleId: int
     clusterId: str | None = None
     clusterTitle: str | None = None
     title: str
@@ -55,6 +87,9 @@ class ArticleLinkResponse(BaseModel):
     publishedAt: datetime | str | None = None
     originLink: str
     naverLink: str | None = None
+    similarGroupId: str
+    isSimilarGroupRepresentative: bool
+    exactDuplicateCount: int = Field(ge=0)
 
     _normalize_published_at = field_validator('publishedAt', mode='before')(
         _normalize_timestamp
@@ -170,6 +205,7 @@ class DailyPageResponse(BaseModel):
     generatedAt: datetime | str
     partialMessage: str | None = None
     issues: list[PageIssueResponse]
+    keyPoints: list[KeyPointResponse]
     markets: list[MarketSectionResponse]
     metadata: PageMetadataResponse
     navigation: PageNavigationResponse
@@ -178,6 +214,20 @@ class DailyPageResponse(BaseModel):
     _normalize_generated_at = field_validator('generatedAt', mode='before')(
         _normalize_timestamp
     )
+
+    @model_validator(mode='after')
+    def validate_key_points(self) -> Self:
+        if not self.keyPoints:
+            return self
+        if [point.kind for point in self.keyPoints] != [
+            'direction',
+            'driver',
+            'watch',
+        ]:
+            raise ValueError(
+                'keyPoints must be empty or ordered direction, driver, watch'
+            )
+        return self
 
 
 class ArchiveItemResponse(BaseModel):
@@ -211,6 +261,8 @@ __all__ = [
     'ArticleLinkResponse',
     'ClusterCardResponse',
     'DailyPageResponse',
+    'DirectionKeyPointResponse',
+    'DriverKeyPointResponse',
     'IndexCardResponse',
     'MarketAnalysisResponse',
     'MarketMetadataResponse',
@@ -222,4 +274,5 @@ __all__ = [
     'PageVersionSummaryResponse',
     'PaginationResponse',
     'RepresentativeArticleResponse',
+    'WatchKeyPointResponse',
 ]

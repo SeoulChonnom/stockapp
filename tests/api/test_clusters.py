@@ -76,17 +76,31 @@ def test_get_cluster_detail_returns_contract(client, sample_cluster_detail_paylo
         'summary',
         'representativeArticle',
         'articles',
+        'articleGrouping',
         'lastUpdatedAt',
         'articleCount',
     } <= set(payload)
-    assert {'short', 'long', 'analysis'} <= set(payload['summary'])
+    assert 'analysis' not in payload['summary']
     assert {
+        'short',
+        'long',
+        'analysisStatus',
+        'analysisGeneratedAt',
+        'analysisIssues',
+        'conflictStatus',
+        'sections',
+    } <= set(payload['summary'])
+    assert {
+        'processedArticleId',
         'title',
         'publisherName',
         'publishedAt',
         'originLink',
         'naverLink',
         'sourceSummary',
+        'similarGroupId',
+        'isSimilarGroupRepresentative',
+        'exactDuplicateCount',
     } <= set(payload['representativeArticle'])
     assert payload['clusterId'] == sample_cluster_detail_payload['clusterId']
     assert payload['marketType'] == 'US'
@@ -94,8 +108,29 @@ def test_get_cluster_detail_returns_contract(client, sample_cluster_detail_paylo
     assert payload['representativeArticle']['sourceSummary'] == (
         '반도체 업종 강세가 나스닥 상승을 견인했다.'
     )
+    assert payload['summary']['analysisStatus'] == 'UNAVAILABLE'
+    assert payload['summary']['analysisGeneratedAt'] is None
+    assert payload['summary']['conflictStatus'] == 'NOT_CHECKED'
+    assert payload['summary']['sections'] == []
+    assert payload['articleGrouping'] == {
+        'status': 'UNAVAILABLE',
+        'generatedAt': None,
+        'issue': {
+            'code': 'SIMILARITY_GROUPING_FAILED',
+            'message': '유사 기사 묶음을 생성하지 못했습니다.',
+        },
+    }
     assert payload['articleCount'] == 3
     assert payload['articles'][1]['title'] == '엔비디아 강세에 반도체 섹터 동반 상승'
+    assert [article['similarGroupId'] for article in payload['articles']] == [
+        f'sim-{payload["clusterId"]}-1',
+        f'sim-{payload["clusterId"]}-2',
+        f'sim-{payload["clusterId"]}-3',
+    ]
+    assert all(
+        article['isSimilarGroupRepresentative'] for article in payload['articles']
+    )
+    assert all(article['exactDuplicateCount'] == 0 for article in payload['articles'])
 
 
 def test_get_cluster_detail_rejects_malformed_uuid(client):

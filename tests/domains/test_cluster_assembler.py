@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
+import pytest  # pyright: ignore[reportMissingImports]
+from pydantic import ValidationError
+
 from tests.support import jsonable, load_module
 
 clusters_assembler_module = load_module('app.domains.clusters.assembler')
@@ -7,21 +12,446 @@ clusters_assembler_module = load_module('app.domains.clusters.assembler')
 assemble_cluster_detail_response = (
     clusters_assembler_module.assemble_cluster_detail_response
 )
+build_cluster_detail_payload = clusters_assembler_module.build_cluster_detail_payload
+
+
+ANALYSIS_GENERATED_AT = '2026-08-13T07:20:00+09:00'
+SECTIONS = [
+    {
+        'kind': 'background',
+        'title': '발생 배경',
+        'paragraphs': [
+            {
+                'sentences': [
+                    {
+                        'text': '미국 반도체주 약세가 국내 시장으로 이어졌습니다.',
+                        'sourceArticleIds': [2001],
+                        'conflictStatus': 'NONE',
+                        'conflictingSourceArticleIds': [],
+                        'conflictNote': None,
+                    }
+                ]
+            }
+        ],
+    },
+    {'kind': 'impact', 'title': '시장 영향', 'paragraphs': []},
+    {'kind': 'related', 'title': '관련 업종·종목', 'paragraphs': []},
+    {'kind': 'outlook', 'title': '향후 관전 포인트', 'paragraphs': []},
+]
+
+
+def _structured_cluster_payload(sample_cluster_detail_payload):
+    articles = [
+        {
+            **article,
+            'processedArticleId': 2001 + index,
+        }
+        for index, article in enumerate(sample_cluster_detail_payload['articles'])
+    ]
+    cluster_id = sample_cluster_detail_payload['clusterId']
+    grouped_articles = [
+        {
+            **article,
+            'similarGroupId': f'sim-{cluster_id}-{index}',
+            'isSimilarGroupRepresentative': True,
+            'exactDuplicateCount': 0,
+        }
+        for index, article in enumerate(articles, start=1)
+    ]
+    return {
+        **sample_cluster_detail_payload,
+        'articleCount': len(grouped_articles),
+        'summary': {
+            'short': '반도체 업종 강세가 나스닥 상승을 견인했다.',
+            'long': '외국인 매도와 업황 우려가 함께 반영됐습니다.',
+            'analysisStatus': 'READY',
+            'analysisGeneratedAt': ANALYSIS_GENERATED_AT,
+            'analysisIssues': [],
+            'conflictStatus': 'NONE',
+            'sections': deepcopy(SECTIONS),
+        },
+        'representativeArticle': {
+            **sample_cluster_detail_payload['representativeArticle'],
+            'processedArticleId': 2001,
+            'similarGroupId': f'sim-{cluster_id}-1',
+            'isSimilarGroupRepresentative': True,
+            'exactDuplicateCount': 0,
+        },
+        'articles': grouped_articles,
+        'articleGrouping': {
+            'status': 'UNAVAILABLE',
+            'generatedAt': None,
+            'issue': {
+                'code': 'SIMILARITY_GROUPING_FAILED',
+                'message': '유사 기사 묶음을 생성하지 못했습니다.',
+            },
+        },
+    }
+
+
+def test_cluster_assembler_returns_structured_analysis_contract(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+
+    response = jsonable(assemble_cluster_detail_response(payload))
+
+    assert 'analysis' not in response['summary']
+    assert response['summary'] == {
+        **payload['summary'],
+        'analysisGeneratedAt': '2026-08-12T22:20:00Z',
+    }
+
+
+@pytest.mark.parametrize(
+    'field',
+    [
+        'analysisStatus',
+        'analysisGeneratedAt',
+        'analysisIssues',
+        'conflictStatus',
+        'sections',
+    ],
+)
+def test_cluster_summary_requires_structured_analysis_fields(
+    field,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    del payload['summary'][field]
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize(
+    'field,value',
+    [
+        ('analysisStatus', 'FAILED'),
+        ('conflictStatus', 'UNKNOWN'),
+        ('analysisIssues', [{'code': 'UNKNOWN', 'message': '잘못된 코드'}]),
+    ],
+    ids=['analysis-status', 'conflict-status', 'analysis-issue-code'],
+)
+def test_cluster_summary_rejects_unapproved_analysis_enums(
+    field,
+    value,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary'][field] = value
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize(
+    'sections',
+    [
+        [SECTIONS[1], SECTIONS[0]],
+        [{**SECTIONS[0], 'title': '잘못된 제목'}],
+        [SECTIONS[0], SECTIONS[0]],
+    ],
+    ids=['wrong-order', 'wrong-title', 'duplicate-kind'],
+)
+def test_cluster_summary_rejects_invalid_section_structure(
+    sections,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary']['sections'] = sections
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+def test_cluster_summary_rejects_unapproved_section_kind(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary']['sections'][0]['kind'] = 'summary'
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize(
+    'source_ids',
+    [[], [2001, 2001]],
+    ids=['empty', 'duplicate'],
+)
+def test_analysis_sentence_rejects_invalid_primary_source_cardinality(
+    source_ids,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary']['sections'][0]['paragraphs'][0]['sentences'][0][
+        'sourceArticleIds'
+    ] = source_ids
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize(
+    'conflict_fields',
+    [
+        {
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [],
+            'conflictNote': '기사별 보도가 다릅니다.',
+        },
+        {
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [2002, 2002],
+            'conflictNote': '기사별 보도가 다릅니다.',
+        },
+        {
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [2001],
+            'conflictNote': '기사별 보도가 다릅니다.',
+        },
+        {
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [2002],
+            'conflictNote': '   ',
+        },
+        {
+            'conflictStatus': 'NONE',
+            'conflictingSourceArticleIds': [2002],
+            'conflictNote': None,
+        },
+        {
+            'conflictStatus': 'NOT_CHECKED',
+            'conflictingSourceArticleIds': [],
+            'conflictNote': '완료되지 않았습니다.',
+        },
+    ],
+    ids=[
+        'found-empty-ids',
+        'found-duplicate-ids',
+        'overlapping-ids',
+        'found-blank-note',
+        'none-with-ids',
+        'not-checked-with-note',
+    ],
+)
+def test_analysis_sentence_rejects_invalid_conflict_cardinality(
+    conflict_fields,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    sentence = payload['summary']['sections'][0]['paragraphs'][0]['sentences'][0]
+    sentence.update(conflict_fields)
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+def test_analysis_sentence_accepts_valid_found_conflict(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary']['conflictStatus'] = 'FOUND'
+    sentence = payload['summary']['sections'][0]['paragraphs'][0]['sentences'][0]
+    sentence.update(
+        {
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [2002],
+            'conflictNote': '기사별 외국인 순매매 방향이 다르게 보도됐습니다.',
+        }
+    )
+
+    response = jsonable(assemble_cluster_detail_response(payload))
+
+    assert response['summary']['sections'][0]['paragraphs'][0]['sentences'][0] == {
+        **sentence,
+    }
+
+
+def test_cluster_summary_accepts_truthful_unavailable_state(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary'].update(
+        {
+            'analysisStatus': 'UNAVAILABLE',
+            'analysisGeneratedAt': None,
+            'conflictStatus': 'NOT_CHECKED',
+            'sections': [],
+        }
+    )
+
+    response = jsonable(assemble_cluster_detail_response(payload))
+
+    assert response['summary']['analysisStatus'] == 'UNAVAILABLE'
+    assert response['summary']['analysisGeneratedAt'] is None
+    assert response['summary']['conflictStatus'] == 'NOT_CHECKED'
+    assert response['summary']['sections'] == []
+
+
+@pytest.mark.parametrize(
+    'summary_updates',
+    [
+        {'sections': SECTIONS},
+        {'analysisGeneratedAt': ANALYSIS_GENERATED_AT},
+        {'conflictStatus': 'NONE'},
+    ],
+    ids=['sections-present', 'generated-at-present', 'aggregate-not-checked'],
+)
+def test_unavailable_analysis_requires_empty_truthful_state(
+    summary_updates,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary'].update(
+        {
+            'analysisStatus': 'UNAVAILABLE',
+            'analysisGeneratedAt': None,
+            'conflictStatus': 'NOT_CHECKED',
+            'sections': [],
+            **summary_updates,
+        }
+    )
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize('article_key', ['representativeArticle', 'articles'])
+@pytest.mark.parametrize('processed_article_id', ['missing', None])
+def test_cluster_articles_require_integer_processed_article_id(
+    article_key,
+    processed_article_id,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    article = (
+        payload[article_key]
+        if article_key == 'representativeArticle'
+        else payload[article_key][0]
+    )
+    if processed_article_id == 'missing':
+        del article['processedArticleId']
+    else:
+        article['processedArticleId'] = processed_article_id
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+def test_cluster_grouping_placeholders_are_explicitly_unavailable(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+
+    response = jsonable(assemble_cluster_detail_response(payload))
+
+    assert response['articleGrouping'] == {
+        'status': 'UNAVAILABLE',
+        'generatedAt': None,
+        'issue': {
+            'code': 'SIMILARITY_GROUPING_FAILED',
+            'message': '유사 기사 묶음을 생성하지 못했습니다.',
+        },
+    }
+    for article in [response['representativeArticle'], *response['articles']]:
+        assert article['similarGroupId'].startswith(f'sim-{response["clusterId"]}-')
+        assert article['isSimilarGroupRepresentative'] is True
+        assert article['exactDuplicateCount'] == 0
+
+
+def test_cluster_builder_emits_unavailable_singleton_grouping(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+    )
+
+    assert payload['summary']['analysisStatus'] == 'UNAVAILABLE'
+    assert payload['articleGrouping'] == {
+        'status': 'UNAVAILABLE',
+        'generatedAt': None,
+        'issue': {
+            'code': 'SIMILARITY_GROUPING_FAILED',
+            'message': '유사 기사 묶음을 생성하지 못했습니다.',
+        },
+    }
+    assert [article['processedArticleId'] for article in payload['articles']] == [
+        4001,
+        4002,
+        4003,
+    ]
+    assert [article['similarGroupId'] for article in payload['articles']] == [
+        f'sim-{sample_cluster_row["cluster_uid"]}-1',
+        f'sim-{sample_cluster_row["cluster_uid"]}-2',
+        f'sim-{sample_cluster_row["cluster_uid"]}-3',
+    ]
+    assert all(
+        article['isSimilarGroupRepresentative'] for article in payload['articles']
+    )
+    assert all(article['exactDuplicateCount'] == 0 for article in payload['articles'])
+
+
+@pytest.mark.parametrize(
+    'field',
+    ['similarGroupId', 'isSimilarGroupRepresentative', 'exactDuplicateCount'],
+)
+def test_cluster_article_grouping_fields_are_required(
+    field,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    del payload['articles'][0][field]
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+def test_cluster_article_grouping_status_is_required(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    del payload['articleGrouping']
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize(
+    'article_grouping',
+    [
+        {'status': 'UNAVAILABLE', 'generatedAt': ANALYSIS_GENERATED_AT, 'issue': None},
+        {'status': 'UNAVAILABLE', 'generatedAt': None, 'issue': None},
+    ],
+    ids=['generated-at-present', 'issue-missing'],
+)
+def test_unavailable_article_grouping_requires_truthful_state(
+    article_grouping,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['articleGrouping'] = article_grouping
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
 
 
 def test_cluster_assembler_returns_full_detail_contract(sample_cluster_detail_payload):
+    structured_payload = _structured_cluster_payload(sample_cluster_detail_payload)
     payload = {
-        **sample_cluster_detail_payload,
+        **structured_payload,
         'articleCount': 3,
         'representativeArticle': {
-            **sample_cluster_detail_payload['representativeArticle'],
+            **structured_payload['representativeArticle'],
             'sourceSummary': '대표 기사 요약',
         },
         'articles': [
             {**article, 'sourceSummary': f'기사 요약 {index}'}
-            for index, article in enumerate(
-                sample_cluster_detail_payload['articles'], start=1
-            )
+            for index, article in enumerate(structured_payload['articles'], start=1)
         ],
     }
     response = jsonable(assemble_cluster_detail_response(payload))
