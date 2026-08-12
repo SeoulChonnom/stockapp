@@ -27,6 +27,7 @@ class FakeBatchJobRepository:
         self,
         *,
         active_exists: bool = False,
+        active_job_id: int = 4242,
         page_exists: bool = False,
         page_status: str = 'READY',
         created_job: object | None = None,
@@ -34,6 +35,8 @@ class FakeBatchJobRepository:
         detailed_job: object | None = None,
     ) -> None:
         self.active_exists = active_exists
+        self.active_job_id = active_job_id
+        self.active_job_id_calls: list[date] = []
         self.page_exists = page_exists
         self.page_status = page_status
         self.created_job = created_job
@@ -44,6 +47,10 @@ class FakeBatchJobRepository:
         self.commits = 0
         self.rollbacks = 0
         self.create_error: Exception | None = None
+        # Whether the job that won an insert race is still discoverable when
+        # the loser re-queries. False models the winner finishing and leaving
+        # the active set in the gap between the failure and the re-query.
+        self.race_winner_visible = True
         self.idempotent_job = None
         self.session = object()
         self.list_jobs_kwargs: dict | None = None
@@ -60,12 +67,16 @@ class FakeBatchJobRepository:
     async def retry_failed_job(self, job_id):
         self.retry_failed_job_calls.append(job_id)
         if self.retry_failed_job_error is not None:
+            # Losing this race means someone else's job is now the active one.
+            # Unlike create_job, the real repository does NOT roll back here;
+            # the service is responsible for that.
+            self.active_exists = self.race_winner_visible
             raise self.retry_failed_job_error
         return self.retried_job
 
-    async def has_active_job_for_business_date(self, business_date):
-        _ = business_date
-        return self.active_exists
+    async def find_active_job_id_for_business_date(self, business_date):
+        self.active_job_id_calls.append(business_date)
+        return self.active_job_id if self.active_exists else None
 
     async def get_latest_page_source(self, business_date):
         _ = business_date
@@ -76,6 +87,10 @@ class FakeBatchJobRepository:
     async def create_job(self, params):
         self.created_params = params
         if self.create_error is not None:
+            # Mirrors BatchJobRepository.create_job, which rolls the session
+            # back before re-raising so the caller can keep querying.
+            self.rollbacks += 1
+            self.active_exists = self.race_winner_visible
             raise self.create_error
         return self.created_job
 
@@ -353,6 +368,26 @@ async def test_start_market_daily_batch_rejects_duplicate_running_job():
 
 
 @pytest.mark.anyio
+async def test_precheck_conflict_carries_running_job_id():
+    """The pre-check path must surface the id of the job already running so
+    the frontend can link to it unconditionally."""
+    repository = FakeBatchJobRepository(active_exists=True, active_job_id=7788)
+    service = BatchesService(repository)
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='test-user',
+            force=False,
+            rebuild_page_only=False,
+        )
+
+    assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
+    assert exc_info.value.details == {'jobId': 7788}
+    assert repository.active_job_id_calls == [date(2026, 3, 17)]
+
+
+@pytest.mark.anyio
 async def test_start_market_daily_batch_converts_create_race_to_conflict():
     repository = FakeBatchJobRepository()
     repository.create_error = IntegrityError(
@@ -371,6 +406,60 @@ async def test_start_market_daily_batch_converts_create_race_to_conflict():
     assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
     assert repository.events == []
     assert repository.commits == 0
+
+
+@pytest.mark.anyio
+async def test_create_race_conflict_carries_winning_job_id():
+    """Losing the INSERT race must re-query and report the winner's id.
+
+    The re-query is only safe because create_job rolls the session back
+    before re-raising; against real Postgres an un-rolled-back re-query
+    fails with InFailedSqlTransaction (25P02).
+    """
+    repository = FakeBatchJobRepository(active_job_id=9001)
+    repository.create_error = IntegrityError(
+        'insert batch job', {}, Exception('duplicate')
+    )
+    service = BatchesService(repository)
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='test-user',
+            force=False,
+            rebuild_page_only=False,
+        )
+
+    assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
+    assert exc_info.value.details == {'jobId': 9001}
+    # Once for the (clean) pre-check, once for the post-failure re-query.
+    assert repository.active_job_id_calls == [date(2026, 3, 17)] * 2
+    assert repository.rollbacks == 1
+    assert repository.commits == 0
+
+
+@pytest.mark.anyio
+async def test_create_race_conflict_degrades_when_winner_already_gone():
+    """If the winning job finished before the re-query, still raise the same
+    409 -- just without details. Never invent an id, never crash."""
+    repository = FakeBatchJobRepository()
+    repository.race_winner_visible = False
+    repository.create_error = IntegrityError(
+        'insert batch job', {}, Exception('duplicate')
+    )
+    service = BatchesService(repository)
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='test-user',
+            force=False,
+            rebuild_page_only=False,
+        )
+
+    assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.details is None
 
 
 class _FakeDiag:
@@ -739,6 +828,124 @@ async def test_start_market_daily_batch_failed_retry_conflicts_with_active_job()
     assert repository.retry_failed_job_calls == [1001]
     assert repository.rollbacks == 1
     assert repository.commits == 0
+
+
+def _failed_job_for_replay():
+    return BatchJobRecord(
+        job_id=1001,
+        job_name='market_daily_batch',
+        business_date=date(2026, 3, 17),
+        status='FAILED',
+        started_at=datetime(2026, 3, 17, 6, 10, tzinfo=UTC),
+        ended_at=datetime(2026, 3, 17, 6, 20, tzinfo=UTC),
+        duration_seconds=600,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+        run_mode='FULL',
+        idempotency_key='daily-2026-03-17',
+    )
+
+
+@pytest.mark.anyio
+async def test_retry_race_conflict_carries_winning_job_id():
+    """The retry_failed_job race path must roll back first, then re-query.
+
+    retry_failed_job leaves the session in a failed transaction, so the
+    rollback is what makes the re-query legal at all.
+    """
+    repository = FakeBatchJobRepository(active_job_id=9002)
+    repository.idempotent_job = _failed_job_for_replay()
+    repository.retry_failed_job_error = IntegrityError(
+        'UPDATE batch_job',
+        {},
+        Exception(
+            'duplicate key value violates unique '
+            'constraint "uq_batch_job_one_active_market_daily_per_day"'
+        ),
+    )
+    service = BatchesService(repository)
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='cron-admin',
+            force=False,
+            rebuild_page_only=False,
+            idempotency_key='daily-2026-03-17',
+        )
+
+    assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
+    assert exc_info.value.details == {'jobId': 9002}
+    # The idempotent replay short-circuits before the pre-check, so the only
+    # lookup is the post-failure re-query -- and it happens after the rollback.
+    assert repository.active_job_id_calls == [date(2026, 3, 17)]
+    assert repository.rollbacks == 1
+
+
+@pytest.mark.anyio
+async def test_retry_race_conflict_degrades_when_winner_already_gone():
+    repository = FakeBatchJobRepository()
+    repository.race_winner_visible = False
+    repository.idempotent_job = _failed_job_for_replay()
+    repository.retry_failed_job_error = IntegrityError(
+        'UPDATE batch_job', {}, Exception('duplicate')
+    )
+    service = BatchesService(repository)
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='cron-admin',
+            force=False,
+            rebuild_page_only=False,
+            idempotency_key='daily-2026-03-17',
+        )
+
+    assert exc_info.value.code == 'BATCH_ALREADY_RUNNING'
+    assert exc_info.value.details is None
+    assert repository.rollbacks == 1
+
+
+@pytest.mark.anyio
+async def test_page_already_exists_conflict_carries_page_context():
+    repository = FakeBatchJobRepository(page_exists=True, page_status='READY')
+    service = BatchesService(repository)
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 17),
+            user_id='test-user',
+            force=False,
+            rebuild_page_only=False,
+        )
+
+    assert exc_info.value.code == 'PAGE_ALREADY_EXISTS'
+    assert exc_info.value.details == {'pageId': 501, 'status': 'READY'}
+
+
+@pytest.mark.anyio
+async def test_idempotency_key_reuse_conflict_has_no_details():
+    """Conflicts with nothing useful to attach must leave details unset."""
+    mismatched_job = _failed_job_for_replay()
+    repository = FakeBatchJobRepository()
+    repository.idempotent_job = mismatched_job
+    service = BatchesService(repository)
+
+    with pytest.raises(batches_service_module.ConflictError) as exc_info:
+        await service.start_market_daily_batch(
+            business_date=date(2026, 3, 18),
+            user_id='cron-admin',
+            force=False,
+            rebuild_page_only=False,
+            idempotency_key='daily-2026-03-17',
+        )
+
+    assert exc_info.value.code == 'IDEMPOTENCY_KEY_REUSED'
+    assert exc_info.value.details is None
 
 
 @pytest.mark.anyio

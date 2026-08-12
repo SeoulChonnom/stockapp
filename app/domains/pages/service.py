@@ -62,14 +62,31 @@ class PagesService:
 
     async def _build_page(self, page: dict[str, Any]) -> dict[str, Any]:
         page_id = page['id']
+        business_date = page['business_date']
         markets = await self._repo.get_page_markets(page_id)
         market_ids = [row['id'] for row in markets]
-        indices, clusters, article_links = await asyncio.gather(
+        (
+            indices,
+            clusters,
+            article_links,
+            neighbors,
+            versions,
+        ) = await asyncio.gather(
             self._repo.get_page_indices(market_ids),
             self._repo.get_page_clusters(market_ids),
             self._repo.get_page_article_links(market_ids),
+            self._repo.get_adjacent_business_dates(business_date),
+            self._repo.list_page_versions(business_date),
         )
-        return build_daily_page_payload(page, markets, indices, clusters, article_links)
+        return build_daily_page_payload(
+            page,
+            markets,
+            indices,
+            clusters,
+            article_links,
+            neighbors=neighbors,
+            versions=versions,
+        )
 
 
 __all__ = ['PagesService']

@@ -6,6 +6,11 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import DbSession, UserDep
+from app.core.openapi_responses import (
+    AUTH_RESPONSES,
+    error_response,
+    merge_responses,
+)
 from app.core.response import ApiSuccess
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.domains.archive.assembler import assemble_archive_list_response
@@ -13,6 +18,14 @@ from app.domains.archive.service import ArchiveService
 from app.schemas.page import ArchiveListResponse
 
 router = APIRouter(prefix='/pages', tags=['archive'])
+
+_LIST_ARCHIVE_RESPONSES = merge_responses(
+    AUTH_RESPONSES,
+    error_response(
+        400,
+        'Unsupported archive status filter. Codes: UNSUPPORTED_ARCHIVE_STATUS.',
+    ),
+)
 
 
 def get_archive_service(session: DbSession) -> ArchiveService:
@@ -23,7 +36,11 @@ type ArchiveServiceDep = Annotated[ArchiveService, Depends(get_archive_service)]
 type ArchiveStatus = Literal['READY', 'PARTIAL', 'FAILED']
 
 
-@router.get('/archive', response_model=ApiSuccess[ArchiveListResponse])
+@router.get(
+    '/archive',
+    response_model=ApiSuccess[ArchiveListResponse],
+    responses=_LIST_ARCHIVE_RESPONSES,
+)
 async def list_archive(
     _: UserDep,
     service: ArchiveServiceDep,

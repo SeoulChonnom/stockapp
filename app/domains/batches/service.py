@@ -50,6 +50,22 @@ def _integrity_constraint_name(exc: IntegrityError) -> str | None:
     return getattr(diag, 'constraint_name', None)
 
 
+def _batch_already_running(job_id: int | None) -> ConflictError:
+    """Build the 409 for a duplicate market-daily run.
+
+    ``job_id`` is the run that is already in flight; the frontend links
+    straight to it. It is ``None`` only when the winning job left the active
+    set between the failure and the re-query, in which case the conflict is
+    still real and still a 409 -- we just cannot say which job caused it, so
+    ``details`` is omitted rather than filled with a made-up id.
+    """
+    return ConflictError(
+        'BATCH_ALREADY_RUNNING',
+        '동일 날짜의 배치가 이미 실행 중입니다.',
+        {'jobId': job_id} if job_id is not None else None,
+    )
+
+
 class BatchesService:
     def __init__(
         self,
@@ -222,11 +238,11 @@ class BatchesService:
                     force=force,
                 )
 
-        if await self._repo.has_active_job_for_business_date(resolved_business_date):
-            raise ConflictError(
-                'BATCH_ALREADY_RUNNING',
-                '동일 날짜의 배치가 이미 실행 중입니다.',
-            )
+        active_job_id = await self._repo.find_active_job_id_for_business_date(
+            resolved_business_date
+        )
+        if active_job_id is not None:
+            raise _batch_already_running(active_job_id)
         page_source = await self._repo.get_latest_page_source(resolved_business_date)
         if rebuild_page_only and page_source is None:
             raise NotFoundError(
@@ -245,6 +261,7 @@ class BatchesService:
                 'PAGE_ALREADY_EXISTS',
                 '이미 생성된 페이지가 있어 배치를 시작할 수 없습니다. '
                 f'(기존 페이지 상태: {page_source.status})',
+                {'pageId': page_source.page_id, 'status': page_source.status},
             )
 
         try:
@@ -307,9 +324,13 @@ class BatchesService:
                     'concurrent run for the same business date.',
                     exc_info=exc,
                 )
-            raise ConflictError(
-                'BATCH_ALREADY_RUNNING',
-                '동일 날짜의 배치가 이미 실행 중입니다.',
+            # Safe to query: BatchJobRepository.create_job rolls the session
+            # back before re-raising, so the failed transaction (25P02) is
+            # already cleared by the time we get here.
+            raise _batch_already_running(
+                await self._repo.find_active_job_id_for_business_date(
+                    resolved_business_date
+                )
             ) from exc
         await self._repo.add_event(
             job_id=job.job_id,
@@ -346,10 +367,13 @@ class BatchesService:
             try:
                 retried_job = await self._repo.retry_failed_job(existing_job.job_id)
             except IntegrityError as exc:
+                # retry_failed_job does not roll back on its own, so the
+                # session is in a failed transaction here; the rollback below
+                # must happen before the re-query or Postgres rejects it
+                # with InFailedSqlTransaction (25P02).
                 await self._repo.rollback()
-                raise ConflictError(
-                    'BATCH_ALREADY_RUNNING',
-                    '동일 날짜의 배치가 이미 실행 중입니다.',
+                raise _batch_already_running(
+                    await self._repo.find_active_job_id_for_business_date(business_date)
                 ) from exc
             if retried_job is not None:
                 await self._repo.add_event(

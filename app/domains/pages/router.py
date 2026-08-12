@@ -6,6 +6,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path, Query, Response
 
 from app.api.deps import DbSession, UserDep
+from app.core.openapi_responses import (
+    AUTH_RESPONSES,
+    error_response,
+    merge_responses,
+)
 from app.core.response import ApiSuccess
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.domains.pages.assembler import assemble_daily_page_response
@@ -13,6 +18,26 @@ from app.domains.pages.service import PagesService
 from app.schemas.page import DailyPageResponse
 
 router = APIRouter(prefix='/pages', tags=['pages'])
+
+_LATEST_PAGE_RESPONSES = merge_responses(
+    AUTH_RESPONSES,
+    error_response(
+        404,
+        'No page has ever been generated. Codes: LATEST_PAGE_NOT_FOUND.',
+    ),
+)
+_PAGE_BY_DATE_RESPONSES = merge_responses(
+    AUTH_RESPONSES,
+    error_response(
+        404,
+        'Page or page version not found. '
+        'Codes: PAGE_NOT_FOUND, PAGE_VERSION_NOT_FOUND.',
+    ),
+)
+_PAGE_BY_ID_RESPONSES = merge_responses(
+    AUTH_RESPONSES,
+    error_response(404, 'Page not found. Codes: PAGE_NOT_FOUND.'),
+)
 
 
 def get_pages_service(session: DbSession) -> PagesService:
@@ -22,7 +47,11 @@ def get_pages_service(session: DbSession) -> PagesService:
 type PagesServiceDep = Annotated[PagesService, Depends(get_pages_service)]
 
 
-@router.get('/daily/latest', response_model=ApiSuccess[DailyPageResponse])
+@router.get(
+    '/daily/latest',
+    response_model=ApiSuccess[DailyPageResponse],
+    responses=_LATEST_PAGE_RESPONSES,
+)
 async def get_latest_page(
     _: UserDep,
     service: PagesServiceDep,
@@ -31,7 +60,11 @@ async def get_latest_page(
     return ApiSuccess(data=assemble_daily_page_response(payload))
 
 
-@router.get('/daily', response_model=ApiSuccess[DailyPageResponse])
+@router.get(
+    '/daily',
+    response_model=ApiSuccess[DailyPageResponse],
+    responses=_PAGE_BY_DATE_RESPONSES,
+)
 async def get_page_by_business_date(
     _: UserDep,
     service: PagesServiceDep,
@@ -45,7 +78,11 @@ async def get_page_by_business_date(
     return ApiSuccess(data=data)
 
 
-@router.get('/{pageId}', response_model=ApiSuccess[DailyPageResponse])
+@router.get(
+    '/{pageId}',
+    response_model=ApiSuccess[DailyPageResponse],
+    responses=_PAGE_BY_ID_RESPONSES,
+)
 async def get_page_by_id(
     _: UserDep,
     service: PagesServiceDep,

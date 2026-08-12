@@ -106,11 +106,49 @@ class PageMetadataResponse(BaseModel):
     processedNewsCount: int
     clusterCount: int
     lastUpdatedAt: datetime | str
-    isLatest: bool = False
+    isLatest: bool
 
     _normalize_last_updated_at = field_validator('lastUpdatedAt', mode='before')(
         _normalize_timestamp
     )
+
+
+class PageNavigationResponse(BaseModel):
+    """Nearest business dates that actually have a page.
+
+    Both fields are required but nullable: the client always receives the
+    keys, and ``null`` means "no such neighbor exists", never "not computed".
+    Calendar arithmetic on ``businessDate`` is not a valid substitute — the
+    page table only holds dates a batch produced.
+    """
+
+    previousBusinessDate: date | None
+    nextBusinessDate: date | None
+
+
+class PageVersionSummaryResponse(BaseModel):
+    pageId: int
+    versionNo: int
+    status: str
+    generatedAt: datetime | str
+    isLatest: bool
+
+    _normalize_generated_at = field_validator('generatedAt', mode='before')(
+        _normalize_timestamp
+    )
+
+
+class PageIssueResponse(BaseModel):
+    """A single structured diagnostic behind ``partialMessage``.
+
+    Sourced from the page's persisted ``metadata_json.issues``. Every
+    ``message`` has already passed through ``sanitize_public_diagnostic``,
+    so it is safe to render directly.
+    """
+
+    category: str
+    code: str
+    message: str
 
 
 class DailyPageResponse(BaseModel):
@@ -122,8 +160,11 @@ class DailyPageResponse(BaseModel):
     globalHeadline: str | None = None
     generatedAt: datetime | str
     partialMessage: str | None = None
+    issues: list[PageIssueResponse]
     markets: list[MarketSectionResponse]
     metadata: PageMetadataResponse
+    navigation: PageNavigationResponse
+    versions: list[PageVersionSummaryResponse]
 
     _normalize_generated_at = field_validator('generatedAt', mode='before')(
         _normalize_timestamp
@@ -165,7 +206,10 @@ __all__ = [
     'MarketAnalysisResponse',
     'MarketMetadataResponse',
     'MarketSectionResponse',
+    'PageIssueResponse',
     'PageMetadataResponse',
+    'PageNavigationResponse',
+    'PageVersionSummaryResponse',
     'PaginationResponse',
     'RepresentativeArticleResponse',
 ]

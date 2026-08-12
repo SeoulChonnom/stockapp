@@ -6,6 +6,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Path
 
 from app.api.deps import DbSession, UserDep
+from app.core.openapi_responses import (
+    AUTH_RESPONSES,
+    error_response,
+    merge_responses,
+)
 from app.core.response import ApiSuccess
 from app.db.repositories.cluster_repo import ClusterRepository
 from app.domains.clusters.assembler import assemble_cluster_detail_response
@@ -13,6 +18,15 @@ from app.domains.clusters.service import ClustersService
 from app.schemas.cluster import ClusterDetailResponse
 
 router = APIRouter(prefix='/news', tags=['news'])
+
+_CLUSTER_DETAIL_RESPONSES = merge_responses(
+    AUTH_RESPONSES,
+    error_response(
+        404,
+        'Cluster or its representative article not found. '
+        'Codes: CLUSTER_NOT_FOUND, CLUSTER_REPRESENTATIVE_ARTICLE_NOT_FOUND.',
+    ),
+)
 
 
 def get_clusters_service(session: DbSession) -> ClustersService:
@@ -22,7 +36,11 @@ def get_clusters_service(session: DbSession) -> ClustersService:
 ClustersServiceDep = Annotated[ClustersService, Depends(get_clusters_service)]
 
 
-@router.get('/clusters/{clusterId}', response_model=ApiSuccess[ClusterDetailResponse])
+@router.get(
+    '/clusters/{clusterId}',
+    response_model=ApiSuccess[ClusterDetailResponse],
+    responses=_CLUSTER_DETAIL_RESPONSES,
+)
 async def get_cluster_detail(
     _: UserDep,
     service: ClustersServiceDep,

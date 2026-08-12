@@ -14,7 +14,10 @@ from app.schemas.page import (
     MarketAnalysisResponse,
     MarketMetadataResponse,
     MarketSectionResponse,
+    PageIssueResponse,
     PageMetadataResponse,
+    PageNavigationResponse,
+    PageVersionSummaryResponse,
     RepresentativeArticleResponse,
 )
 
@@ -46,6 +49,71 @@ def _as_date(value: Any) -> date:
     return date.fromisoformat(str(value))
 
 
+def _as_optional_date(value: Any) -> date | None:
+    return None if value is None else _as_date(value)
+
+
+def _build_navigation(neighbors: dict[str, Any]) -> PageNavigationResponse:
+    return PageNavigationResponse(
+        previousBusinessDate=_as_optional_date(neighbors.get('previous_business_date')),
+        nextBusinessDate=_as_optional_date(neighbors.get('next_business_date')),
+    )
+
+
+def _sanitize_page_issues(raw_issues: Any) -> list[dict[str, str]]:
+    """Defensively parse and sanitize a page's structured issue list.
+
+    ``raw_issues`` comes from a free-form JSONB column (or from a
+    previously-serialized response payload during the second sanitization
+    pass), so it is treated as untrusted: entries that are not dicts, that
+    are missing ``category``/``code``/``message``, or whose values are not
+    strings, are silently dropped rather than raised. Every surviving
+    ``message`` is routed through ``sanitize_public_diagnostic`` -- an
+    entry whose message sanitizes away entirely is dropped too.
+    """
+    if not isinstance(raw_issues, list):
+        return []
+    sanitized: list[dict[str, str]] = []
+    for entry in raw_issues:
+        if not isinstance(entry, dict):
+            continue
+        category = entry.get('category')
+        code = entry.get('code')
+        message = entry.get('message')
+        if not (
+            isinstance(category, str)
+            and isinstance(code, str)
+            and isinstance(message, str)
+        ):
+            continue
+        safe_message = sanitize_public_diagnostic(message)
+        if not safe_message:
+            continue
+        sanitized.append({'category': category, 'code': code, 'message': safe_message})
+    return sanitized
+
+
+def _page_issues_from_metadata(metadata_json: Any) -> list[dict[str, str]]:
+    if not isinstance(metadata_json, dict):
+        return []
+    return _sanitize_page_issues(metadata_json.get('issues'))
+
+
+def _build_versions(
+    versions: list[dict[str, Any]],
+) -> list[PageVersionSummaryResponse]:
+    return [
+        PageVersionSummaryResponse(
+            pageId=row['id'],
+            versionNo=row['version_no'],
+            status=row['status'],
+            generatedAt=_as_required_iso(row['generated_at']),
+            isLatest=bool(row['is_latest']),
+        )
+        for row in versions
+    ]
+
+
 def assemble_daily_page_response(payload: dict[str, Any]) -> DailyPageResponse:
     safe_markets = []
     for market in payload.get('markets', []):
@@ -59,6 +127,7 @@ def assemble_daily_page_response(payload: dict[str, Any]) -> DailyPageResponse:
             **payload,
             'partialMessage': sanitize_public_diagnostic(payload.get('partialMessage')),
             'markets': safe_markets,
+            'issues': _sanitize_page_issues(payload.get('issues')),
         }
     )
 
@@ -69,6 +138,9 @@ def build_daily_page_payload(
     indices: list[dict[str, Any]],
     clusters: list[dict[str, Any]],
     article_links: list[dict[str, Any]],
+    *,
+    neighbors: dict[str, Any],
+    versions: list[dict[str, Any]],
 ) -> dict[str, Any]:
     indices_by_market: dict[int, list[IndexCardResponse]] = defaultdict(list)
     for row in indices:
@@ -165,6 +237,10 @@ def build_daily_page_payload(
         globalHeadline=page.get('global_headline'),
         generatedAt=_as_required_iso(page['generated_at']),
         partialMessage=sanitize_public_diagnostic(page.get('partial_message')),
+        issues=[
+            PageIssueResponse(**entry)
+            for entry in _page_issues_from_metadata(page.get('metadata_json'))
+        ],
         markets=market_sections,
         metadata=PageMetadataResponse(
             rawNewsCount=page['raw_news_count'],
@@ -173,6 +249,8 @@ def build_daily_page_payload(
             lastUpdatedAt=_as_required_iso(page['last_updated_at']),
             isLatest=bool(page.get('is_latest', False)),
         ),
+        navigation=_build_navigation(neighbors),
+        versions=_build_versions(versions),
     ).model_dump(mode='json')
 
 

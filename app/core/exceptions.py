@@ -1,11 +1,12 @@
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.core.response import ApiError, ApiErrorDetail
+from app.core.response import ApiErrorDetail, build_error_body
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,14 @@ class AppError(Exception):
     code: str
     message: str
     status_code: int
+    details: dict[str, Any] | None = None
+    """Optional structured context surfaced as ``error.details``.
+
+    Trailing and defaulted so that every existing subclass and call site
+    keeps constructing positionally exactly as before. ``None`` (not ``{}``)
+    is the default because a dataclass field cannot take a mutable default,
+    and because ``None`` is what tells the serializer to drop the key.
+    """
 
 
 class NotFoundError(AppError):
@@ -23,8 +32,18 @@ class NotFoundError(AppError):
 
 
 class ConflictError(AppError):
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(code=code, message=message, status_code=409)
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            code=code,
+            message=message,
+            status_code=409,
+            details=details,
+        )
 
 
 class UnauthorizedError(AppError):
@@ -45,33 +64,43 @@ class ValidationError(AppError):
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
-        payload = ApiError(error=ApiErrorDetail(code=exc.code, message=exc.message))
         return JSONResponse(
-            status_code=exc.status_code, content=payload.model_dump(mode='json')
+            status_code=exc.status_code,
+            content=build_error_body(
+                ApiErrorDetail(
+                    code=exc.code,
+                    message=exc.message,
+                    details=exc.details,
+                )
+            ),
         )
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(
         _: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        payload = ApiError(
-            error=ApiErrorDetail(
-                code='REQUEST_VALIDATION_ERROR',
-                message=str(exc),
-            )
+        return JSONResponse(
+            status_code=422,
+            content=build_error_body(
+                ApiErrorDetail(
+                    code='REQUEST_VALIDATION_ERROR',
+                    message=str(exc),
+                )
+            ),
         )
-        return JSONResponse(status_code=422, content=payload.model_dump(mode='json'))
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
         logger.exception('Unhandled exception while processing request.', exc_info=exc)
-        payload = ApiError(
-            error=ApiErrorDetail(
-                code='INTERNAL_SERVER_ERROR',
-                message='Internal server error',
-            )
+        return JSONResponse(
+            status_code=500,
+            content=build_error_body(
+                ApiErrorDetail(
+                    code='INTERNAL_SERVER_ERROR',
+                    message='Internal server error',
+                )
+            ),
         )
-        return JSONResponse(status_code=500, content=payload.model_dump(mode='json'))
 
 
 __all__ = [

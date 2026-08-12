@@ -61,6 +61,29 @@ Content-Type: application/json
 }
 ```
 
+일부 에러 코드는 `error.details`에 상황별 부가 정보를 추가로 담아 반환한다.
+`details`가 없는 에러는 필드 자체가 응답 본문에서 생략되며(`"details": null`로
+내려오지 않음), 위 예시처럼 기존과 동일한 형태를 그대로 유지한다. 어떤 코드가
+`details`를 포함하는지, 어떤 키가 담기는지는 각 API의 Error Code 표에 표기한다.
+예를 들어 `BATCH_ALREADY_RUNNING`은 다음과 같이 `details.jobId`를 포함한다.
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "BATCH_ALREADY_RUNNING",
+    "message": "동일 날짜의 배치가 이미 실행 중입니다.",
+    "details": {
+      "jobId": 1001
+    }
+  },
+  "meta": {
+    "requestId": "req-20260318-0002",
+    "timestamp": "2026-03-18T09:00:00"
+  }
+}
+```
+
 ## 2-4. 인증 정책
 
 - `GET /health`를 제외한 모든 API는 인증이 필요하다.
@@ -118,6 +141,7 @@ Authorization: Bearer {TOKEN}
   "globalHeadline": "기술주 강세와 외국인 매수세 회복으로 미·한 증시 모두 강세",
   "generatedAt": "2026-03-18T06:12:10",
   "partialMessage": null,
+  "issues": [],
   "markets": [
     {
       "marketType": "US",
@@ -192,13 +216,43 @@ Authorization: Bearer {TOKEN}
     "clusterCount": 21,
     "lastUpdatedAt": "2026-03-18T06:12:10",
     "isLatest": true
-  }
+  },
+  "navigation": {
+    "previousBusinessDate": "2026-03-16",
+    "nextBusinessDate": null
+  },
+  "versions": [
+    {
+      "pageId": 501,
+      "versionNo": 3,
+      "status": "READY",
+      "generatedAt": "2026-03-18T06:12:10",
+      "isLatest": true
+    },
+    {
+      "pageId": 480,
+      "versionNo": 2,
+      "status": "PARTIAL",
+      "generatedAt": "2026-03-17T23:40:00",
+      "isLatest": false
+    }
+  ]
 }
 ```
 
 ### 모델 설계 의도
 
 - `globalHeadline`: 화면 최상단 글로벌 한줄 요약
+- `issues[]`: `partialMessage` 뒤에 있는 구조화된 진단 목록. 문제가 없으면
+  빈 배열을 반환하며(생략되지 않음), `partialMessage`가 사라지는 것은 아니다 --
+  기존 사람이 읽는 요약 문자열은 그대로 유지되고 `issues[]`는 이를 기계가 읽을 수
+  있는 형태로 보강한 것이다. 각 항목은 `{category, code, message}` 형태이며,
+  현재 배치가 생성하는 조합은 다음과 같다.
+  - `category="AI_SUMMARY"`, `code="AI_SUMMARY_FALLBACK"`: AI 요약이
+    fallback으로 대체된 경우
+  - `category="BATCH_PARTIAL"`, `code="BATCH_PARTIAL"`: 그 외 배치 부분
+    실패 사유
+  - `category="BATCH_WARNING"`, `code="BATCH_WARNING"`: 배치 경고 메시지
 - `markets[]`: 현재 Frontend가 렌더링하는 미국/한국 섹션 단위
 - `indices[]`: 지수 카드 렌더링용
 - `topClusters[]`: 핵심 뉴스 카드 렌더링용
@@ -206,6 +260,20 @@ Authorization: Bearer {TOKEN}
 - `articleLinks[]`: 페이지 하단 원문 기사 링크 리스트용
 - `markets[].metadata`: 시장별 보조 메타 정보
 - 최상위 `metadata`: 통합 페이지 메타 정보
+- `metadata.isLatest`: 이 페이지 버전이 해당 `businessDate`의 최신 버전인지
+  여부(필수 필드). `/pages/daily/latest`는 정의상 항상 최신 버전만 반환하므로
+  `true`로 고정되며, `/pages/daily`와 `/pages/{pageId}`는 조회된
+  `versionNo`를 해당 `businessDate`의 `max(versionNo)`와 비교해 계산한다.
+- `navigation`: 화면의 이전/다음 이동 버튼용. 달력상 ±1일이 아니라 실제로
+  페이지가 존재하는 가장 가까운 `businessDate`를 반환한다(휴장일 등으로 페이지가
+  없는 날짜는 건너뜀). 두 필드 모두 항상 내려오는 필수 필드이며, `null`은 "해당
+  방향에 더 이상 페이지가 없음"을 의미한다.
+- `versions[]`: 같은 `businessDate`의 버전 목록(버전 재실행/재빌드 이력).
+  `versionNo` 내림차순(최신 먼저)이며 최대 20개까지 반환한다.
+  `navigation`과 `versions` 모두 별도 API 없이 통합 응답에 포함하는 이유는
+  [1. 문서 목적]에서 정한 "화면 렌더링은 API 1회 호출로 가능해야 한다" 원칙
+  때문이다 -- 버전 선택기나 이전/다음 이동 버튼을 그리기 위해 추가 호출을
+  유발하지 않는다.
 
 ---
 
@@ -273,13 +341,13 @@ API 하나로 뉴스/지수 재수집 없이 저장된 정제 결과만 재사�
 
 ### Error Code
 
-| 코드                    | 설명                                       |
-| ----------------------- | ------------------------------------------ |
-| BATCH_ALREADY_RUNNING   | 동일 날짜 배치 실행 중 (409)                |
-| PAGE_ALREADY_EXISTS     | force=false인데 페이지 존재 (409)           |
-| PAGE_NOT_FOUND          | rebuildPageOnly=true인데 재생성할 페이지 없음 (404) |
-| IDEMPOTENCY_KEY_REUSED  | 동일 키를 다른 요청에 재사용 (409)          |
-| INTERNAL_BATCH_ERROR    | 내부 처리 오류                              |
+| 코드                    | 설명                                       | error.details                        |
+| ----------------------- | ------------------------------------------ | ------------------------------------- |
+| BATCH_ALREADY_RUNNING   | 동일 날짜 배치 실행 중 (409)                | `jobId`(실행 중인 job id). 경쟁 상황에서 그 사이 해당 job이 실행 중 목록에서 빠지면 예외적으로 `details` 없이 409만 반환한다 |
+| PAGE_ALREADY_EXISTS     | force=false인데 페이지 존재 (409)           | `pageId`, `status`(막은 기존 페이지의 상태) |
+| PAGE_NOT_FOUND          | rebuildPageOnly=true인데 재생성할 페이지 없음 (404) | 없음 |
+| IDEMPOTENCY_KEY_REUSED  | 동일 키를 다른 요청에 재사용 (409)          | 없음 |
+| INTERNAL_BATCH_ERROR    | 내부 처리 오류                              | 없음 |
 
 ---
 
@@ -929,6 +997,30 @@ DB 연결 상태를 점검한다. 인증이 필요 없다. 응답은 공통 성�
 | 422       | 요청 스키마 검증 실패(쿼리/바디/헤더 형식 오류) |
 | 500       | 내부 서버 오류                               |
 | 503       | 서비스 상태 점검(`GET /health`) 실패          |
+
+---
+
+## 6-1. 인증 오류 코드
+
+401/403은 상태 코드만으로는 "재로그인이 필요한지"와 "권한이 없는지"를 구분할 수
+없으므로, Frontend는 아래 `error.code`로 두 상황을 구분해야 한다.
+
+| 상태 코드 | 코드                        | 설명                                                        |
+| --------- | --------------------------- | ------------------------------------------------------------- |
+| 401       | AUTH_MISSING_BEARER_TOKEN   | `Authorization` 헤더가 없거나 `Bearer ` 스킴이 아님          |
+| 401       | AUTH_TOKEN_EXPIRED          | 토큰은 유효한 형식이나 만료됨                                |
+| 401       | AUTH_INVALID_TOKEN          | 서명/형식이 잘못됐거나, 필수 클레임(`exp`/`iss`/`sub`/`aud`)이 없거나, `token_type`이 `access`가 아니거나, 비밀키 설정이 잘못된 경우 |
+| 403       | AUTH_FORBIDDEN               | 토큰은 유효하지만 요청한 API에 필요한 역할(role)이 없음      |
+
+`AUTH_MISSING_BEARER_TOKEN`/`AUTH_TOKEN_EXPIRED`/`AUTH_INVALID_TOKEN`은 모두
+재로그인으로 해결되고, `AUTH_FORBIDDEN`은 재로그인으로 해결되지 않는다는 점에서
+Frontend의 처리 분기가 달라진다.
+
+### 역할(role) 요구사항
+
+- `USER`, `ADMIN`: `/pages/*`, `/news/*` (페이지/아카이브/뉴스 클러스터 조회)
+- `ADMIN`, `CLIENT`: `/batch/*` (배치 실행/조회)
+- `GET /health`: 인증 불필요
 
 ---
 

@@ -307,6 +307,7 @@ def build_daily_page_payload() -> dict[str, Any]:
         'globalHeadline': '기술주 강세와 외국인 매수세 회복으로 미·한 증시 모두 강세',
         'generatedAt': '2026-03-18T06:12:10+00:00',
         'partialMessage': None,
+        'issues': [],
         'markets': [
             {
                 'marketType': 'US',
@@ -457,7 +458,35 @@ def build_daily_page_payload() -> dict[str, Any]:
             'processedNewsCount': 114,
             'clusterCount': 21,
             'lastUpdatedAt': '2026-03-18T06:12:10+00:00',
+            'isLatest': True,
         },
+        'navigation': {
+            'previousBusinessDate': '2026-03-13',
+            'nextBusinessDate': None,
+        },
+        'versions': [
+            {
+                'pageId': 501,
+                'versionNo': 3,
+                'status': 'READY',
+                'generatedAt': '2026-03-18T06:12:10+00:00',
+                'isLatest': True,
+            },
+            {
+                'pageId': 500,
+                'versionNo': 2,
+                'status': 'PARTIAL',
+                'generatedAt': '2026-03-18T05:40:00+00:00',
+                'isLatest': False,
+            },
+            {
+                'pageId': 499,
+                'versionNo': 1,
+                'status': 'PARTIAL',
+                'generatedAt': '2026-03-18T05:05:00+00:00',
+                'isLatest': False,
+            },
+        ],
     }
 
 
@@ -636,6 +665,50 @@ def build_page_snapshot_row() -> dict[str, Any]:
         'last_updated_at': UPDATED_AT,
         'metadata_json': {},
     }
+
+
+PREVIOUS_BUSINESS_DATE = date(2026, 3, 13)
+NEXT_BUSINESS_DATE = date(2026, 3, 18)
+
+
+def build_adjacent_business_dates_row(
+    *,
+    previous_business_date: date | None = PREVIOUS_BUSINESS_DATE,
+    next_business_date: date | None = None,
+) -> dict[str, Any]:
+    return {
+        'previous_business_date': previous_business_date,
+        'next_business_date': next_business_date,
+    }
+
+
+def build_page_version_rows() -> list[dict[str, Any]]:
+    return [
+        {
+            'id': 501,
+            'business_date': BUSINESS_DATE,
+            'version_no': 3,
+            'status': 'READY',
+            'generated_at': GENERATED_AT,
+            'is_latest': True,
+        },
+        {
+            'id': 500,
+            'business_date': BUSINESS_DATE,
+            'version_no': 2,
+            'status': 'PARTIAL',
+            'generated_at': datetime(2026, 3, 18, 5, 40, 0, tzinfo=UTC),
+            'is_latest': False,
+        },
+        {
+            'id': 499,
+            'business_date': BUSINESS_DATE,
+            'version_no': 1,
+            'status': 'PARTIAL',
+            'generated_at': datetime(2026, 3, 18, 5, 5, 0, tzinfo=UTC),
+            'is_latest': False,
+        },
+    ]
 
 
 def build_page_market_rows() -> list[dict[str, Any]]:
