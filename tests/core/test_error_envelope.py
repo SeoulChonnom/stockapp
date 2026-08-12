@@ -107,6 +107,27 @@ def test_validation_error_handler_omits_details(error_client: TestClient):
     assert 'details' not in response.json()['error']
 
 
+def test_validation_error_handler_does_not_echo_rejected_sensitive_input():
+    app = FastAPI()
+    exceptions_module.register_exception_handlers(app)
+
+    @app.get('/needs-integer')
+    async def needs_integer(value: int) -> None:  # noqa: ARG001
+        return None
+
+    sensitive_marker = 'secret-token-123'
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get('/needs-integer', params={'value': sensitive_marker})
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload['error'] == {
+        'code': 'REQUEST_VALIDATION_ERROR',
+        'message': 'Request validation failed.',
+    }
+    assert sensitive_marker not in response.text
+
+
 def test_build_error_body_drops_none_details_directly():
     body = build_error_body(ApiErrorDetail(code='X', message='y'))
 

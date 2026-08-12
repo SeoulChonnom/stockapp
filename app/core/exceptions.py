@@ -6,9 +6,11 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.core.public_diagnostics import sanitize_public_diagnostic
 from app.core.response import ApiErrorDetail, build_error_body
 
 logger = logging.getLogger(__name__)
+_REQUEST_VALIDATION_ERROR_MESSAGE = 'Request validation failed.'
 
 
 @dataclass(slots=True)
@@ -77,14 +79,18 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(
-        _: Request, exc: RequestValidationError
+        _: Request, _exc: RequestValidationError
     ) -> JSONResponse:
+        public_message = (
+            sanitize_public_diagnostic(_REQUEST_VALIDATION_ERROR_MESSAGE)
+            or _REQUEST_VALIDATION_ERROR_MESSAGE
+        )
         return JSONResponse(
             status_code=422,
             content=build_error_body(
                 ApiErrorDetail(
                     code='REQUEST_VALIDATION_ERROR',
-                    message=str(exc),
+                    message=public_message,
                 )
             ),
         )

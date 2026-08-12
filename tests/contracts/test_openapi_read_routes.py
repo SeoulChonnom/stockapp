@@ -104,6 +104,18 @@ def test_openapi_documents_public_page_navigation_contract():
     ]
 
 
+def test_openapi_documents_navigation_validation_with_runtime_error_envelope():
+    schema = app_module.app.openapi()
+    validation_response = schema['paths']['/stock/api/pages/navigation']['get'][
+        'responses'
+    ]['422']
+
+    assert 'REQUEST_VALIDATION_ERROR' in validation_response['description']
+    assert validation_response['content']['application/json']['schema'] == {
+        '$ref': '#/components/schemas/ApiError'
+    }
+
+
 def test_openapi_limits_archive_status_to_public_page_statuses():
     schema = app_module.app.openapi()
     operation = schema['paths']['/stock/api/pages/archive']['get']

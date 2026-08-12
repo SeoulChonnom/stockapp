@@ -38,6 +38,13 @@ _PAGE_BY_ID_RESPONSES = merge_responses(
     AUTH_RESPONSES,
     error_response(404, 'Page not found. Codes: PAGE_NOT_FOUND.'),
 )
+_PAGE_NAVIGATION_RESPONSES = merge_responses(
+    AUTH_RESPONSES,
+    error_response(
+        422,
+        'Invalid page navigation query. Codes: REQUEST_VALIDATION_ERROR.',
+    ),
+)
 
 
 def get_pages_service(session: DbSession) -> PagesService:
@@ -81,7 +88,7 @@ async def get_page_by_business_date(
 @router.get(
     '/navigation',
     response_model=ApiSuccess[PageDateNavigationResponse],
-    responses=AUTH_RESPONSES,
+    responses=_PAGE_NAVIGATION_RESPONSES,
 )
 async def get_page_date_navigation(
     _: UserDep,
