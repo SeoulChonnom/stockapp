@@ -72,8 +72,9 @@ async def test_get_page_header_by_business_date_without_version_selects_public_v
     sql = normalize_sql(session.statements[0]).lower()
     assert "business_date = '2026-03-17'" in sql
     assert "status in ('ready', 'partial')" in sql
+    assert 'order by business_date desc, version_no desc, id desc' in sql
     assert sql.index("status in ('ready', 'partial')") < sql.index(
-        'order by version_no desc'
+        'order by business_date desc, version_no desc, id desc'
     )
 
 
@@ -90,8 +91,11 @@ async def test_get_page_header_by_business_date_with_version_keeps_failed_versio
 
     assert jsonable(result)['id'] == sample_page_snapshot_row['id']
     sql = normalize_sql(session.statements[0]).lower()
-    assert "where business_date = '2026-03-17'" in sql
-    assert 'where version_no = 3' in sql
+    statement = str(session.statements[0])
+    assert ':business_date' in statement
+    assert ':version_no' in statement
+    assert "business_date = '2026-03-17'" in sql
+    assert 'version_no = 3' in sql
     assert "status in ('ready', 'partial')" not in sql
 
 
