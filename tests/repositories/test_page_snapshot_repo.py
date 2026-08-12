@@ -82,20 +82,39 @@ async def test_get_page_header_by_business_date_without_version_selects_public_v
 async def test_get_page_header_by_business_date_with_version_keeps_failed_versions_available(
     sample_page_snapshot_row,
 ):
-    session = RecordingAsyncSession(results=[DummyResult([sample_page_snapshot_row])])
+    failed_page = {**sample_page_snapshot_row, 'status': 'FAILED'}
+    session = RecordingAsyncSession(results=[DummyResult([failed_page])])
     repo = PageSnapshotRepository(session)
 
     result = await repo.get_page_header_by_business_date(
-        sample_page_snapshot_row['business_date'], version_no=3
+        failed_page['business_date'], version_no=3
     )
 
-    assert jsonable(result)['id'] == sample_page_snapshot_row['id']
+    assert jsonable(result) == failed_page
     sql = normalize_sql(session.statements[0]).lower()
     statement = str(session.statements[0])
     assert ':business_date' in statement
     assert ':version_no' in statement
     assert "business_date = '2026-03-17'" in sql
     assert 'version_no = 3' in sql
+    assert "status in ('ready', 'partial')" not in sql
+
+
+@pytest.mark.anyio
+async def test_get_page_header_by_id_keeps_failed_page_available(
+    sample_page_snapshot_row,
+):
+    failed_page = {**sample_page_snapshot_row, 'status': 'FAILED'}
+    session = RecordingAsyncSession(results=[DummyResult([failed_page])])
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.get_page_header_by_id(failed_page['id'])
+
+    assert jsonable(result) == failed_page
+    sql = normalize_sql(session.statements[0]).lower()
+    statement = str(session.statements[0])
+    assert ':page_id' in statement
+    assert f'id = {failed_page["id"]}' in sql
     assert "status in ('ready', 'partial')" not in sql
 
 
