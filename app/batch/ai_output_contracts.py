@@ -59,12 +59,19 @@ def normalize_key_points(payload: object) -> dict[str, object]:
 
 def aggregate_conflict_status(sentences: Iterable[Mapping[str, object]]) -> str:
     """Aggregate sentence conflict states using the public priority ordering."""
-    statuses = {sentence.get('conflictStatus') for sentence in sentences}
-    if 'FOUND' in statuses:
-        return 'FOUND'
-    if 'NOT_CHECKED' in statuses:
+    has_not_checked = False
+    has_none = False
+    for sentence in sentences:
+        status = sentence.get('conflictStatus')
+        if status == 'FOUND':
+            return 'FOUND'
+        if status == 'NOT_CHECKED':
+            has_not_checked = True
+        elif status == 'NONE':
+            has_none = True
+    if has_not_checked:
         return 'NOT_CHECKED'
-    if 'NONE' in statuses:
+    if has_none:
         return 'NONE'
     return 'NOT_CHECKED'
 
@@ -96,7 +103,6 @@ def validate_analysis_sections(
 
     issue_codes: list[str] = []
     normalized_sections: list[dict[str, object]] = []
-    primary_source_rejected = False
 
     for section in structural_sections:
         normalized_paragraphs: list[dict[str, object]] = []
@@ -108,7 +114,6 @@ def validate_analysis_sections(
                     valid_article_ids,
                 )
                 if issue_code == 'INVALID_SOURCE_REFERENCE':
-                    primary_source_rejected = True
                     _append_issue(issue_codes, issue_code)
                     continue
                 if issue_code is not None:
@@ -132,7 +137,7 @@ def validate_analysis_sections(
         for paragraph in section['paragraphs']
         for sentence in paragraph['sentences']
     ]
-    if not flattened_sentences and primary_source_rejected:
+    if not flattened_sentences:
         _append_issue(issue_codes, 'NO_GROUNDED_SENTENCES')
         return build_unavailable_analysis(*issue_codes)
 
@@ -168,7 +173,12 @@ def _normalize_key_point(item: object, expected_kind: str) -> KeyPoint | None:
     }
     if expected_kind == 'direction':
         direction = item.get('direction')
-        if direction not in {'UP', 'DOWN', 'MIXED', 'FLAT'}:
+        if not isinstance(direction, str) or direction not in {
+            'UP',
+            'DOWN',
+            'MIXED',
+            'FLAT',
+        }:
             return None
         normalized['direction'] = direction
     return normalized
@@ -237,7 +247,12 @@ def _normalize_analysis_sentence(
     conflict_status = sentence.get('conflictStatus')
     conflicting_ids = sentence.get('conflictingSourceArticleIds')
     conflict_note = sentence.get('conflictNote')
-    if not _valid_conflict_fields(
+    required_conflict_fields = {
+        'conflictStatus',
+        'conflictingSourceArticleIds',
+        'conflictNote',
+    }
+    if not required_conflict_fields <= sentence.keys() or not _valid_conflict_fields(
         conflict_status,
         conflicting_ids,
         conflict_note,
@@ -292,7 +307,7 @@ def _valid_conflict_fields(
     source_article_ids: object,
     valid_article_ids: Set[int],
 ) -> bool:
-    if status not in {'NOT_CHECKED', 'NONE', 'FOUND'}:
+    if not isinstance(status, str) or status not in {'NOT_CHECKED', 'NONE', 'FOUND'}:
         return False
     if not _valid_article_id_list(conflicting_ids, valid_article_ids, allow_empty=True):
         return False

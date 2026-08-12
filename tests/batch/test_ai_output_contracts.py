@@ -464,3 +464,427 @@ def test_validate_analysis_sections_omits_empty_input_containers_without_degradi
             }
         ],
     }
+
+
+def test_normalize_key_points_falls_back_for_unhashable_direction_json() -> None:
+    invalid_payloads = [
+        [
+            {
+                'kind': 'direction',
+                'label': '시장 방향',
+                'text': '코스피가 상승했습니다.',
+                'direction': ['UP'],
+            },
+            {
+                'kind': 'driver',
+                'label': '주요 원인',
+                'text': '반도체 강세가 이끌었습니다.',
+            },
+            {
+                'kind': 'watch',
+                'label': '관전 포인트',
+                'text': '미국 물가를 확인해야 합니다.',
+            },
+        ],
+        [
+            {
+                'kind': 'direction',
+                'label': '시장 방향',
+                'text': '코스피가 상승했습니다.',
+                'direction': {'value': 'UP'},
+            },
+            {
+                'kind': 'driver',
+                'label': '주요 원인',
+                'text': '반도체 강세가 이끌었습니다.',
+            },
+            {
+                'kind': 'watch',
+                'label': '관전 포인트',
+                'text': '미국 물가를 확인해야 합니다.',
+            },
+        ],
+    ]
+
+    for payload in invalid_payloads:
+        assert normalize_key_points(payload) == {
+            'keyPoints': [],
+            'issue': {
+                'category': 'AI_SUMMARY',
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+            },
+        }
+
+
+def test_validate_analysis_sections_returns_unavailable_for_empty_analysis() -> None:
+    assert validate_analysis_sections({'sections': []}, {1024}) == {
+        'analysisStatus': 'UNAVAILABLE',
+        'analysisIssues': [
+            {
+                'code': 'NO_GROUNDED_SENTENCES',
+                'message': '근거를 확인할 수 있는 분석 문장이 없습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+        'sections': [],
+    }
+
+
+def test_validate_analysis_sections_rejects_malformed_section_alongside_valid_sibling() -> (
+    None
+):
+    assert validate_analysis_sections(
+        {
+            'sections': [
+                {
+                    'kind': 'impact',
+                    'title': '시장 영향',
+                    'paragraphs': [
+                        {
+                            'sentences': [
+                                {
+                                    'text': '유효 문장은 구조 오류 때문에 보존되지 않습니다.',
+                                    'sourceArticleIds': [1024],
+                                    'conflictStatus': 'NONE',
+                                    'conflictingSourceArticleIds': [],
+                                    'conflictNote': None,
+                                }
+                            ]
+                        }
+                    ],
+                },
+                None,
+            ]
+        },
+        {1024},
+    ) == {
+        'analysisStatus': 'UNAVAILABLE',
+        'analysisIssues': [
+            {
+                'code': 'ANALYSIS_GENERATION_FAILED',
+                'message': '분석을 생성하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+        'sections': [],
+    }
+
+
+def test_validate_analysis_sections_degrades_missing_or_unhashable_conflict_fields() -> (
+    None
+):
+    invalid_sentences = [
+        {
+            'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': 'NONE',
+            'conflictingSourceArticleIds': [],
+        },
+        {
+            'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': ['NONE'],
+            'conflictingSourceArticleIds': [],
+            'conflictNote': None,
+        },
+        {
+            'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+            'sourceArticleIds': [1024],
+            'conflictingSourceArticleIds': [],
+            'conflictNote': None,
+        },
+        {
+            'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': 'NONE',
+            'conflictNote': None,
+        },
+        {
+            'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [True],
+            'conflictNote': '불린 ID입니다.',
+        },
+        {
+            'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': ['1025'],
+            'conflictNote': '문자열 ID입니다.',
+        },
+        {
+            'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [1025, 1025],
+            'conflictNote': '중복 ID입니다.',
+        },
+        {
+            'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [9999],
+            'conflictNote': '범위를 벗어난 ID입니다.',
+        },
+        {
+            'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [1024],
+            'conflictNote': 'primary와 겹칩니다.',
+        },
+        {
+            'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [1025],
+            'conflictNote': '   ',
+        },
+        {
+            'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': {'value': 'NONE'},
+            'conflictingSourceArticleIds': [],
+            'conflictNote': None,
+        },
+    ]
+
+    for invalid_sentence in invalid_sentences:
+        assert validate_analysis_sections(
+            {
+                'sections': [
+                    {
+                        'kind': 'impact',
+                        'title': '시장 영향',
+                        'paragraphs': [{'sentences': [invalid_sentence]}],
+                    }
+                ]
+            },
+            {1024},
+        ) == {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'CONFLICT_CHECK_FAILED',
+                    'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+                }
+            ],
+            'conflictStatus': 'NOT_CHECKED',
+            'sections': [
+                {
+                    'kind': 'impact',
+                    'title': '시장 영향',
+                    'paragraphs': [
+                        {
+                            'sentences': [
+                                {
+                                    'text': '충돌 검증 실패여도 근거 문장은 남습니다.',
+                                    'sourceArticleIds': [1024],
+                                    'conflictStatus': 'NOT_CHECKED',
+                                    'conflictingSourceArticleIds': [],
+                                    'conflictNote': None,
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ],
+        }
+
+
+def test_validate_analysis_sections_reports_mixed_causal_issues_once_in_discovery_order() -> (
+    None
+):
+    assert validate_analysis_sections(
+        {
+            'sections': [
+                {
+                    'kind': 'impact',
+                    'title': '시장 영향',
+                    'paragraphs': [
+                        {
+                            'sentences': [
+                                {
+                                    'text': '첫 문장은 근거가 없습니다.',
+                                    'sourceArticleIds': [],
+                                    'conflictStatus': 'NONE',
+                                    'conflictingSourceArticleIds': [],
+                                    'conflictNote': None,
+                                },
+                                {
+                                    'text': '둘째 문장은 충돌 필드가 잘못됐습니다.',
+                                    'sourceArticleIds': [1024],
+                                    'conflictStatus': 'FOUND',
+                                    'conflictingSourceArticleIds': [1024, 1024],
+                                    'conflictNote': '중복입니다.',
+                                },
+                                {
+                                    'text': '셋째 문장도 근거가 없습니다.',
+                                    'sourceArticleIds': [9999],
+                                    'conflictStatus': 'NONE',
+                                    'conflictingSourceArticleIds': [],
+                                    'conflictNote': None,
+                                },
+                            ]
+                        }
+                    ],
+                }
+            ]
+        },
+        {1024},
+    ) == {
+        'analysisStatus': 'PARTIAL',
+        'analysisIssues': [
+            {
+                'code': 'INVALID_SOURCE_REFERENCE',
+                'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+            },
+            {
+                'code': 'CONFLICT_CHECK_FAILED',
+                'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+            },
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+        'sections': [
+            {
+                'kind': 'impact',
+                'title': '시장 영향',
+                'paragraphs': [
+                    {
+                        'sentences': [
+                            {
+                                'text': '둘째 문장은 충돌 필드가 잘못됐습니다.',
+                                'sourceArticleIds': [1024],
+                                'conflictStatus': 'NOT_CHECKED',
+                                'conflictingSourceArticleIds': [],
+                                'conflictNote': None,
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_validate_analysis_sections_prunes_boolean_and_non_integer_primary_ids() -> (
+    None
+):
+    assert validate_analysis_sections(
+        {
+            'sections': [
+                {
+                    'kind': 'impact',
+                    'title': '시장 영향',
+                    'paragraphs': [
+                        {
+                            'sentences': [
+                                {
+                                    'text': '불린 ID는 근거가 아닙니다.',
+                                    'sourceArticleIds': [True],
+                                    'conflictStatus': 'NONE',
+                                    'conflictingSourceArticleIds': [],
+                                    'conflictNote': None,
+                                },
+                                {
+                                    'text': '문자열 ID는 근거가 아닙니다.',
+                                    'sourceArticleIds': ['1024'],
+                                    'conflictStatus': 'NONE',
+                                    'conflictingSourceArticleIds': [],
+                                    'conflictNote': None,
+                                },
+                                {
+                                    'text': '정수 ID 문장은 남습니다.',
+                                    'sourceArticleIds': [1024],
+                                    'conflictStatus': 'NONE',
+                                    'conflictingSourceArticleIds': [],
+                                    'conflictNote': None,
+                                },
+                            ]
+                        }
+                    ],
+                }
+            ]
+        },
+        {1024},
+    ) == {
+        'analysisStatus': 'PARTIAL',
+        'analysisIssues': [
+            {
+                'code': 'INVALID_SOURCE_REFERENCE',
+                'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NONE',
+        'sections': [
+            {
+                'kind': 'impact',
+                'title': '시장 영향',
+                'paragraphs': [
+                    {
+                        'sentences': [
+                            {
+                                'text': '정수 ID 문장은 남습니다.',
+                                'sourceArticleIds': [1024],
+                                'conflictStatus': 'NONE',
+                                'conflictingSourceArticleIds': [],
+                                'conflictNote': None,
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_validate_analysis_sections_keeps_valid_found_with_found_aggregate() -> None:
+    assert validate_analysis_sections(
+        {
+            'sections': [
+                {
+                    'kind': 'impact',
+                    'title': '시장 영향',
+                    'paragraphs': [
+                        {
+                            'sentences': [
+                                {
+                                    'text': '서로 다른 보도가 있어 충돌로 확인됐습니다.',
+                                    'sourceArticleIds': [1024],
+                                    'conflictStatus': 'FOUND',
+                                    'conflictingSourceArticleIds': [1025],
+                                    'conflictNote': '기사별 수치 해석이 다릅니다.',
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ]
+        },
+        {1024, 1025},
+    ) == {
+        'analysisStatus': 'READY',
+        'analysisIssues': [],
+        'conflictStatus': 'FOUND',
+        'sections': [
+            {
+                'kind': 'impact',
+                'title': '시장 영향',
+                'paragraphs': [
+                    {
+                        'sentences': [
+                            {
+                                'text': '서로 다른 보도가 있어 충돌로 확인됐습니다.',
+                                'sourceArticleIds': [1024],
+                                'conflictStatus': 'FOUND',
+                                'conflictingSourceArticleIds': [1025],
+                                'conflictNote': '기사별 수치 해석이 다릅니다.',
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+    }
