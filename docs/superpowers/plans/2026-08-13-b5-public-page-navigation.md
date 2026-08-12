@@ -128,7 +128,7 @@ git commit -m "feat: 페이지 날짜 탐색 API 추가"
 - Modify: `app/domains/archive/service.py`
 - Modify: `app/domains/archive/router.py`
 - Modify: `tests/domains/test_pages_service.py`
-- Modify: `tests/domains/test_archive_service.py`
+- Create: `tests/domains/test_archive_service.py`
 - Modify: `tests/api/test_pages.py`
 
 1. Add failing tests proving `get_latest_page` calls the public latest method and daily-page embedded navigation excludes failed-only dates.

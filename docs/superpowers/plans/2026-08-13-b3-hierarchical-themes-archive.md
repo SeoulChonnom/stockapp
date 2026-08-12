@@ -249,7 +249,7 @@ git commit -m "refactor: 테마 분류를 독립 배치 단계로 교체"
 - Modify: `app/db/repositories/page_snapshot_write_repo.py`
 - Modify: `app/db/repositories/page_snapshot_repo.py`
 - Modify: `app/batch/steps/build_page_snapshot.py`
-- Modify: `tests/repositories/test_page_snapshot_write_repo.py`
+- Create: `tests/repositories/test_page_snapshot_write_repo.py`
 - Modify: `tests/batch/test_build_page_snapshot_rebuild.py`
 
 1. Add write methods for ranked snapshot themes and extend `insert_page_market_cluster` to return the inserted snapshot cluster ID.
