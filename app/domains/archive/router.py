@@ -22,8 +22,8 @@ router = APIRouter(prefix='/pages', tags=['archive'])
 _LIST_ARCHIVE_RESPONSES = merge_responses(
     AUTH_RESPONSES,
     error_response(
-        400,
-        'Unsupported archive status filter. Codes: UNSUPPORTED_ARCHIVE_STATUS.',
+        422,
+        'Invalid archive status filter. Codes: REQUEST_VALIDATION_ERROR.',
     ),
 )
 
@@ -33,7 +33,7 @@ def get_archive_service(session: DbSession) -> ArchiveService:
 
 
 type ArchiveServiceDep = Annotated[ArchiveService, Depends(get_archive_service)]
-type ArchiveStatus = Literal['READY', 'PARTIAL', 'FAILED']
+type ArchiveStatus = Literal['READY', 'PARTIAL']
 
 
 @router.get(

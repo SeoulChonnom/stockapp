@@ -6,7 +6,7 @@ from app.core.exceptions import ValidationError
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.domains.archive.assembler import build_archive_list_payload
 
-ARCHIVE_STATUSES = frozenset({'READY', 'PARTIAL', 'FAILED'})
+ARCHIVE_STATUSES = frozenset({'READY', 'PARTIAL'})
 
 
 class ArchiveService:

@@ -14,7 +14,7 @@ class PagesService:
         self._repo = repository
 
     async def get_latest_page(self) -> dict[str, Any]:
-        page = await self._repo.get_latest_page_header()
+        page = await self._repo.get_latest_public_page_header()
         if page is None:
             raise NotFoundError(
                 'LATEST_PAGE_NOT_FOUND', '가장 최근 생성된 페이지가 존재하지 않습니다.'
@@ -89,7 +89,7 @@ class PagesService:
             self._repo.get_page_indices(market_ids),
             self._repo.get_page_clusters(market_ids),
             self._repo.get_page_article_links(market_ids),
-            self._repo.get_adjacent_business_dates(business_date),
+            self._repo.get_adjacent_public_business_dates(business_date),
             self._repo.list_page_versions(business_date),
         )
         return build_daily_page_payload(

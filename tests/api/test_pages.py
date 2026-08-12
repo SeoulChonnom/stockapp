@@ -241,10 +241,11 @@ def test_get_page_date_navigation_rejects_malformed_date(client):
     assert response.status_code == 422
 
 
-def test_get_archive_rejects_invalid_status_with_standard_422(client):
+@pytest.mark.parametrize('status', ['archived', 'FAILED'])
+def test_get_archive_rejects_non_public_status_with_standard_422(client, status):
     response = client.get(
         '/stock/api/pages/archive',
-        params={'status': 'archived'},
+        params={'status': status},
         headers=build_test_bearer_headers('ADMIN'),
     )
 
@@ -253,6 +254,16 @@ def test_get_archive_rejects_invalid_status_with_standard_422(client):
     assert payload['success'] is False
     assert payload['error']['code'] == 'REQUEST_VALIDATION_ERROR'
     assert payload['meta']['requestId']
+
+
+def test_archive_openapi_documents_literal_status_validation_as_422(client):
+    responses = client.get('/openapi.json').json()['paths']['/stock/api/pages/archive'][
+        'get'
+    ]['responses']
+
+    assert '400' not in responses
+    assert '422' in responses
+    assert 'REQUEST_VALIDATION_ERROR' in responses['422']['description']
 
 
 def test_unexpected_page_failure_uses_standard_500_envelope(

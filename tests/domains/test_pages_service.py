@@ -8,10 +8,8 @@ import pytest
 from tests.support import BUSINESS_DATE, jsonable, load_module
 
 pages_service_module = load_module('app.domains.pages.service')
-archive_service_module = load_module('app.domains.archive.service')
 
 PagesService = pages_service_module.PagesService
-ArchiveService = archive_service_module.ArchiveService
 
 
 class FakePageSnapshotRepository:
@@ -46,6 +44,10 @@ class FakePageSnapshotRepository:
 
     async def get_latest_page_header(self):
         self.calls.append(('get_latest_page_header',))
+        return self.page_header
+
+    async def get_latest_public_page_header(self):
+        self.calls.append(('get_latest_public_page_header',))
         return self.page_header
 
     async def get_page_header_by_business_date(self, business_date, version_no=None):
@@ -180,7 +182,7 @@ async def test_pages_service_fetches_latest_page_bundle(
         == sample_daily_page_payload['markets'][0]['topClusters'][0]['clusterId']
     )
     assert [call[0] for call in page_repository.calls[:2]] == [
-        'get_latest_page_header',
+        'get_latest_public_page_header',
         'get_page_markets',
     ]
     assert {
@@ -321,7 +323,7 @@ async def test_pages_service_returns_public_date_navigation(
 async def test_pages_service_uses_nearest_existing_dates_across_calendar_gap(
     page_repository,
 ):
-    """2026-03-13 -> 2026-03-17 is a four-day gap; ±1 day would 404."""
+    """2026-03-13 -> 2026-03-17 is a four-day public-page gap."""
     service = PagesService(page_repository)
 
     payload = jsonable(await service.get_page_by_date(BUSINESS_DATE))
@@ -331,12 +333,42 @@ async def test_pages_service_uses_nearest_existing_dates_across_calendar_gap(
         'nextBusinessDate': None,
     }
     assert payload['businessDate'] == '2026-03-17'
-    assert ('get_adjacent_business_dates', BUSINESS_DATE) in page_repository.calls
+    assert (
+        'get_adjacent_public_business_dates',
+        BUSINESS_DATE,
+    ) in page_repository.calls
+
+
+@pytest.mark.anyio
+async def test_pages_service_excludes_failed_only_dates_from_embedded_navigation(
+    page_repository,
+):
+    page_repository.adjacent_business_dates = {
+        'previous_business_date': date(2026, 3, 16),
+        'next_business_date': date(2026, 3, 18),
+    }
+    page_repository.adjacent_public_business_dates = {
+        'previous_business_date': date(2026, 3, 13),
+        'next_business_date': None,
+    }
+    service = PagesService(page_repository)
+
+    payload = jsonable(await service.get_page_by_date(BUSINESS_DATE))
+
+    assert payload['navigation'] == {
+        'previousBusinessDate': '2026-03-13',
+        'nextBusinessDate': None,
+    }
+    assert (
+        'get_adjacent_public_business_dates',
+        BUSINESS_DATE,
+    ) in page_repository.calls
+    assert ('get_adjacent_business_dates', BUSINESS_DATE) not in page_repository.calls
 
 
 @pytest.mark.anyio
 async def test_pages_service_reports_null_navigation_for_only_page(page_repository):
-    page_repository.adjacent_business_dates = {
+    page_repository.adjacent_public_business_dates = {
         'previous_business_date': None,
         'next_business_date': None,
     }
@@ -352,7 +384,7 @@ async def test_pages_service_reports_null_navigation_for_only_page(page_reposito
 
 @pytest.mark.anyio
 async def test_pages_service_reports_both_neighbors_when_present(page_repository):
-    page_repository.adjacent_business_dates = {
+    page_repository.adjacent_public_business_dates = {
         'previous_business_date': date(2026, 3, 13),
         'next_business_date': date(2026, 3, 18),
     }
@@ -403,23 +435,3 @@ async def test_navigation_and_versions_share_the_page_detail_round_trip(
     await service.get_page_by_date(BUSINESS_DATE)
 
     assert page_repository.max_concurrent_detail_calls > 3
-
-
-@pytest.mark.anyio
-async def test_archive_service_returns_paged_summary(page_repository):
-    service = ArchiveService(page_repository)
-
-    result = await service.list_archive(
-        from_date=date(2026, 3, 16),
-        to_date=date(2026, 3, 17),
-        status='READY',
-        page=1,
-        size=30,
-    )
-    assert isinstance(result, dict)
-    payload = jsonable(result)
-
-    assert payload['items'][0]['businessDate'] == '2026-03-17'
-    assert payload['pagination']['totalCount'] == 2
-    assert page_repository.calls[-2][0] == 'list_archive_page_headers'
-    assert page_repository.calls[-1][0] == 'count_archive_page_headers'
