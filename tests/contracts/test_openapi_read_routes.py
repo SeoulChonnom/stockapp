@@ -73,6 +73,19 @@ def test_openapi_documents_public_page_navigation_contract():
         },
     }
 
+    response_schema = operation['responses']['200']['content']['application/json'][
+        'schema'
+    ]
+    assert response_schema == {
+        '$ref': '#/components/schemas/ApiSuccess_PageDateNavigationResponse_'
+    }
+    response_envelope = schema['components']['schemas'][
+        'ApiSuccess_PageDateNavigationResponse_'
+    ]
+    assert response_envelope['properties']['data'] == {
+        '$ref': '#/components/schemas/PageDateNavigationResponse'
+    }
+
     response_schema = schema['components']['schemas']['PageDateNavigationResponse']
     assert response_schema['required'] == [
         'businessDate',
@@ -101,9 +114,10 @@ def test_openapi_limits_archive_status_to_public_page_statuses():
     )
 
     assert status_parameter['required'] is False
-    assert status_parameter['schema']['anyOf'][0] == {
-        '$ref': '#/components/schemas/ArchiveStatus'
-    }
+    assert status_parameter['schema']['anyOf'] == [
+        {'$ref': '#/components/schemas/ArchiveStatus'},
+        {'type': 'null'},
+    ]
     assert schema['components']['schemas']['ArchiveStatus'] == {
         'type': 'string',
         'enum': ['READY', 'PARTIAL'],
