@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import bindparam, text
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
+from app.db.repositories.projections import ClusterThemeRecord
 
 
 class ClusterRepository(PostgresRepository):
@@ -57,6 +59,96 @@ class ClusterRepository(PostgresRepository):
         ).bindparams(bindparam('cluster_id', cluster_id))
         result = await self.session.execute(statement)
         return [self._row_to_dict(row) for row in result.all()]
+
+    async def get_cluster_themes(self, cluster_id: int) -> list[ClusterThemeRecord]:
+        """Return a cluster's persisted theme assignments in rank order."""
+        statement = text(
+            """
+            SELECT
+                cluster_id,
+                theme_code,
+                rank,
+                classification_method,
+                classified_at
+            FROM {cluster_theme_table}
+            WHERE cluster_id = :cluster_id
+            ORDER BY rank ASC, theme_code ASC
+            """.format(cluster_theme_table=qualify_db_identifier('news_cluster_theme'))
+        ).bindparams(bindparam('cluster_id', cluster_id))
+        result = await self.session.execute(statement)
+        return self._models_from_mappings(
+            ClusterThemeRecord,
+            [self._row_to_dict(row) for row in result.all()],
+        )
+
+    async def get_cluster_theme_codes(self, cluster_id: int) -> list[str]:
+        """Return only a cluster's ranked theme codes."""
+        statement = text(
+            """
+            SELECT theme_code
+            FROM {cluster_theme_table}
+            WHERE cluster_id = :cluster_id
+            ORDER BY rank ASC, theme_code ASC
+            """.format(cluster_theme_table=qualify_db_identifier('news_cluster_theme'))
+        ).bindparams(bindparam('cluster_id', cluster_id))
+        result = await self.session.execute(statement)
+        return [self._row_to_dict(row)['theme_code'] for row in result.all()]
+
+    async def list_cluster_themes_by_business_date(
+        self,
+        business_date: date,
+        *,
+        market_type: str | None = None,
+    ) -> list[ClusterThemeRecord]:
+        """Batch-load ranked cluster themes for snapshot construction."""
+        where_clauses = ['c.business_date = :business_date']
+        params: dict[str, object] = {'business_date': business_date}
+        if market_type is not None:
+            where_clauses.append(
+                f'c.market_type = CAST(:market_type AS '
+                f'{qualify_db_identifier("market_type_enum")})'
+            )
+            params['market_type'] = market_type
+        statement = text(
+            """
+            SELECT
+                ct.cluster_id,
+                ct.theme_code,
+                ct.rank,
+                ct.classification_method,
+                ct.classified_at
+            FROM {cluster_theme_table} ct
+            JOIN {cluster_table} c
+              ON c.id = ct.cluster_id
+            WHERE {where_sql}
+            ORDER BY
+                c.market_type ASC,
+                c.cluster_rank ASC,
+                ct.rank ASC,
+                ct.theme_code ASC
+            """.format(
+                cluster_theme_table=qualify_db_identifier('news_cluster_theme'),
+                cluster_table=qualify_db_identifier('news_cluster'),
+                where_sql=' AND '.join(where_clauses),
+            )
+        )
+        result = await self.session.execute(statement, params)
+        return self._models_from_mappings(
+            ClusterThemeRecord,
+            [self._row_to_dict(row) for row in result.all()],
+        )
+
+    async def list_cluster_theme_codes_by_business_date(
+        self,
+        business_date: date,
+        *,
+        market_type: str | None = None,
+    ) -> list[ClusterThemeRecord]:
+        """Batch-load ranked theme codes, including their source metadata."""
+        return await self.list_cluster_themes_by_business_date(
+            business_date,
+            market_type=market_type,
+        )
 
     async def list_clusters_by_business_date(
         self,

@@ -15,6 +15,9 @@ from tests.support import (
 cluster_repo_module = load_module('app.db.repositories.cluster_repo')
 
 ClusterRepository = cluster_repo_module.ClusterRepository
+projections_module = load_module('app.db.repositories.projections')
+
+ClusterThemeRecord = projections_module.ClusterThemeRecord
 
 
 @pytest.mark.anyio
@@ -62,3 +65,63 @@ async def test_get_processed_articles_returns_requested_rows_in_order(
     sql = normalize_sql(session.statements[0])
     assert 'news_article_processed' in sql
     assert 'dedupe_hash' in sql
+
+
+@pytest.mark.anyio
+async def test_get_cluster_theme_codes_returns_ranked_codes():
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult(
+                [
+                    {'theme_code': 'SECTOR_SEMICONDUCTORS_MEMORY_HBM'},
+                    {'theme_code': 'MACRO_MONETARY_MARKETS_FX'},
+                ]
+            )
+        ]
+    )
+    repo = ClusterRepository(session)
+
+    result = await repo.get_cluster_theme_codes(7001)
+
+    assert result == [
+        'SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+        'MACRO_MONETARY_MARKETS_FX',
+    ]
+    sql = normalize_sql(session.statements[0])
+    assert 'news_cluster_theme' in sql
+    assert 'order by rank asc' in sql.lower()
+
+
+@pytest.mark.anyio
+async def test_list_cluster_themes_by_business_date_returns_typed_records():
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult(
+                [
+                    {
+                        'cluster_id': 7001,
+                        'theme_code': 'SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+                        'rank': 1,
+                        'classification_method': 'LLM',
+                        'classified_at': '2026-03-18T06:00:00+00:00',
+                    }
+                ]
+            )
+        ]
+    )
+    repo = ClusterRepository(session)
+
+    result = await repo.list_cluster_themes_by_business_date('2026-03-17')
+
+    assert result == [
+        ClusterThemeRecord(
+            cluster_id=7001,
+            theme_code='SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+            rank=1,
+            classification_method='LLM',
+            classified_at='2026-03-18T06:00:00+00:00',
+        )
+    ]
+    sql = normalize_sql(session.statements[0])
+    assert 'business_date' in sql
+    assert 'news_cluster_theme' in sql

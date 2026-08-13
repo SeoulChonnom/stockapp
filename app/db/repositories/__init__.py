@@ -11,6 +11,7 @@ from app.db.repositories.news_cluster_write_repo import NewsClusterWriteReposito
 from app.db.repositories.news_search_keyword_repo import NewsSearchKeywordRepository
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.db.repositories.page_snapshot_write_repo import PageSnapshotWriteRepository
+from app.db.repositories.theme_repo import ThemeRepository
 
 __all__ = [
     'AiSummaryWriteRepository',
@@ -24,4 +25,5 @@ __all__ = [
     'PageSnapshotRepository',
     'PageSnapshotWriteRepository',
     'PostgresAiRetryRepository',
+    'ThemeRepository',
 ]

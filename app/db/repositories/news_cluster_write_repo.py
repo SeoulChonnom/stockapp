@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import date
 
 from sqlalchemy import bindparam, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.identifiers import qualify_db_identifier
 from app.db.repositories.base import PostgresRepository
@@ -11,10 +13,21 @@ from app.db.repositories.projections import (
     NewsClusterArticleCreateParams,
     NewsClusterCreateParams,
     NewsClusterWriteRecord,
+    ThemeAssignmentCreateParams,
 )
+from app.db.repositories.theme_repo import ThemeRepository
 
 
 class NewsClusterWriteRepository(PostgresRepository):
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        theme_repository: ThemeRepository | None = None,
+    ) -> None:
+        super().__init__(session)
+        self._theme_repository = theme_repository or ThemeRepository(session)
+
     async def list_cluster_ids_for_business_date(
         self,
         business_date: date,
@@ -164,6 +177,119 @@ class NewsClusterWriteRepository(PostgresRepository):
                         'article_rank': membership.article_rank,
                     },
                 )
+
+    async def replace_cluster_themes(
+        self,
+        cluster_id: int,
+        assignments: Sequence[object],
+    ) -> None:
+        """Replace ranked themes in the caller's current transaction.
+
+        An empty assignment sequence intentionally clears previous themes when
+        both LLM and deterministic fallback classification produce no result.
+        This method never commits so cluster and theme writes can remain
+        atomic in the enclosing batch-step transaction.
+        """
+        normalized_assignments = self._validate_theme_assignments(assignments)
+        if normalized_assignments:
+            invalid_codes = (
+                await self._theme_repository.validate_active_leaf_theme_codes(
+                    [assignment.theme_code for assignment in normalized_assignments]
+                )
+            )
+            if invalid_codes:
+                invalid_display = ', '.join(repr(code) for code in invalid_codes)
+                raise ValueError(
+                    f'theme assignments must use active leaf codes: {invalid_display}'
+                )
+
+        delete_statement = text(
+            """
+            DELETE FROM {cluster_theme_table}
+            WHERE cluster_id = :cluster_id
+            """.format(cluster_theme_table=qualify_db_identifier('news_cluster_theme'))
+        )
+        await self.session.execute(delete_statement, {'cluster_id': cluster_id})
+
+        if not normalized_assignments:
+            return
+
+        insert_statement = text(
+            """
+            INSERT INTO {cluster_theme_table} (
+                cluster_id,
+                theme_code,
+                rank,
+                classification_method
+            )
+            VALUES (
+                :cluster_id,
+                :theme_code,
+                :rank,
+                :classification_method
+            )
+            """.format(cluster_theme_table=qualify_db_identifier('news_cluster_theme'))
+        )
+        await self.session.execute(
+            insert_statement,
+            [
+                {
+                    'cluster_id': cluster_id,
+                    'theme_code': assignment.theme_code,
+                    'rank': assignment.rank,
+                    'classification_method': assignment.classification_method,
+                }
+                for assignment in normalized_assignments
+            ],
+        )
+
+    @staticmethod
+    def _validate_theme_assignments(
+        assignments: Sequence[object],
+    ) -> list[ThemeAssignmentCreateParams]:
+        try:
+            raw_assignments = list(assignments)
+        except TypeError as exc:
+            raise ValueError('theme assignments must be a sequence') from exc
+
+        if not raw_assignments:
+            return []
+        if len(raw_assignments) > 3:
+            raise ValueError('theme assignments must contain between 1 and 3 items')
+
+        normalized: list[ThemeAssignmentCreateParams] = []
+        for assignment in raw_assignments:
+            theme_code = getattr(assignment, 'theme_code', None)
+            rank = getattr(assignment, 'rank', None)
+            classification_method = getattr(
+                assignment,
+                'classification_method',
+                None,
+            )
+            if not isinstance(theme_code, str) or not theme_code:
+                raise ValueError('theme assignment code must be a nonempty string')
+            if isinstance(rank, bool) or not isinstance(rank, int):
+                raise ValueError('theme assignment rank must be an integer')
+            if classification_method not in {'LLM', 'KEYWORD_FALLBACK'}:
+                raise ValueError(
+                    'theme assignment classification_method must be LLM or '
+                    'KEYWORD_FALLBACK'
+                )
+            normalized.append(
+                ThemeAssignmentCreateParams(
+                    theme_code=theme_code,
+                    rank=rank,
+                    classification_method=classification_method,
+                )
+            )
+
+        codes = [assignment.theme_code for assignment in normalized]
+        if len(codes) != len(set(codes)):
+            raise ValueError('theme assignment codes must be unique')
+        ranks = sorted(assignment.rank for assignment in normalized)
+        if ranks != list(range(1, len(normalized) + 1)):
+            raise ValueError('theme assignment ranks must be contiguous from 1')
+        return sorted(normalized, key=lambda assignment: assignment.rank)
 
     async def create_cluster_bundle(
         self,

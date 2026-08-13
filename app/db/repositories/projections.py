@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 from uuid import UUID
 
 T = TypeVar('T')
+
+ClassificationMethod = Literal['LLM', 'KEYWORD_FALLBACK']
 
 
 @dataclass(slots=True)
@@ -388,6 +390,44 @@ class NewsClusterWriteRecord:
     cluster_id: int
     cluster_uid: UUID
     cluster_rank: int
+
+
+@dataclass(slots=True)
+class ThemeAssignmentCreateParams:
+    """Ranked leaf-theme assignment accepted by the persistence boundary."""
+
+    theme_code: str
+    rank: int
+    classification_method: ClassificationMethod = 'KEYWORD_FALLBACK'
+
+
+@dataclass(slots=True)
+class ClusterThemeRecord:
+    """Persisted ranked theme assignment for a source cluster."""
+
+    cluster_id: int
+    theme_code: str
+    rank: int
+    classification_method: ClassificationMethod
+    classified_at: datetime
+
+
+@dataclass(slots=True)
+class ThemeCatalogRecord:
+    """Theme catalog row used by tree and active-code reads."""
+
+    code: str
+    parent_code: str | None
+    label: str
+    description: str
+    sort_order: int
+    is_active: bool
+
+
+# Compatibility names for callers that describe these projections as reads.
+ThemeReadRecord = ThemeCatalogRecord
+ThemeRecord = ThemeCatalogRecord
+NewsClusterThemeRecord = ClusterThemeRecord
 
 
 @dataclass(slots=True)

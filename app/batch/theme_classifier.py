@@ -15,7 +15,7 @@ from app.batch.theme_rules import (
 )
 
 ArticleId = int | str
-ClassificationMethod = Literal['KEYWORD_FALLBACK']
+ClassificationMethod = Literal['LLM', 'KEYWORD_FALLBACK']
 
 
 def normalize_text(value: str | None) -> str:

@@ -17,6 +17,17 @@ projections_module = load_module('app.db.repositories.projections')
 
 NewsClusterWriteRepository = cluster_write_repo_module.NewsClusterWriteRepository
 NewsClusterCreateParams = projections_module.NewsClusterCreateParams
+ThemeAssignmentCreateParams = projections_module.ThemeAssignmentCreateParams
+
+
+class FakeThemeRepository:
+    def __init__(self, invalid_codes=()):
+        self.invalid_codes = list(invalid_codes)
+        self.calls = []
+
+    async def validate_active_leaf_theme_codes(self, theme_codes):
+        self.calls.append(list(theme_codes))
+        return [code for code in theme_codes if code in self.invalid_codes]
 
 
 @pytest.mark.anyio
@@ -119,3 +130,153 @@ async def test_list_cluster_ids_with_min_rank_filters_and_binds_it():
         'market_type': 'US',
         'min_rank': 3,
     }
+
+
+@pytest.mark.anyio
+async def test_replace_cluster_themes_deletes_and_batch_inserts_without_commit():
+    session = RecordingAsyncSession()
+    theme_repo = FakeThemeRepository()
+    repo = cluster_write_repo_module.NewsClusterWriteRepository(
+        session, theme_repository=theme_repo
+    )
+
+    await repo.replace_cluster_themes(
+        7001,
+        [
+            ThemeAssignmentCreateParams(
+                theme_code='SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+                rank=1,
+                classification_method='LLM',
+            ),
+            ThemeAssignmentCreateParams(
+                theme_code='MACRO_MONETARY_MARKETS_FX',
+                rank=2,
+                classification_method='KEYWORD_FALLBACK',
+            ),
+        ],
+    )
+
+    assert len(session.statements) == 2
+    assert normalize_sql(session.statements[0]).startswith(
+        'DELETE FROM stock.news_cluster_theme'
+    )
+    assert 'INSERT INTO stock.news_cluster_theme' in normalize_sql(
+        session.statements[1]
+    )
+    assert session.parameters[1] == [
+        {
+            'cluster_id': 7001,
+            'theme_code': 'SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+            'rank': 1,
+            'classification_method': 'LLM',
+        },
+        {
+            'cluster_id': 7001,
+            'theme_code': 'MACRO_MONETARY_MARKETS_FX',
+            'rank': 2,
+            'classification_method': 'KEYWORD_FALLBACK',
+        },
+    ]
+    assert theme_repo.calls == [
+        [
+            'SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+            'MACRO_MONETARY_MARKETS_FX',
+        ]
+    ]
+    assert session.commits == 0
+
+
+@pytest.mark.anyio
+async def test_replace_cluster_themes_allows_empty_assignments_to_clear_rows():
+    session = RecordingAsyncSession()
+    theme_repo = FakeThemeRepository()
+    repo = cluster_write_repo_module.NewsClusterWriteRepository(
+        session, theme_repository=theme_repo
+    )
+
+    await repo.replace_cluster_themes(7001, [])
+
+    assert len(session.statements) == 1
+    assert 'DELETE FROM stock.news_cluster_theme' in normalize_sql(
+        session.statements[0]
+    )
+    assert theme_repo.calls == []
+    assert session.commits == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'assignments',
+    [
+        [
+            ThemeAssignmentCreateParams(
+                theme_code='SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+                rank=1,
+            ),
+            ThemeAssignmentCreateParams(
+                theme_code='SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+                rank=2,
+            ),
+        ],
+        [
+            ThemeAssignmentCreateParams(
+                theme_code='SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+                rank=2,
+            )
+        ],
+        [
+            ThemeAssignmentCreateParams(
+                theme_code='SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+                rank=1,
+            ),
+            ThemeAssignmentCreateParams(
+                theme_code='MACRO_MONETARY_MARKETS_FX',
+                rank=2,
+            ),
+            ThemeAssignmentCreateParams(
+                theme_code='SECTOR_AUTOS_MOBILITY_EV_BATTERY',
+                rank=3,
+            ),
+            ThemeAssignmentCreateParams(
+                theme_code='SECTOR_BIO_HEALTHCARE_PHARMA_BIOTECH',
+                rank=4,
+            ),
+        ],
+    ],
+)
+async def test_replace_cluster_themes_rejects_invalid_ranked_sets_before_sql(
+    assignments,
+):
+    session = RecordingAsyncSession()
+    repo = cluster_write_repo_module.NewsClusterWriteRepository(
+        session, theme_repository=FakeThemeRepository()
+    )
+
+    with pytest.raises(ValueError):
+        await repo.replace_cluster_themes(7001, assignments)
+
+    assert session.statements == []
+
+
+@pytest.mark.anyio
+async def test_replace_cluster_themes_rejects_parent_or_inactive_codes_before_delete():
+    session = RecordingAsyncSession()
+    theme_repo = FakeThemeRepository(
+        invalid_codes=['SECTOR', 'SECTOR_SEMICONDUCTORS_MEMORY_HBM']
+    )
+    repo = cluster_write_repo_module.NewsClusterWriteRepository(
+        session, theme_repository=theme_repo
+    )
+
+    with pytest.raises(ValueError, match='SECTOR'):
+        await repo.replace_cluster_themes(
+            7001,
+            [
+                ThemeAssignmentCreateParams(
+                    theme_code='SECTOR',
+                    rank=1,
+                )
+            ],
+        )
+
+    assert session.statements == []
