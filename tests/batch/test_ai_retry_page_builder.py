@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -14,6 +15,29 @@ from app.db.repositories.projections import AiSummaryRecord
 BUSINESS_DATE = date(2026, 7, 28)
 GENERATED_AT = datetime(2026, 7, 29, tzinfo=UTC)
 CLUSTER_UID = UUID('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+KEY_POINTS = [
+    {
+        'kind': 'direction',
+        'label': '시장 방향',
+        'text': '주요 지수가 상승했습니다.',
+        'direction': 'UP',
+    },
+    {
+        'kind': 'driver',
+        'label': '주요 원인',
+        'text': '반도체 강세가 상승을 이끌었습니다.',
+    },
+    {
+        'kind': 'watch',
+        'label': '관전 포인트',
+        'text': '다음 물가 지표를 확인해야 합니다.',
+    },
+]
+KEY_POINT_ISSUE = {
+    'category': 'AI_SUMMARY',
+    'code': 'KEY_POINTS_GENERATION_FAILED',
+    'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+}
 
 
 class FakeSourcePageRepository:
@@ -187,6 +211,7 @@ def _summary(
     target_key: str,
     success: bool,
     source_summary_id: int | None = None,
+    metadata_json: dict | None = None,
 ) -> AiSummaryRecord:
     summary_type, _, suffix = target_key.partition(':')
     return AiSummaryRecord(
@@ -204,11 +229,15 @@ def _summary(
         status='SUCCESS' if success else 'FALLBACK',
         fallback_used=not success,
         error_message=None,
-        metadata_json={
-            'background': ['new background'],
-            'keyThemes': ['new theme'],
-            'outlook': 'new outlook',
-        },
+        metadata_json=(
+            metadata_json
+            if metadata_json is not None
+            else {
+                'background': ['new background'],
+                'keyThemes': ['new theme'],
+                'outlook': 'new outlook',
+            }
+        ),
         generated_at=GENERATED_AT,
         target_key=target_key,
         source_summary_id=source_summary_id,
@@ -285,6 +314,113 @@ async def test_all_recovery_creates_ready_vnext_with_ai_overlay_and_cloned_links
     assert writes.indices[0]['index_code'] == 'IXIC'
     assert writes.links[0]['origin_link'] == 'https://example.com/a'
     assert source_state == original_state
+
+
+@pytest.mark.anyio
+async def test_successful_headline_key_point_issue_keeps_retry_page_partial():
+    source_state = _source_state()
+    writes = FakePageWriteRepository()
+    lineage = _lineage(recover_market=True, recover_all=True)
+    lineage = [
+        (
+            replace(
+                summary,
+                metadata_json={
+                    'reason': 'llm',
+                    'keyPoints': [],
+                    'keyPointIssue': KEY_POINT_ISSUE,
+                    'retry': {'sourceSummaryId': 1, 'attemptNo': 2},
+                },
+            )
+            if summary.batch_job_id == 20 and summary.target_key == 'GLOBAL_HEADLINE'
+            else summary
+        )
+        for summary in lineage
+    ]
+    global_retry = next(
+        summary
+        for summary in lineage
+        if summary.batch_job_id == 20 and summary.target_key == 'GLOBAL_HEADLINE'
+    )
+    builder = AiRetryPageBuilder(
+        source_page_repo_factory=lambda _: FakeSourcePageRepository(source_state),
+        snapshot_repo_factory=lambda _: writes,
+    )
+
+    result = await builder.build(
+        session=object(),
+        source_page_id=501,
+        source_job_id=10,
+        retry_job_id=20,
+        summaries=lineage,
+        counts=AiRetryCounts(
+            target_count=3,
+            attempted_count=3,
+            success_count=3,
+            recovered_count=3,
+        ),
+    )
+
+    assert global_retry.status == 'SUCCESS'
+    assert global_retry.fallback_used is False
+    assert result.status == 'PARTIAL'
+    assert result.partial_message == KEY_POINT_ISSUE['message']
+    assert writes.page is not None
+    assert writes.page['status'] == 'PARTIAL'
+    assert writes.page['metadata_json']['keyPoints'] == []
+    assert writes.page['metadata_json']['issues'] == [KEY_POINT_ISSUE]
+
+
+@pytest.mark.anyio
+async def test_retry_page_preserves_key_points_when_headline_remains_fallback():
+    source_state = _source_state()
+    writes = FakePageWriteRepository()
+    lineage = _lineage(recover_market=True, recover_all=False)
+    lineage = [
+        (
+            replace(
+                summary,
+                status='FALLBACK',
+                fallback_used=True,
+                metadata_json={
+                    'reason': 'llm_fallback',
+                    'keyPoints': KEY_POINTS,
+                    'keyPointIssue': None,
+                    'retry': {'sourceSummaryId': 1, 'attemptNo': 2},
+                },
+            )
+            if summary.batch_job_id == 20 and summary.target_key == 'GLOBAL_HEADLINE'
+            else summary
+        )
+        for summary in lineage
+    ]
+    builder = AiRetryPageBuilder(
+        source_page_repo_factory=lambda _: FakeSourcePageRepository(source_state),
+        snapshot_repo_factory=lambda _: writes,
+    )
+
+    result = await builder.build(
+        session=object(),
+        source_page_id=501,
+        source_job_id=10,
+        retry_job_id=20,
+        summaries=lineage,
+        counts=AiRetryCounts(
+            target_count=3,
+            attempted_count=3,
+            success_count=1,
+            fallback_count=2,
+            recovered_count=1,
+        ),
+    )
+
+    assert result.status == 'PARTIAL'
+    assert writes.page is not None
+    assert writes.page['metadata_json']['keyPoints'] == KEY_POINTS
+    assert all(
+        issue['code'] != 'KEY_POINTS_GENERATION_FAILED'
+        for issue in writes.page['metadata_json']['issues']
+    )
 
 
 @pytest.mark.anyio

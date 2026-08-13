@@ -2,139 +2,135 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
-import httpx
+from langchain_core.messages import AIMessage
 
-from app.core.llm import LlmRetryExhaustedError
-
-
-def gemini_json_response(payload: object) -> dict[str, Any]:
-    """Build a complete successful Gemini generateContent response."""
-    return {
-        'candidates': [
-            {
-                'content': {
-                    'parts': [{'text': json.dumps(payload, ensure_ascii=False)}],
-                    'role': 'model',
-                },
-                'finishReason': 'STOP',
-                'index': 0,
-                'safetyRatings': [
-                    {
-                        'category': 'HARM_CATEGORY_DANGEROUS_CONTENT',
-                        'probability': 'NEGLIGIBLE',
-                    }
-                ],
-            }
-        ],
-        'promptFeedback': {'safetyRatings': []},
-        'usageMetadata': {
-            'promptTokenCount': 42,
-            'candidatesTokenCount': 31,
-            'totalTokenCount': 73,
-            'promptTokensDetails': [{'modality': 'TEXT', 'tokenCount': 42}],
-            'candidatesTokensDetails': [{'modality': 'TEXT', 'tokenCount': 31}],
-        },
-        'modelVersion': 'gemini-2.5-flash',
-        'responseId': 'mock-response-id',
-    }
+from app.core.llm import GeminiJsonClient, TokenReservation
+from app.core.settings import Settings
 
 
-def gemini_exhausted_response() -> dict[str, Any]:
-    """Build Gemini's documented RESOURCE_EXHAUSTED error shape."""
-    return {
-        'error': {
-            'code': 429,
-            'message': 'Quota exceeded for secret-project-token.',
-            'status': 'RESOURCE_EXHAUSTED',
-            'details': [
-                {
-                    '@type': 'type.googleapis.com/google.rpc.RetryInfo',
-                    'retryDelay': '30s',
-                },
-                {
-                    '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
-                    'violations': [
-                        {
-                            'quotaMetric': (
-                                'generativelanguage.googleapis.com/'
-                                'generate_content_free_tier_requests'
-                            ),
-                            'quotaId': 'GenerateRequestsPerMinutePerProject',
-                        }
-                    ],
-                },
-            ],
-        }
-    }
+class MockGeminiModel:
+    """Deterministic model double injected below GeminiJsonClient's SDK boundary."""
 
-
-class MockGeminiApiClient:
-    """Gemini client double backed by an in-memory HTTP API transport."""
-
-    def __init__(
-        self,
-        responses: Sequence[tuple[int, dict[str, Any]] | BaseException],
-    ) -> None:
+    def __init__(self, responses: Sequence[AIMessage | BaseException]) -> None:
         self._responses = list(responses)
-        self.request_payloads: list[dict[str, Any]] = []
+        self.messages: list[list[tuple[str, str]]] = []
 
-    def is_configured(self) -> bool:
-        return True
+    async def ainvoke(self, messages: list[tuple[str, str]]) -> AIMessage:
+        self.messages.append(messages)
+        response = self._responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
 
-    @property
-    def model_name(self) -> str:
-        return 'gemini-2.5-flash'
 
-    @property
-    def concurrency_limit(self) -> int:
-        return 1
+class RecordingRateLimiter:
+    def __init__(self) -> None:
+        self.acquire_count = 0
 
-    async def invoke_json(self, *, system_prompt: str, user_prompt: str) -> dict:
-        request_payload = {
-            'systemInstruction': {'parts': [{'text': system_prompt}]},
-            'contents': [
-                {
-                    'role': 'user',
-                    'parts': [{'text': user_prompt}],
-                }
-            ],
-            'generationConfig': {'responseMimeType': 'application/json'},
-        }
+    async def acquire(self) -> None:
+        self.acquire_count += 1
 
-        async def handle(request: httpx.Request) -> httpx.Response:
-            self.request_payloads.append(json.loads(request.content))
-            response = self._responses.pop(0)
-            if isinstance(response, BaseException):
-                raise response
-            status_code, payload = response
-            return httpx.Response(status_code, json=payload, request=request)
 
-        transport = httpx.MockTransport(handle)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url='https://generativelanguage.googleapis.com',
-        ) as client:
-            response = await client.post(
-                '/v1beta/models/gemini-2.5-flash:generateContent',
-                params={'key': 'mock-api-key'},
-                json=request_payload,
-            )
+class RecordingTokenLimiter:
+    def __init__(self) -> None:
+        self.estimates: list[int] = []
+        self.reconciliations: list[tuple[int, int]] = []
 
-        payload = response.json()
-        if response.status_code == 429:
-            raise LlmRetryExhaustedError(payload['error']['message'])
-        response.raise_for_status()
-        text = payload['candidates'][0]['content']['parts'][0]['text']
-        decoded = json.loads(text)
-        if not isinstance(decoded, dict):
-            raise TypeError('Gemini JSON response must decode to an object.')
-        return decoded
+    async def acquire(self, token_count: int) -> TokenReservation:
+        self.estimates.append(token_count)
+        return TokenReservation(0.0, token_count)
+
+    async def reconcile(
+        self,
+        reservation: TokenReservation,
+        actual_token_count: int,
+    ) -> None:
+        self.reconciliations.append((reservation.token_count, actual_token_count))
+
+
+@dataclass(frozen=True, slots=True)
+class MockGeminiHarness:
+    client: GeminiJsonClient
+    model: MockGeminiModel
+    rate_limiter: RecordingRateLimiter
+    token_limiter: RecordingTokenLimiter
+
+
+def build_mock_gemini_harness(
+    monkeypatch: Any,
+    responses: Sequence[AIMessage | BaseException],
+) -> MockGeminiHarness:
+    """Inject a deterministic model into the production Gemini JSON client."""
+    model = MockGeminiModel(responses)
+    rate_limiter = RecordingRateLimiter()
+    token_limiter = RecordingTokenLimiter()
+    client = GeminiJsonClient(
+        Settings(
+            app_env='development',
+            gemini_api_key='mock-api-key',
+            llm_model='gemini-2.5-flash',
+            llm_timeout_seconds=1,
+        ),
+        rate_limiter=rate_limiter,
+        token_limiter=token_limiter,
+    )
+    monkeypatch.setattr(client, '_build_model', lambda: model)
+    return MockGeminiHarness(
+        client=client,
+        model=model,
+        rate_limiter=rate_limiter,
+        token_limiter=token_limiter,
+    )
+
+
+def gemini_ai_message(
+    payload: object,
+    *,
+    split_text_blocks: bool = False,
+) -> AIMessage:
+    """Build an SDK-level Gemini response with real AIMessage content."""
+    content = json.dumps(payload, ensure_ascii=False)
+    if split_text_blocks:
+        midpoint = len(content) // 2
+        response_content: str | list[dict[str, str]] = [
+            {'type': 'text', 'text': content[:midpoint]},
+            {'type': 'text', 'text': content[midpoint:]},
+        ]
+    else:
+        response_content = content
+    return AIMessage(
+        content=response_content,
+        usage_metadata={
+            'input_tokens': 23,
+            'output_tokens': 17,
+            'total_tokens': 40,
+        },
+        response_metadata={
+            'model_name': 'gemini-2.5-flash',
+            'finish_reason': 'STOP',
+            'safety_ratings': [],
+        },
+    )
+
+
+def malformed_gemini_ai_message(content: str = '{"keyPoints":') -> AIMessage:
+    """Build an SDK response whose text cannot be decoded as JSON."""
+    return AIMessage(
+        content=[{'type': 'text', 'text': content}],
+        response_metadata={
+            'model_name': 'gemini-2.5-flash',
+            'finish_reason': 'STOP',
+            'safety_ratings': [],
+        },
+    )
 
 
 __all__ = [
-    'MockGeminiApiClient',
-    'gemini_exhausted_response',
-    'gemini_json_response',
+    'MockGeminiHarness',
+    'build_mock_gemini_harness',
+    'gemini_ai_message',
+    'malformed_gemini_ai_message',
 ]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+import httpx
 import pytest
 
 from app.batch.providers.llm_provider import BatchLlmProvider
@@ -10,11 +11,15 @@ from app.batch.steps.generate_ai_summaries import (
     _generate_global_outputs,
     _generate_market_summary,
 )
-from app.core.llm import LlmRetryableError, LlmRetryExhaustedError
+from app.core.llm import (
+    LlmRetryableError,
+    LlmRetryExhaustedError,
+    llm_retry_exhausted_mode,
+)
 from tests.batch.gemini_mock import (
-    MockGeminiApiClient,
-    gemini_exhausted_response,
-    gemini_json_response,
+    build_mock_gemini_harness,
+    gemini_ai_message,
+    malformed_gemini_ai_message,
 )
 
 HEADLINE = {'title': '기술주가 이끈 글로벌 증시 반등', 'body': '반도체가 강세였습니다.'}
@@ -177,19 +182,19 @@ async def test_market_summary_uses_fallback_after_durable_retries_exhausted():
 
 
 @pytest.mark.anyio
-async def test_global_outputs_preserve_headline_when_key_points_are_malformed():
-    client = MockGeminiApiClient(
+async def test_global_outputs_preserve_headline_when_key_points_are_malformed(
+    monkeypatch,
+):
+    harness = build_mock_gemini_harness(
+        monkeypatch,
         [
-            (200, gemini_json_response(HEADLINE)),
-            (
-                200,
-                gemini_json_response({'keyPoints': [{'kind': 'direction'}]}),
-            ),
-        ]
+            gemini_ai_message(HEADLINE),
+            gemini_ai_message({'keyPoints': [{'kind': 'direction'}]}),
+        ],
     )
 
     result = await _generate_global_outputs(
-        BatchLlmProvider(client),
+        BatchLlmProvider(harness.client),
         CLUSTERS,
         [],
     )
@@ -206,19 +211,52 @@ async def test_global_outputs_preserve_headline_when_key_points_are_malformed():
 
 
 @pytest.mark.anyio
-async def test_global_outputs_preserve_headline_when_key_point_provider_exhausts():
-    client = MockGeminiApiClient(
+async def test_global_outputs_treat_malformed_key_point_json_as_fixed_issue(
+    monkeypatch,
+):
+    harness = build_mock_gemini_harness(
+        monkeypatch,
         [
-            (200, gemini_json_response(HEADLINE)),
-            (429, gemini_exhausted_response()),
-        ]
+            gemini_ai_message(HEADLINE),
+            malformed_gemini_ai_message(),
+        ],
     )
 
     result = await _generate_global_outputs(
-        BatchLlmProvider(client),
+        BatchLlmProvider(harness.client),
         CLUSTERS,
         [],
     )
+
+    assert result['title'] == HEADLINE['title']
+    assert result['status'] == 'SUCCESS'
+    assert result['fallback_used'] is False
+    assert result['metadata_json']['keyPoints'] == []
+    assert result['metadata_json']['keyPointIssue'] == {
+        'category': 'AI_SUMMARY',
+        'code': 'KEY_POINTS_GENERATION_FAILED',
+        'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+    }
+
+
+@pytest.mark.anyio
+async def test_global_outputs_preserve_headline_when_key_point_provider_exhausts(
+    monkeypatch,
+):
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [
+            gemini_ai_message(HEADLINE),
+            httpx.ConnectError('secret-project-token provider disconnected'),
+        ],
+    )
+
+    with llm_retry_exhausted_mode():
+        result = await _generate_global_outputs(
+            BatchLlmProvider(harness.client),
+            CLUSTERS,
+            [],
+        )
 
     assert result['title'] == HEADLINE['title']
     assert result['status'] == 'SUCCESS'
@@ -228,23 +266,26 @@ async def test_global_outputs_preserve_headline_when_key_point_provider_exhausts
         'KEY_POINTS_GENERATION_FAILED'
     )
     assert 'secret-project-token' not in repr(result)
-    assert 'googleapis.com' not in repr(result)
 
 
 @pytest.mark.anyio
-async def test_global_outputs_preserve_key_points_when_headline_provider_exhausts():
-    client = MockGeminiApiClient(
+async def test_global_outputs_preserve_key_points_when_headline_provider_exhausts(
+    monkeypatch,
+):
+    harness = build_mock_gemini_harness(
+        monkeypatch,
         [
-            (429, gemini_exhausted_response()),
-            (200, gemini_json_response({'keyPoints': KEY_POINTS})),
-        ]
+            httpx.ConnectError('headline provider disconnected'),
+            gemini_ai_message({'keyPoints': KEY_POINTS}),
+        ],
     )
 
-    result = await _generate_global_outputs(
-        BatchLlmProvider(client),
-        CLUSTERS,
-        [],
-    )
+    with llm_retry_exhausted_mode():
+        result = await _generate_global_outputs(
+            BatchLlmProvider(harness.client),
+            CLUSTERS,
+            [],
+        )
 
     assert result['status'] == 'FALLBACK'
     assert result['fallback_used'] is True
@@ -253,16 +294,19 @@ async def test_global_outputs_preserve_key_points_when_headline_provider_exhaust
 
 
 @pytest.mark.anyio
-async def test_global_outputs_store_headline_and_key_points_when_both_succeed():
-    client = MockGeminiApiClient(
+async def test_global_outputs_store_headline_and_key_points_when_both_succeed(
+    monkeypatch,
+):
+    harness = build_mock_gemini_harness(
+        monkeypatch,
         [
-            (200, gemini_json_response(HEADLINE)),
-            (200, gemini_json_response({'keyPoints': KEY_POINTS})),
-        ]
+            gemini_ai_message(HEADLINE),
+            gemini_ai_message({'keyPoints': KEY_POINTS}),
+        ],
     )
 
     result = await _generate_global_outputs(
-        BatchLlmProvider(client),
+        BatchLlmProvider(harness.client),
         CLUSTERS,
         [],
     )
@@ -282,17 +326,36 @@ async def test_global_outputs_store_headline_and_key_points_when_both_succeed():
 
 
 @pytest.mark.anyio
-async def test_global_outputs_propagate_key_point_cancellation():
-    client = MockGeminiApiClient(
+async def test_global_outputs_propagate_key_point_transient_error(monkeypatch):
+    harness = build_mock_gemini_harness(
+        monkeypatch,
         [
-            (200, gemini_json_response(HEADLINE)),
+            gemini_ai_message(HEADLINE),
+            httpx.ReadTimeout('key point provider timed out'),
+        ],
+    )
+
+    with pytest.raises(LlmRetryableError):
+        await _generate_global_outputs(
+            BatchLlmProvider(harness.client),
+            CLUSTERS,
+            [],
+        )
+
+
+@pytest.mark.anyio
+async def test_global_outputs_propagate_key_point_cancellation(monkeypatch):
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [
+            gemini_ai_message(HEADLINE),
             asyncio.CancelledError(),
-        ]
+        ],
     )
 
     with pytest.raises(asyncio.CancelledError):
         await _generate_global_outputs(
-            BatchLlmProvider(client),
+            BatchLlmProvider(harness.client),
             CLUSTERS,
             [],
         )

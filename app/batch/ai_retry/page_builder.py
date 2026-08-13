@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
+from app.batch.ai_output_contracts import KEY_POINT_FAILURE
 from app.batch.ai_retry.models import AiRetryCounts, AiRetryPageResult
 from app.batch.ai_retry.resolver import (
     is_successful_summary,
@@ -63,17 +64,25 @@ class AiRetryPageBuilder:
         source_links = await source_repo.get_page_article_links(source_market_ids)
         effective = resolve_effective_summaries(summaries)
         issues = _build_page_issues(source_page, effective)
-        non_ai_issues = [
-            issue for issue in issues if issue.get('category') != 'AI_SUMMARY'
-        ]
         all_targets_recovered = counts.success_count == counts.target_count
         page_status = (
             PageStatus.READY.value
-            if all_targets_recovered and not non_ai_issues
+            if all_targets_recovered and not issues
             else PageStatus.PARTIAL.value
         )
         partial_message = _partial_message(issues)
         metadata = dict(source_page.get('metadata_json') or {})
+        global_summary = effective.get(AiSummaryType.GLOBAL_HEADLINE.value)
+        global_metadata = (
+            global_summary.metadata_json if global_summary is not None else {}
+        ) or {}
+        key_points = (
+            global_metadata.get('keyPoints')
+            if isinstance(global_metadata, Mapping)
+            else None
+        )
+        if isinstance(key_points, list):
+            metadata['keyPoints'] = list(key_points)
         metadata['issues'] = issues
         metadata['aiRetry'] = {
             'sourceJobId': source_job_id,
@@ -84,7 +93,6 @@ class AiRetryPageBuilder:
             'targetCount': counts.target_count,
         }
 
-        global_summary = effective.get(AiSummaryType.GLOBAL_HEADLINE.value)
         version_no = await write_repo.get_next_version_no(source_page['business_date'])
         page_id = await write_repo.create_page(
             business_date=source_page['business_date'],
@@ -256,6 +264,9 @@ def _build_page_issues(
             )
 
     for target_key, summary in sorted(effective.items()):
+        key_point_issue = _key_point_issue(target_key, summary)
+        if key_point_issue is not None:
+            issues.append(key_point_issue)
         if is_successful_summary(summary):
             continue
         issues.append(
@@ -268,6 +279,21 @@ def _build_page_issues(
             }
         )
     return issues
+
+
+def _key_point_issue(
+    target_key: str,
+    summary: AiSummaryRecord,
+) -> dict[str, str] | None:
+    if target_key != AiSummaryType.GLOBAL_HEADLINE.value:
+        return None
+    metadata = summary.metadata_json or {}
+    issue = metadata.get('keyPointIssue') if isinstance(metadata, Mapping) else None
+    if not isinstance(issue, Mapping):
+        return None
+    if issue.get('code') != KEY_POINT_FAILURE['code']:
+        return None
+    return dict(KEY_POINT_FAILURE)
 
 
 def _partial_message(issues: list[dict[str, Any]]) -> str | None:

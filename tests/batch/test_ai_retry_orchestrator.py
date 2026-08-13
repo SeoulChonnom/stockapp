@@ -14,6 +14,24 @@ from app.db.repositories.projections import AiSummaryRecord
 
 BUSINESS_DATE = date(2026, 7, 28)
 GENERATED_AT = datetime(2026, 7, 29, tzinfo=UTC)
+KEY_POINTS = [
+    {
+        'kind': 'direction',
+        'label': '시장 방향',
+        'text': '주요 지수가 상승했습니다.',
+        'direction': 'UP',
+    },
+    {
+        'kind': 'driver',
+        'label': '주요 원인',
+        'text': '반도체 강세가 상승을 이끌었습니다.',
+    },
+    {
+        'kind': 'watch',
+        'label': '관전 포인트',
+        'text': '다음 물가 지표를 확인해야 합니다.',
+    },
+]
 
 
 class FakeSessionContext:
@@ -297,6 +315,14 @@ class SuccessfulLlm:
     async def summarize_global_headline(self, **_kwargs):
         return {'title': 'recovered', 'body': 'recovered body'}
 
+    async def summarize_key_points(self, **_kwargs):
+        return {'keyPoints': KEY_POINTS}
+
+
+class KeyPointFailureLlm(SuccessfulLlm):
+    async def summarize_key_points(self, **_kwargs):
+        return {'keyPoints': [{'kind': 'direction'}]}
+
 
 class TimeoutLlm(SuccessfulLlm):
     async def summarize_global_headline(self, **_kwargs):
@@ -455,6 +481,83 @@ async def test_recovered_target_creates_vnext_and_completes_success():
     assert summary_writer.params[0].source_summary_id == source.summary_id
     assert source.status == 'FALLBACK'
     assert retry_repo.completed['page_id'] == 777
+
+
+@pytest.mark.anyio
+async def test_recovered_global_target_persists_v2_outputs_and_retry_metadata():
+    source = _source_summary()
+    orchestrator, _, summary_writer, _ = _orchestrator(
+        lineage=[source],
+        llm=SuccessfulLlm(),
+        page_builder=FakePageBuilder(),
+    )
+
+    result = await orchestrator.run(20)
+
+    persisted = summary_writer.params[0]
+    assert result.counts.success_count == 1
+    assert result.counts.recovered_count == 1
+    assert persisted.prompt_version == 'v2'
+    assert persisted.status == 'SUCCESS'
+    assert persisted.fallback_used is False
+    assert persisted.metadata_json == {
+        'reason': 'llm',
+        'keyPoints': KEY_POINTS,
+        'keyPointIssue': None,
+        'retry': {'sourceSummaryId': source.summary_id, 'attemptNo': 2},
+    }
+
+
+@pytest.mark.anyio
+async def test_retry_keeps_successful_headline_when_key_points_fail():
+    source = _source_summary()
+    orchestrator, _, summary_writer, _ = _orchestrator(
+        lineage=[source],
+        llm=KeyPointFailureLlm(),
+        page_builder=FakePageBuilder(),
+    )
+
+    result = await orchestrator.run(20)
+
+    persisted = summary_writer.params[0]
+    assert result.counts.success_count == 1
+    assert persisted.status == 'SUCCESS'
+    assert persisted.fallback_used is False
+    assert persisted.title == 'recovered'
+    assert persisted.metadata_json['keyPoints'] == []
+    assert persisted.metadata_json['keyPointIssue'] == {
+        'category': 'AI_SUMMARY',
+        'code': 'KEY_POINTS_GENERATION_FAILED',
+        'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+    }
+    assert persisted.metadata_json['retry'] == {
+        'sourceSummaryId': source.summary_id,
+        'attemptNo': 2,
+    }
+
+
+@pytest.mark.anyio
+async def test_retry_keeps_key_points_when_headline_fails():
+    source = _source_summary()
+    orchestrator, _, summary_writer, _ = _orchestrator(
+        lineage=[source],
+        llm=TimeoutLlm(),
+        page_builder=FakePageBuilder(),
+    )
+
+    result = await orchestrator.run(20)
+
+    persisted = summary_writer.params[0]
+    assert result.counts.success_count == 0
+    assert result.counts.recovered_count == 0
+    assert persisted.status == 'FALLBACK'
+    assert persisted.fallback_used is True
+    assert persisted.metadata_json['keyPoints'] == KEY_POINTS
+    assert persisted.metadata_json['keyPointIssue'] is None
+    assert persisted.metadata_json['retry'] == {
+        'sourceSummaryId': source.summary_id,
+        'attemptNo': 2,
+    }
 
 
 @pytest.mark.anyio

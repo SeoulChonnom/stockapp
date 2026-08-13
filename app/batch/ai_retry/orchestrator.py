@@ -21,7 +21,7 @@ from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
 from app.batch.steps.ai_summary_generators import (
     _generate_cluster_card_summary,
     _generate_cluster_detail_summary,
-    _generate_global_headline,
+    _generate_global_outputs,
     _generate_market_summary,
 )
 from app.core.error_diagnostics import build_step_error_diagnostics
@@ -314,7 +314,7 @@ async def _generate_target(
 ) -> dict[str, Any]:
     target = selection.target
     if target.summary_type == 'GLOBAL_HEADLINE':
-        return await _generate_global_headline(llm_provider, clusters, indices)
+        return await _generate_global_outputs(llm_provider, clusters, indices)
     market_type = target.market_type
     if market_type is None:
         raise ValueError(f'Retry target is missing a market type: {target.target_key}')
