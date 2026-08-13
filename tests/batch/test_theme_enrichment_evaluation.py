@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from pathlib import Path
 
 from scripts.evaluate_theme_enrichment import (
+    BASELINE_SYSTEM_PROMPT,
+    BASELINE_SYSTEM_PROMPT_SHA256,
     DATASET_PATH,
     EXPECTED_CALL_COUNT,
     CallRecord,
+    _audit_theme_output,
+    _content_contract_valid,
     compute_metrics,
+    evaluate_gates,
     load_dataset,
     run_evaluation,
 )
@@ -48,6 +55,7 @@ def test_compute_metrics_uses_exact_gate_denominators() -> None:
             prompt_tokens=12,
             response_tokens=11,
             raw_response_sha256='b' * 64,
+            theme_zero_valid=True,
         ),
         CallRecord(
             variant='candidate_a',
@@ -121,3 +129,100 @@ def test_evaluation_uses_real_prompt_and_response_sizes() -> None:
 
 def test_result_path_is_stable_under_the_fixture() -> None:
     assert DATASET_PATH == Path('tests/fixtures/theme_enrichment_eval.json')
+
+
+def test_historical_baseline_prompt_is_frozen() -> None:
+    """Pin the exact pre-Task5 production prompt from parent 36411a6."""
+
+    assert BASELINE_SYSTEM_PROMPT == (
+        'You are a financial news clustering assistant. '
+        'Return a single JSON object with keys: title, summary_short, '
+        'summary_long, tags, representative_article_index, '
+        'analysis_paragraphs.'
+    )
+    prompt_bytes = BASELINE_SYSTEM_PROMPT.encode('utf-8')
+    assert len(prompt_bytes) == 178
+    assert hashlib.sha256(prompt_bytes).hexdigest() == BASELINE_SYSTEM_PROMPT_SHA256
+
+
+def test_theme_audit_uses_production_subset_parser() -> None:
+    allowed = ('MACRO_ECONOMIC_DATA_INFLATION', 'SECTOR_AUTOS_MOBILITY')
+
+    raw_invalid, reason, zero_valid, accepted = _audit_theme_output(
+        {'themeCodes': ['MACRO_ECONOMIC_DATA_INFLATION', 'UNKNOWN_LEAF']}, allowed
+    )
+    assert raw_invalid is True
+    assert reason == 'UNKNOWN_CODE'
+    assert zero_valid is False
+    assert accepted == ['MACRO_ECONOMIC_DATA_INFLATION']
+
+    raw_invalid, reason, zero_valid, accepted = _audit_theme_output(
+        {'themeCodes': ['MACRO_ECONOMIC_DATA_INFLATION'] * 2}, allowed
+    )
+    assert raw_invalid is True
+    assert reason == 'DUPLICATE_CODE'
+    assert zero_valid is False
+    assert accepted == ['MACRO_ECONOMIC_DATA_INFLATION']
+
+
+def test_content_contract_matches_production_parser_semantics() -> None:
+    # Candidate enrichment omits evaluator-only representative_article_index;
+    # production defaults it to article zero and only validates optional shapes.
+    assert _content_contract_valid(
+        {'title': 'event', 'tags': [], 'analysis_paragraphs': []}, 2
+    )
+    # Production normalizes an out-of-range representative index to zero.
+    assert _content_contract_valid(
+        {
+            'title': 'event',
+            'representative_article_index': 999,
+            'tags': [],
+            'analysis_paragraphs': [],
+        },
+        2,
+    )
+    assert not _content_contract_valid({'tags': 'not-a-list'}, 2)
+
+
+def test_written_hash_manifest_matches_artifact_bytes(tmp_path: Path) -> None:
+    result_path = tmp_path / 'theme-eval.json'
+    report_path = tmp_path / 'theme-eval.md'
+    result = asyncio.run(
+        run_evaluation(
+            write_outputs=True,
+            result_path=result_path,
+            report_path=report_path,
+            repeatability_runs=0,
+        )
+    )
+
+    manifest = json.loads(
+        (tmp_path / 'theme-eval.manifest.json').read_text(encoding='utf-8')
+    )
+    assert (
+        manifest['resultJsonSha256']
+        == hashlib.sha256(result_path.read_bytes()).hexdigest()
+    )
+    assert (
+        manifest['reportMarkdownSha256']
+        == hashlib.sha256(report_path.read_bytes()).hexdigest()
+    )
+    assert (
+        result.provenance['baselinePrompt']['sha256'] == BASELINE_SYSTEM_PROMPT_SHA256
+    )
+    assert (
+        result.provenance['evaluatorScriptSha256']
+        == hashlib.sha256(
+            Path('scripts/evaluate_theme_enrichment.py').read_bytes()
+        ).hexdigest()
+    )
+
+
+def test_latency_gate_can_be_marked_non_decisive_after_repeatability_crossing() -> None:
+    result = asyncio.run(run_evaluation(write_outputs=False, repeatability_runs=0))
+    checks = evaluate_gates(
+        result.baseline_metrics,
+        result.candidate_metrics,
+        latency_status='NON_DECISIVE',
+    )
+    assert checks['p95_latency_increase']['status'] == 'NON_DECISIVE'
