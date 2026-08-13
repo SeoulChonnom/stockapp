@@ -189,9 +189,12 @@ class SummaryRepository:
     def __init__(self) -> None:
         self.rows: dict[str, object] = {}
 
-    async def upsert_retry_summary(self, params):
+    async def upsert_full_run_summary(self, params):
         self.rows[params.target_key] = params
         return params
+
+    async def upsert_retry_summary(self, params):
+        raise AssertionError('normal batch must not use retry upsert')
 
 
 def _success_payload(label: str) -> dict:

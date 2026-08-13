@@ -349,7 +349,7 @@ async def _persist_summary_result(
         metadata_json=metadata,
         target_key=target_key,
     )
-    upsert = getattr(summary_repo, 'upsert_retry_summary', None)
+    upsert = getattr(summary_repo, 'upsert_full_run_summary', None)
     if callable(upsert):
         typed_upsert = cast(
             Callable[[AiSummaryCreateParams], Awaitable[Any]],

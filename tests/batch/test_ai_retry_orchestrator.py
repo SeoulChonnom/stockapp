@@ -352,6 +352,20 @@ class KeyPointOnlyLlm(SuccessfulLlm):
         )
 
 
+class FullGlobalTrackingLlm(SuccessfulLlm):
+    def __init__(self):
+        self.headline_calls = 0
+        self.key_point_calls = 0
+
+    async def summarize_global_headline(self, **_kwargs):
+        self.headline_calls += 1
+        return {'title': 'regenerated headline', 'body': 'regenerated body'}
+
+    async def summarize_key_points(self, **_kwargs):
+        self.key_point_calls += 1
+        return {'keyPoints': KEY_POINTS}
+
+
 class TimeoutLlm(SuccessfulLlm):
     async def summarize_global_headline(self, **_kwargs):
         raise TimeoutError('provider timeout')
@@ -509,6 +523,58 @@ async def test_recovered_target_creates_vnext_and_completes_success():
     assert summary_writer.params[0].source_summary_id == source.summary_id
     assert source.status == 'FALLBACK'
     assert retry_repo.completed['page_id'] == 777
+
+
+@pytest.mark.anyio
+async def test_ai_retry_uses_retry_upsert_boundary():
+    orchestrator, _, summary_writer, _ = _orchestrator(
+        lineage=[_source_summary()],
+        llm=SuccessfulLlm(),
+        page_builder=FakePageBuilder(),
+    )
+
+    await orchestrator.run(20)
+
+    assert len(summary_writer.params) == 1
+
+
+@pytest.mark.anyio
+async def test_fallback_global_headline_retries_headline_and_keypoints_together():
+    source = replace(
+        _source_summary(),
+        title='fallback headline',
+        status='FALLBACK',
+        fallback_used=True,
+        metadata_json={
+            'keyPointIssue': {
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+            }
+        },
+    )
+    selection = AiRetrySelection(
+        target=AiSummaryTarget(
+            target_key='GLOBAL_HEADLINE',
+            summary_type='GLOBAL_HEADLINE',
+            market_type=None,
+            cluster_id=None,
+        ),
+        source_summary=source,
+    )
+    provider = FullGlobalTrackingLlm()
+
+    payload = await _generate_target(
+        selection,
+        llm_provider=provider,
+        cluster_repo=FakeClusterRepository(),
+        clusters=[],
+        indices=[],
+    )
+
+    assert payload['title'] == 'regenerated headline'
+    assert payload['body'] == 'regenerated body'
+    assert provider.headline_calls == 1
+    assert provider.key_point_calls == 1
 
 
 @pytest.mark.anyio
@@ -799,6 +865,48 @@ async def test_retry_key_point_only_failure_preserves_headline_and_canonical_iss
     }
     assert provider.headline_calls == 0
     assert provider.key_point_calls == 1
+
+
+@pytest.mark.anyio
+async def test_crash_resume_unresolved_keypoint_retry_does_not_rebuild_page():
+    source = replace(
+        _source_summary(),
+        status='SUCCESS',
+        fallback_used=False,
+        title='persisted headline',
+        body='persisted body',
+        metadata_json={
+            'keyPointIssue': {
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+            }
+        },
+    )
+    current_retry = replace(
+        source,
+        summary_id=2,
+        batch_job_id=20,
+        source_summary_id=source.summary_id,
+        attempt_no=2,
+    )
+    page_builder = FakePageBuilder()
+    orchestrator, _, summary_writer, _ = _orchestrator(
+        lineage=[source, current_retry],
+        llm=KeyPointOnlyLlm(fail=True),
+        page_builder=page_builder,
+    )
+
+    result = await orchestrator.run(20)
+
+    assert result.status == 'PARTIAL'
+    assert result.counts.recovered_count == 0
+    assert result.page is None
+    assert page_builder.calls == []
+    assert summary_writer.params[0].metadata_json['keyPointIssue'] == {
+        'category': 'AI_SUMMARY',
+        'code': 'KEY_POINTS_GENERATION_FAILED',
+        'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+    }
 
 
 @pytest.mark.anyio

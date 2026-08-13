@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from app.batch.ai_retry.resolver import (
     calculate_retry_counts,
+    has_unresolved_key_points,
     resolve_effective_summaries,
     select_retry_targets,
 )
@@ -214,3 +215,104 @@ def test_successful_global_headline_with_key_point_issue_is_retryable():
     assert [selection.target.target_key for selection in selected] == [
         'GLOBAL_HEADLINE'
     ]
+
+
+def test_fallback_global_headline_with_key_point_issue_is_not_keypoint_only():
+    fallback = _summary(
+        12,
+        job_id=10,
+        target_key='GLOBAL_HEADLINE',
+        status='FALLBACK',
+        fallback_used=True,
+        metadata_json={
+            'keyPointIssue': {
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+            }
+        },
+    )
+
+    assert has_unresolved_key_points(fallback) is False
+
+
+def test_unresolved_to_unresolved_retry_does_not_count_as_recovered():
+    source = _summary(
+        13,
+        job_id=10,
+        target_key='GLOBAL_HEADLINE',
+        status='SUCCESS',
+        fallback_used=False,
+        metadata_json={
+            'keyPointIssue': {
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+            }
+        },
+    )
+    current_retry = _summary(
+        14,
+        job_id=20,
+        target_key='GLOBAL_HEADLINE',
+        status='SUCCESS',
+        fallback_used=False,
+        attempt_no=2,
+        source_summary_id=source.summary_id,
+        metadata_json={
+            'keyPointIssue': {
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+            }
+        },
+    )
+
+    counts = calculate_retry_counts(
+        source_job_id=10,
+        retry_job_id=20,
+        lineage=[source, current_retry],
+    )
+
+    assert counts.attempted_count == 1
+    assert counts.success_count == 0
+    assert counts.fallback_count == 1
+    assert counts.recovered_count == 0
+
+
+def test_crash_resume_keeps_current_unresolved_keypoint_row_selected():
+    source = _summary(
+        15,
+        job_id=10,
+        target_key='GLOBAL_HEADLINE',
+        status='SUCCESS',
+        fallback_used=False,
+        metadata_json={
+            'keyPointIssue': {
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+            }
+        },
+    )
+    current_retry = _summary(
+        16,
+        job_id=20,
+        target_key='GLOBAL_HEADLINE',
+        status='SUCCESS',
+        fallback_used=False,
+        attempt_no=2,
+        source_summary_id=source.summary_id,
+        metadata_json={
+            'keyPointIssue': {
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+            }
+        },
+    )
+
+    selected = select_retry_targets(
+        source_job_id=10,
+        retry_job_id=20,
+        lineage=[source, current_retry],
+    )
+
+    assert len(selected) == 1
+    assert selected[0].existing_retry is current_retry
+    assert selected[0].source_summary is source

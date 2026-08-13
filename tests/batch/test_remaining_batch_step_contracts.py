@@ -457,6 +457,61 @@ async def test_persist_global_headline_records_key_point_partial_and_warning():
 
 
 @pytest.mark.anyio
+async def test_normal_batch_persistence_uses_full_run_boundary_not_retry_upsert():
+    generate_module = load_module('app.batch.steps.generate_ai_summaries')
+
+    class RecordingSummaryRepo:
+        def __init__(self):
+            self.full_run_params = []
+
+        async def upsert_full_run_summary(self, params):
+            self.full_run_params.append(params)
+
+        async def upsert_retry_summary(self, params):
+            raise AssertionError('normal batch must not use retry upsert')
+
+        async def insert_summary(self, params):
+            raise AssertionError('normal batch must use full-run boundary')
+
+    class RecordingProgress:
+        async def commit_target(self, target_key, context):
+            _ = target_key, context
+
+    target_key = 'GLOBAL_HEADLINE'
+    summary_repo = RecordingSummaryRepo()
+    await generate_module._persist_summary_result(
+        target_key,
+        {
+            'title': '글로벌 증시 반등',
+            'body': '반도체가 강세였습니다.',
+            'status': 'SUCCESS',
+            'fallback_used': False,
+            'metadata_json': {'keyPoints': [], 'keyPointIssue': None},
+        },
+        context=build_context(),
+        repository=RichEventRepository(
+            session=RecordingAsyncSession(),
+            events=[],
+        ),
+        step_code='GENERATE_AI_SUMMARIES',
+        summary_repo=summary_repo,
+        summary_jobs_by_key={
+            target_key: {
+                'summary_type': 'GLOBAL_HEADLINE',
+                'market_type': None,
+                'cluster_id': None,
+                'target_key': target_key,
+                'generate': None,
+            }
+        },
+        progress=RecordingProgress(),
+        fallback_details=[],
+    )
+
+    assert len(summary_repo.full_run_params) == 1
+
+
+@pytest.mark.anyio
 async def test_persist_global_headline_sanitizes_untrusted_key_point_issue_message():
     generate_module = load_module('app.batch.steps.generate_ai_summaries')
 

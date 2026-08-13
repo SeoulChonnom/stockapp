@@ -16,7 +16,7 @@ def is_successful_summary(summary: AiSummaryRecord) -> bool:
 
 def has_unresolved_key_points(summary: AiSummaryRecord) -> bool:
     """Return whether a successful global headline still needs key points."""
-    if summary.summary_type != 'GLOBAL_HEADLINE':
+    if summary.summary_type != 'GLOBAL_HEADLINE' or not is_successful_summary(summary):
         return False
     metadata = summary.metadata_json
     if not isinstance(metadata, Mapping):
@@ -121,7 +121,7 @@ def calculate_retry_counts(
             counts.fallback_count += 1
 
     for retry_row in retry_rows:
-        if not is_successful_summary(retry_row):
+        if not is_retry_resolved(retry_row):
             continue
         source = _find_retry_source(
             current=retry_row,

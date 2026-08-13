@@ -14,12 +14,12 @@ class AiSummaryWriteRepository(PostgresRepository):
     async def insert_summary(self, params: AiSummaryCreateParams) -> AiSummaryRecord:
         statement = text(
             """
-            WITH target_lock AS (
+            WITH target_lock AS MATERIALIZED (
                 SELECT pg_advisory_xact_lock(
                     hashtextextended(CAST(:target_key AS TEXT), 0)
                 )
             ),
-            next_attempt AS (
+            next_attempt AS MATERIALIZED (
                 SELECT COALESCE(MAX(existing.attempt_no), 0) + 1 AS attempt_no
                 FROM {summary_table} AS existing
                 CROSS JOIN target_lock
@@ -115,6 +115,129 @@ class AiSummaryWriteRepository(PostgresRepository):
                 'target_key': target_key,
                 'source_summary_id': params.source_summary_id,
                 'attempt_no': params.attempt_no,
+            },
+        )
+        row = result.mappings().one()
+        return self._model_from_mapping(AiSummaryRecord, row)
+
+    async def upsert_full_run_summary(
+        self, params: AiSummaryCreateParams
+    ) -> AiSummaryRecord:
+        """Persist a normal-batch target with resume-safe attempt lineage."""
+        target_key = params.target_key or build_ai_summary_target_key(
+            params.summary_type,
+            market_type=params.market_type,
+            cluster_id=params.cluster_id,
+        )
+        statement = text(
+            """
+            WITH target_lock AS MATERIALIZED (
+                SELECT pg_advisory_xact_lock(
+                    hashtextextended(CAST(:target_key AS TEXT), 0)
+                ) AS acquired
+            ),
+            next_attempt AS MATERIALIZED (
+                SELECT COALESCE(MAX(existing.attempt_no), 0) + 1 AS attempt_no
+                FROM {summary_table} AS existing
+                CROSS JOIN target_lock
+                WHERE existing.target_key = :target_key
+            )
+            INSERT INTO {summary_table} (
+                batch_job_id,
+                summary_type,
+                business_date,
+                market_type,
+                cluster_id,
+                title,
+                body,
+                paragraphs_json,
+                model_name,
+                prompt_version,
+                status,
+                fallback_used,
+                error_message,
+                metadata_json,
+                target_key,
+                source_summary_id,
+                attempt_no
+            )
+            VALUES (
+                :batch_job_id,
+                CAST(:summary_type AS {summary_type_enum}),
+                :business_date,
+                CAST(:market_type AS {market_type_enum}),
+                :cluster_id,
+                :title,
+                :body,
+                CAST(:paragraphs_json AS JSONB),
+                :model_name,
+                :prompt_version,
+                CAST(:status AS {status_enum}),
+                :fallback_used,
+                :error_message,
+                CAST(:metadata_json AS JSONB),
+                :target_key,
+                :source_summary_id,
+                (SELECT attempt_no FROM next_attempt)
+            )
+            ON CONFLICT (batch_job_id, target_key) DO UPDATE
+            SET
+                title = EXCLUDED.title,
+                body = EXCLUDED.body,
+                paragraphs_json = EXCLUDED.paragraphs_json,
+                model_name = EXCLUDED.model_name,
+                prompt_version = EXCLUDED.prompt_version,
+                status = EXCLUDED.status,
+                fallback_used = EXCLUDED.fallback_used,
+                error_message = EXCLUDED.error_message,
+                metadata_json = EXCLUDED.metadata_json,
+                generated_at = now()
+            RETURNING
+                id AS summary_id,
+                batch_job_id,
+                summary_type,
+                business_date,
+                market_type,
+                cluster_id,
+                title,
+                body,
+                paragraphs_json,
+                model_name,
+                prompt_version,
+                status,
+                fallback_used,
+                error_message,
+                metadata_json,
+                target_key,
+                source_summary_id,
+                attempt_no,
+                generated_at
+            """.format(
+                summary_table=qualify_db_identifier('ai_summary'),
+                summary_type_enum=qualify_db_identifier('ai_summary_type_enum'),
+                market_type_enum=qualify_db_identifier('market_type_enum'),
+                status_enum=qualify_db_identifier('ai_summary_status_enum'),
+            )
+        )
+        result = await self.session.execute(
+            statement,
+            {
+                'batch_job_id': params.batch_job_id,
+                'summary_type': params.summary_type,
+                'business_date': params.business_date,
+                'market_type': params.market_type,
+                'cluster_id': params.cluster_id,
+                'title': params.title,
+                'body': params.body,
+                'paragraphs_json': json.dumps(params.paragraphs_json),
+                'model_name': params.model_name,
+                'prompt_version': params.prompt_version,
+                'status': params.status,
+                'fallback_used': params.fallback_used,
+                'error_message': params.error_message,
+                'metadata_json': json.dumps(params.metadata_json),
+                'target_key': target_key,
+                'source_summary_id': params.source_summary_id,
             },
         )
         row = result.mappings().one()
