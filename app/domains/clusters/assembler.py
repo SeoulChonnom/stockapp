@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Any
 
+from app.batch.ai_output_contracts import (
+    ANALYSIS_ISSUE_MESSAGES,
+    build_unavailable_analysis,
+    validate_analysis_sections,
+)
 from app.core.timezone import isoformat_datetime
 from app.schemas.cluster import (
-    AnalysisIssueResponse,
     ArticleGroupingIssueResponse,
     ArticleGroupingResponse,
     ClusterArticleResponse,
@@ -48,7 +53,7 @@ def _build_unavailable_group_article(
     group_rank: int,
 ) -> ClusterArticleResponse:
     return ClusterArticleResponse(
-        processedArticleId=article['id'],
+        processedArticleId=_required_article_id(article),
         title=article['canonical_title'],
         publisherName=article.get('publisher_name'),
         publishedAt=_as_iso(article.get('published_at')),
@@ -69,13 +74,17 @@ def build_cluster_detail_payload(
     cluster: dict[str, Any],
     representative_article: dict[str, Any],
     articles: list[dict[str, Any]],
+    ai_summary: Any | None = None,
 ) -> dict[str, Any]:
     cluster_uid = str(cluster['cluster_uid'])
+    valid_article_ids = {_required_article_id(article) for article in articles}
     group_ranks_by_article_id = {
-        article['id']: group_rank
+        _required_article_id(article): group_rank
         for group_rank, article in enumerate(articles, start=1)
     }
-    representative_group_rank = group_ranks_by_article_id[representative_article['id']]
+    representative_article_id = _required_article_id(representative_article)
+    representative_group_rank = group_ranks_by_article_id[representative_article_id]
+    analysis = _build_persisted_analysis(ai_summary, valid_article_ids)
     return ClusterDetailResponse(
         clusterId=cluster_uid,
         businessDate=_as_date(cluster['business_date']),
@@ -86,16 +95,7 @@ def build_cluster_detail_payload(
         summary=ClusterSummaryResponse(
             short=cluster.get('summary_short'),
             long=cluster.get('summary_long'),
-            analysisStatus='UNAVAILABLE',
-            analysisGeneratedAt=None,
-            analysisIssues=[
-                AnalysisIssueResponse(
-                    code='NO_GROUNDED_SENTENCES',
-                    message='근거를 확인할 수 있는 분석 문장이 없습니다.',
-                )
-            ],
-            conflictStatus='NOT_CHECKED',
-            sections=[],
+            **analysis,
         ),
         representativeArticle=_build_unavailable_group_article(
             representative_article,
@@ -121,6 +121,122 @@ def build_cluster_detail_payload(
         lastUpdatedAt=_as_required_iso(cluster['last_updated_at']),
         articleCount=cluster['article_count'],
     ).model_dump(mode='json')
+
+
+def _required_article_id(article: Mapping[str, Any]) -> int:
+    article_id = article.get('id')
+    if not isinstance(article_id, int) or isinstance(article_id, bool):
+        raise ValueError('processed article id is missing or invalid')
+    return article_id
+
+
+def _build_persisted_analysis(
+    ai_summary: Any | None,
+    valid_article_ids: set[int],
+) -> dict[str, Any]:
+    if ai_summary is None:
+        return {
+            **build_unavailable_analysis('ANALYSIS_GENERATION_FAILED'),
+            'analysisGeneratedAt': None,
+        }
+
+    metadata = _as_mapping(_summary_value(ai_summary, 'metadata_json'))
+    if not _is_successful_summary(ai_summary):
+        return {
+            **_unavailable_from_metadata(metadata),
+            'analysisGeneratedAt': None,
+        }
+
+    persisted = validate_analysis_sections(
+        {'sections': _summary_value(ai_summary, 'paragraphs_json')},
+        valid_article_ids,
+    )
+    metadata_status = metadata.get('analysisStatus')
+    metadata_issues = _issue_codes(metadata.get('analysisIssues'))
+    if metadata_status == 'UNAVAILABLE':
+        persisted = _unavailable_result_with_metadata(persisted, metadata_issues)
+    elif persisted['analysisStatus'] == 'UNAVAILABLE':
+        persisted_codes = [issue['code'] for issue in persisted['analysisIssues']]
+        persisted = build_unavailable_analysis(
+            *(metadata_issues or persisted_codes or ['ANALYSIS_GENERATION_FAILED']),
+        )
+    else:
+        issue_codes = _unique_issue_codes(
+            [
+                *metadata_issues,
+                *[issue['code'] for issue in persisted['analysisIssues']],
+            ]
+        )
+        analysis_status = persisted['analysisStatus']
+        if metadata_status == 'PARTIAL' or issue_codes:
+            analysis_status = 'PARTIAL'
+        persisted = {
+            **persisted,
+            'analysisStatus': analysis_status,
+            'analysisIssues': _issues_for(issue_codes),
+        }
+
+    generated_at = (
+        _summary_value(ai_summary, 'generated_at')
+        if persisted['analysisStatus'] != 'UNAVAILABLE'
+        else None
+    )
+    return {
+        **persisted,
+        'analysisGeneratedAt': generated_at,
+    }
+
+
+def _is_successful_summary(ai_summary: Any) -> bool:
+    return _summary_value(ai_summary, 'status') == 'SUCCESS' and not bool(
+        _summary_value(ai_summary, 'fallback_used', False)
+    )
+
+
+def _summary_value(summary: Any, key: str, default: Any = None) -> Any:
+    if isinstance(summary, Mapping):
+        return summary.get(key, default)
+    return getattr(summary, key, default)
+
+
+def _as_mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _unavailable_from_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    codes = _issue_codes(metadata.get('analysisIssues'))
+    return build_unavailable_analysis(*(codes or ['ANALYSIS_GENERATION_FAILED']))
+
+
+def _unavailable_result_with_metadata(
+    persisted: Mapping[str, Any],
+    metadata_issues: list[str],
+) -> dict[str, Any]:
+    persisted_codes = [issue['code'] for issue in persisted['analysisIssues']]
+    codes = _unique_issue_codes([*metadata_issues, *persisted_codes])
+    return build_unavailable_analysis(*(codes or ['ANALYSIS_GENERATION_FAILED']))
+
+
+def _issue_codes(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return _unique_issue_codes(
+        [issue.get('code') for issue in value if isinstance(issue, Mapping)]
+    )
+
+
+def _unique_issue_codes(codes: list[Any]) -> list[str]:
+    return [
+        code
+        for index, code in enumerate(codes)
+        if isinstance(code, str)
+        and code in ANALYSIS_ISSUE_MESSAGES
+        and code not in codes[:index]
+    ]
+
+
+def _issues_for(codes: list[str]) -> list[dict[str, str]]:
+    return [{'code': code, 'message': ANALYSIS_ISSUE_MESSAGES[code]} for code in codes]
 
 
 __all__ = ['assemble_cluster_detail_response', 'build_cluster_detail_payload']

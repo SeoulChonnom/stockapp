@@ -3,13 +3,19 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.exceptions import NotFoundError
+from app.db.repositories.ai_summary_repo import AiSummaryRepository
 from app.db.repositories.cluster_repo import ClusterRepository
 from app.domains.clusters.assembler import build_cluster_detail_payload
 
 
 class ClustersService:
-    def __init__(self, repository: ClusterRepository) -> None:
+    def __init__(
+        self,
+        repository: ClusterRepository,
+        ai_summary_repository: AiSummaryRepository | None = None,
+    ) -> None:
         self._repo = repository
+        self._ai_summary_repo = ai_summary_repository
 
     async def get_cluster_detail(self, cluster_id: str) -> dict[str, Any]:
         cluster = await self._repo.get_cluster_by_uid(cluster_id)
@@ -33,8 +39,17 @@ class ClustersService:
             for row in cluster_articles
             if row['processed_article_id'] in by_id
         ]
+        ai_summary = None
+        if self._ai_summary_repo is not None:
+            ai_summary = await self._ai_summary_repo.get_latest_cluster_summary(
+                cluster['id'],
+                summary_type='CLUSTER_DETAIL_ANALYSIS',
+            )
         return build_cluster_detail_payload(
-            cluster, representative_article, ordered_articles
+            cluster,
+            representative_article,
+            ordered_articles,
+            ai_summary,
         )
 
 

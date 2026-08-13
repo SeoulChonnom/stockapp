@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import UTC, datetime
 
 import pytest  # pyright: ignore[reportMissingImports]
 from pydantic import ValidationError
@@ -38,6 +39,29 @@ SECTIONS = [
     {'kind': 'related', 'title': '관련 업종·종목', 'paragraphs': []},
     {'kind': 'outlook', 'title': '향후 관전 포인트', 'paragraphs': []},
 ]
+
+
+def _summary_record(*, paragraphs, metadata, status='SUCCESS', fallback_used=False):
+    from app.db.repositories.projections import AiSummaryRecord
+
+    return AiSummaryRecord(
+        summary_id=901,
+        batch_job_id=801,
+        summary_type='CLUSTER_DETAIL_ANALYSIS',
+        business_date=datetime(2026, 3, 17, tzinfo=UTC).date(),
+        market_type='US',
+        cluster_id=7001,
+        title='저장 분석',
+        body='저장 분석 본문',
+        paragraphs_json=paragraphs,
+        model_name='test-model',
+        prompt_version='test-prompt',
+        status=status,
+        fallback_used=fallback_used,
+        error_message=None,
+        metadata_json=metadata,
+        generated_at=datetime(2026, 3, 18, 5, 0, tzinfo=UTC),
+    )
 
 
 def _structured_cluster_payload(sample_cluster_detail_payload):
@@ -372,6 +396,13 @@ def test_cluster_builder_emits_unavailable_singleton_grouping(
     )
 
     assert payload['summary']['analysisStatus'] == 'UNAVAILABLE'
+    assert payload['summary']['analysisGeneratedAt'] is None
+    assert payload['summary']['analysisIssues'] == [
+        {
+            'code': 'ANALYSIS_GENERATION_FAILED',
+            'message': '분석을 생성하지 못했습니다.',
+        }
+    ]
     assert payload['articleGrouping'] == {
         'status': 'UNAVAILABLE',
         'generatedAt': None,
@@ -394,6 +425,120 @@ def test_cluster_builder_emits_unavailable_singleton_grouping(
         article['isSimilarGroupRepresentative'] for article in payload['articles']
     )
     assert all(article['exactDuplicateCount'] == 0 for article in payload['articles'])
+
+
+def test_cluster_builder_reads_persisted_sections_and_generated_at(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    persisted_summary = _summary_record(
+        paragraphs=[
+            {
+                'kind': 'background',
+                'title': '발생 배경',
+                'paragraphs': [
+                    {
+                        'sentences': [
+                            {
+                                'text': '반도체 업종 강세가 국내 시장으로 이어졌습니다.',
+                                'sourceArticleIds': [4001],
+                                'conflictStatus': 'NONE',
+                                'conflictingSourceArticleIds': [],
+                                'conflictNote': None,
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+        metadata={
+            'analysisStatus': 'READY',
+            'analysisIssues': [],
+            'conflictStatus': 'NONE',
+        },
+    )
+
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        persisted_summary,
+    )
+
+    assert payload['summary']['short'] == sample_cluster_row['summary_short']
+    assert payload['summary']['long'] == sample_cluster_row['summary_long']
+    assert payload['summary']['analysisStatus'] == 'READY'
+    assert payload['summary']['analysisGeneratedAt'] == '2026-03-18T05:00:00Z'
+    assert payload['summary']['sections'][0]['paragraphs'][0]['sentences'][0][
+        'sourceArticleIds'
+    ] == [4001]
+
+
+def test_cluster_builder_degrades_persisted_unknown_source_ids(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    persisted_summary = _summary_record(
+        paragraphs=[
+            {
+                'kind': 'background',
+                'title': '발생 배경',
+                'paragraphs': [
+                    {
+                        'sentences': [
+                            {
+                                'text': '응답 기사에 없는 근거를 참조합니다.',
+                                'sourceArticleIds': [9999],
+                                'conflictStatus': 'NONE',
+                                'conflictingSourceArticleIds': [],
+                                'conflictNote': None,
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+        metadata={
+            'analysisStatus': 'READY',
+            'analysisIssues': [],
+            'conflictStatus': 'NONE',
+        },
+    )
+
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        persisted_summary,
+    )
+
+    assert payload['summary']['analysisStatus'] == 'UNAVAILABLE'
+    assert payload['summary']['analysisGeneratedAt'] is None
+    assert payload['summary']['analysisIssues'] == [
+        {
+            'code': 'INVALID_SOURCE_REFERENCE',
+            'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+        },
+        {
+            'code': 'NO_GROUNDED_SENTENCES',
+            'message': '근거를 확인할 수 있는 분석 문장이 없습니다.',
+        },
+    ]
+    assert payload['summary']['sections'] == []
+
+
+def test_cluster_builder_rejects_missing_processed_article_id(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    invalid_article = {**sample_processed_article_rows[0], 'id': None}
+
+    with pytest.raises(ValueError, match='processed article id'):
+        build_cluster_detail_payload(
+            sample_cluster_row,
+            invalid_article,
+            [invalid_article, *sample_processed_article_rows[1:]],
+        )
 
 
 @pytest.mark.parametrize(

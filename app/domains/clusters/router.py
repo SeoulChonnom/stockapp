@@ -12,6 +12,7 @@ from app.core.openapi_responses import (
     merge_responses,
 )
 from app.core.response import ApiSuccess
+from app.db.repositories.ai_summary_repo import AiSummaryRepository
 from app.db.repositories.cluster_repo import ClusterRepository
 from app.domains.clusters.assembler import assemble_cluster_detail_response
 from app.domains.clusters.service import ClustersService
@@ -30,7 +31,10 @@ _CLUSTER_DETAIL_RESPONSES = merge_responses(
 
 
 def get_clusters_service(session: DbSession) -> ClustersService:
-    return ClustersService(ClusterRepository(session))
+    return ClustersService(
+        ClusterRepository(session),
+        AiSummaryRepository(session),
+    )
 
 
 ClustersServiceDep = Annotated[ClustersService, Depends(get_clusters_service)]

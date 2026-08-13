@@ -67,3 +67,15 @@ async def test_get_latest_cluster_summary_uses_qualified_summary_table():
         'cluster_id': 17,
         'summary_type': 'CLUSTER_CARD_SUMMARY',
     }
+
+
+@pytest.mark.anyio
+async def test_get_latest_cluster_summary_orders_attempt_then_timestamp_then_id():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repository = AiSummaryRepository(session)
+
+    await repository.get_latest_cluster_summary(7001)
+
+    sql = normalize_sql(session.statements[0]).lower()
+    assert 'order by attempt_no desc, generated_at desc, id desc' in sql
+    assert 'case when status' not in sql

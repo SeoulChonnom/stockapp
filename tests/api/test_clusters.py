@@ -145,3 +145,36 @@ def test_get_cluster_detail_returns_404_when_missing(client):
     )
 
     assert response.status_code == 404
+
+
+def test_get_clusters_service_injects_ai_summary_repository(monkeypatch):
+    created = {}
+
+    class FakeClusterRepository:
+        def __init__(self, session):
+            created['cluster_session'] = session
+
+    class FakeAiSummaryRepository:
+        def __init__(self, session):
+            created['summary_session'] = session
+
+    monkeypatch.setattr(
+        clusters_router_module,
+        'ClusterRepository',
+        FakeClusterRepository,
+    )
+    monkeypatch.setattr(
+        clusters_router_module,
+        'AiSummaryRepository',
+        FakeAiSummaryRepository,
+    )
+
+    session = object()
+    service = clusters_router_module.get_clusters_service(session)
+
+    assert created == {
+        'cluster_session': session,
+        'summary_session': session,
+    }
+    assert isinstance(service._repo, FakeClusterRepository)
+    assert isinstance(service._ai_summary_repo, FakeAiSummaryRepository)

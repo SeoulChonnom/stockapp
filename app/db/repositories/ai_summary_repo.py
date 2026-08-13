@@ -131,10 +131,6 @@ class AiSummaryRepository(PostgresRepository):
             WHERE cluster_id = :cluster_id
               AND summary_type = :summary_type
             ORDER BY
-                CASE
-                    WHEN status = 'SUCCESS' AND NOT fallback_used THEN 0
-                    ELSE 1
-                END,
                 attempt_no DESC,
                 generated_at DESC,
                 id DESC
