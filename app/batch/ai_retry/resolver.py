@@ -98,6 +98,7 @@ def calculate_retry_counts(
     """Calculate stable target-level counts after an attempt or resume."""
     source_rows = [row for row in lineage if row.batch_job_id == source_job_id]
     source_targets = {target_from_summary(row).target_key for row in source_rows}
+    source_effective = resolve_effective_summaries(source_rows)
     effective = resolve_effective_summaries(lineage)
     retry_rows = [
         row
@@ -120,16 +121,15 @@ def calculate_retry_counts(
         else:
             counts.fallback_count += 1
 
-    for retry_row in retry_rows:
-        if not is_retry_resolved(retry_row):
+    attempted_target_keys = {target_from_summary(row).target_key for row in retry_rows}
+    for target_key in attempted_target_keys:
+        source = source_effective.get(target_key)
+        effective_row = effective.get(target_key)
+        if source is None or effective_row is None:
             continue
-        source = _find_retry_source(
-            current=retry_row,
-            lineage=lineage,
-            fallback=retry_row,
-        )
-        if not is_retry_resolved(source):
-            counts.recovered_count += 1
+        if is_retry_resolved(source) or not is_retry_resolved(effective_row):
+            continue
+        counts.recovered_count += 1
     return counts
 
 

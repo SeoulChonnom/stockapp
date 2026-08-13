@@ -125,7 +125,7 @@ async def test_full_run_insert_allocates_next_attempt_per_logical_target():
     sql = normalize_sql(session.statements[0]).lower()
     assert 'with target_lock as' in sql
     assert 'coalesce(max(existing.attempt_no), 0) + 1' in sql
-    assert 'where existing.target_key =' in sql
+    assert 'from target_lock left join stock.ai_summary as existing' in sql
     assert session.parameters[0]['target_key'] == 'GLOBAL_HEADLINE'
     assert ':attempt_no' not in sql
 
@@ -142,7 +142,7 @@ async def test_full_run_upsert_allocates_attempt_and_preserves_resume_attempt():
     sql = normalize_sql(session.statements[0]).lower()
     assert 'with target_lock as materialized' in sql
     assert 'next_attempt as materialized' in sql
-    assert 'cross join target_lock' in sql
+    assert 'from target_lock left join stock.ai_summary as existing' in sql
     assert 'coalesce(max(existing.attempt_no), 0) + 1' in sql
     assert 'on conflict (batch_job_id, target_key) do update' in sql
     assert 'attempt_no = excluded.attempt_no' not in sql
@@ -160,5 +160,18 @@ async def test_full_run_first_insert_executes_materialized_lock_query_without_ro
     sql = normalize_sql(session.statements[0]).lower()
     assert 'target_lock as materialized' in sql
     assert 'select pg_advisory_xact_lock' in sql
-    assert 'from stock.ai_summary as existing' in sql
-    assert 'cross join target_lock' in sql
+    assert 'from target_lock left join stock.ai_summary as existing' in sql
+
+
+@pytest.mark.anyio
+async def test_full_run_empty_target_anchors_attempt_scan_on_lock_row():
+    session = RecordingAsyncSession(results=[DummyResult([_success_row()])])
+    repository = AiSummaryWriteRepository(session)
+
+    await repository.upsert_full_run_summary(_summary_params(batch_job_id=32))
+
+    sql = normalize_sql(session.statements[0]).lower()
+    assert 'from target_lock left join stock.ai_summary as existing' in sql
+    assert 'on existing.target_key =' in sql
+    assert 'cross join target_lock' not in sql
+    assert session.parameters[0]['target_key'] == 'GLOBAL_HEADLINE'

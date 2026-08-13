@@ -21,9 +21,9 @@ class AiSummaryWriteRepository(PostgresRepository):
             ),
             next_attempt AS MATERIALIZED (
                 SELECT COALESCE(MAX(existing.attempt_no), 0) + 1 AS attempt_no
-                FROM {summary_table} AS existing
-                CROSS JOIN target_lock
-                WHERE existing.target_key = :target_key
+                FROM target_lock
+                LEFT JOIN {summary_table} AS existing
+                  ON existing.target_key = :target_key
             )
             INSERT INTO {summary_table} (
                 batch_job_id,
@@ -138,9 +138,9 @@ class AiSummaryWriteRepository(PostgresRepository):
             ),
             next_attempt AS MATERIALIZED (
                 SELECT COALESCE(MAX(existing.attempt_no), 0) + 1 AS attempt_no
-                FROM {summary_table} AS existing
-                CROSS JOIN target_lock
-                WHERE existing.target_key = :target_key
+                FROM target_lock
+                LEFT JOIN {summary_table} AS existing
+                  ON existing.target_key = :target_key
             )
             INSERT INTO {summary_table} (
                 batch_job_id,
