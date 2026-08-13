@@ -24,6 +24,10 @@ from app.batch.theme_classifier import (
     ThemeEvidence,
     classify_theme_fallback,
 )
+from app.batch.theme_contract import (
+    THEME_CLASSIFICATION,
+    THEME_CLASSIFICATION_MISSING,
+)
 from app.batch.theme_rules import ThemeRuleCatalog, load_theme_rules
 from app.core.llm import LlmRetryableError
 from app.core.public_diagnostics import public_ai_provider_error
@@ -37,8 +41,6 @@ from app.db.repositories.theme_repo import ThemeRepository
 LOGGER = logging.getLogger(__name__)
 
 CLASSIFY_CLUSTER_THEMES = 'CLASSIFY_CLUSTER_THEMES'
-THEME_CLASSIFICATION = 'THEME_CLASSIFICATION'
-THEME_CLASSIFICATION_MISSING = 'THEME_CLASSIFICATION_MISSING'
 
 
 def _parse_theme_codes(

@@ -9,6 +9,7 @@ import pytest
 
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.llm_provider import THEME_CLASSIFIER_PROMPT_VERSION
+from app.batch.steps.build_page_snapshot import BuildPageSnapshotStep
 from app.batch.steps.classify_cluster_themes import (
     CLASSIFY_CLUSTER_THEMES,
     THEME_CLASSIFICATION,
@@ -19,6 +20,7 @@ from app.batch.theme_rules import CANONICAL_LEAF_CODES
 from app.core.llm import LlmRetryableError
 from app.db.repositories.projections import ThemeAssignmentCreateParams
 from tests.batch.theme_test_support import active_theme_tree_rows
+from tests.market_context_fakes import CompleteMarketContextRepository
 from tests.support import RecordingAsyncSession
 
 BUSINESS_DATE = date(2026, 3, 17)
@@ -185,6 +187,123 @@ async def test_zero_valid_output_uses_fallback_and_miss_clears_themes_once():
         )
         == 1
     )
+
+
+@pytest.mark.anyio
+async def test_classifier_missing_fallback_becomes_one_canonical_snapshot_issue():
+    class SnapshotClusterRepository(FakeClusterRepository):
+        def __init__(self, session):
+            super().__init__(session)
+            self.clusters[0].update(
+                {
+                    'cluster_uid': 'cluster-uid',
+                    'summary_short': '클러스터 요약',
+                    'article_count': 1,
+                    'representative_title': '대표 기사',
+                    'representative_publisher_name': '매체',
+                    'representative_published_at': None,
+                    'representative_origin_link': 'https://example.com/article',
+                    'representative_naver_link': None,
+                }
+            )
+
+        async def list_cluster_article_links_by_business_date(self, _business_date):
+            return [
+                {
+                    'market_type': 'US',
+                    'processed_article_id': 42,
+                    'cluster_id': 7001,
+                    'cluster_uid': 'cluster-uid',
+                    'cluster_title': '반도체 수요 증가',
+                    'title': 'HBM 수요가 늘었다',
+                    'publisher_name': '매체',
+                    'published_at': None,
+                    'origin_link': 'https://example.com/article',
+                    'naver_link': None,
+                }
+            ]
+
+        async def list_cluster_themes_by_business_date(self, _business_date):
+            return []
+
+    class EmptySummaryRepository:
+        def __init__(self, _session):
+            pass
+
+        async def list_summaries_for_job(self, _job_id):
+            return []
+
+    class EmptyIndexRepository:
+        def __init__(self, _session):
+            pass
+
+        async def list_indices_by_business_date(self, _business_date):
+            return []
+
+    class SnapshotWriter:
+        def __init__(self):
+            self.page = None
+            self.theme_rows = []
+            self.next_cluster_id = 9001
+
+        async def get_next_version_no(self, _business_date):
+            return 1
+
+        async def create_page(self, **kwargs):
+            self.page = kwargs
+            return 501
+
+        async def create_page_market(self, **_kwargs):
+            return 601
+
+        async def insert_page_market_index(self, _params):
+            return None
+
+        async def insert_page_market_cluster(self, _params):
+            cluster_id = self.next_cluster_id
+            self.next_cluster_id += 1
+            return cluster_id
+
+        async def insert_page_market_cluster_themes(self, cluster_id, themes):
+            self.theme_rows.append((cluster_id, themes))
+
+        async def insert_page_article_link(self, _params):
+            return None
+
+    session = RecordingAsyncSession()
+    repository = FakeBatchRepository(session, {}, [])
+    context = _context()
+    cluster_repository = SnapshotClusterRepository(session)
+    await _step(
+        FakeProvider(result={'themeCodes': ['PARENT', 'UNKNOWN']}),
+        cluster_repository,
+    ).run(repository, context)
+
+    snapshot_writer = SnapshotWriter()
+    await BuildPageSnapshotStep(
+        cluster_repo_factory=lambda _session: cluster_repository,
+        summary_repo_factory=EmptySummaryRepository,
+        index_repo_factory=EmptyIndexRepository,
+        snapshot_repo_factory=lambda _session: snapshot_writer,
+        context_repo_factory=CompleteMarketContextRepository,
+    ).run(repository, context)
+
+    assert snapshot_writer.page['status'] == 'PARTIAL'
+    assert snapshot_writer.page['partial_message'] == (
+        '일부 뉴스 주제의 검색 테마를 분류하지 못했습니다.'
+    )
+    assert snapshot_writer.page['metadata_json']['issues'] == [
+        {
+            'category': 'THEME_CLASSIFICATION',
+            'code': 'THEME_CLASSIFICATION_MISSING',
+            'message': '일부 뉴스 주제의 검색 테마를 분류하지 못했습니다.',
+        }
+    ]
+    assert context.partial_reasons == [
+        '일부 뉴스 주제의 검색 테마를 분류하지 못했습니다.'
+    ]
+    assert context.partial_categories == {'THEME_CLASSIFICATION': 1}
+    assert snapshot_writer.theme_rows == [(9001, [])]
 
 
 @pytest.mark.anyio

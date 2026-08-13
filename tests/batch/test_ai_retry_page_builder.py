@@ -64,14 +64,21 @@ class FakeSourcePageRepository:
         assert market_ids == [601]
         return self.state['links']
 
+    async def get_page_cluster_themes(self, page_market_cluster_ids):
+        assert page_market_cluster_ids == [801]
+        return self.state['themes']
+
 
 class FakePageWriteRepository:
-    def __init__(self) -> None:
+    def __init__(self, *, theme_error: Exception | None = None) -> None:
         self.page: dict | None = None
         self.markets: list[dict] = []
         self.indices: list[dict] = []
         self.clusters: list[dict] = []
+        self.themes: list[tuple[int, list[dict]]] = []
         self.links: list[dict] = []
+        self.next_cluster_id = 9001
+        self.theme_error = theme_error
 
     async def get_next_version_no(self, business_date):
         assert business_date == BUSINESS_DATE
@@ -90,6 +97,14 @@ class FakePageWriteRepository:
 
     async def insert_page_market_cluster(self, payload):
         self.clusters.append(payload)
+        cluster_id = self.next_cluster_id
+        self.next_cluster_id += 1
+        return cluster_id
+
+    async def insert_page_market_cluster_themes(self, page_cluster_id, themes):
+        if self.theme_error is not None:
+            raise self.theme_error
+        self.themes.append((page_cluster_id, themes))
 
     async def insert_page_article_link(self, payload):
         self.links.append(payload)
@@ -148,6 +163,7 @@ def _source_state(*, non_ai_issue: bool = False) -> dict:
                 'cluster_count': 1,
                 'partial_message': None,
                 'metadata_json': {},
+                'search_document': 'stored market search document',
             }
         ],
         'indices': [
@@ -183,6 +199,7 @@ def _source_state(*, non_ai_issue: bool = False) -> dict:
                 'representative_published_at': GENERATED_AT,
                 'representative_origin_link': 'https://example.com/a',
                 'representative_naver_link': None,
+                'search_document': 'stored cluster search document',
             }
         ],
         'links': [
@@ -200,6 +217,18 @@ def _source_state(*, non_ai_issue: bool = False) -> dict:
                 'origin_link': 'https://example.com/a',
                 'naver_link': None,
             }
+        ],
+        'themes': [
+            {
+                'page_market_cluster_id': 801,
+                'theme_code': 'THEME_STORED_A',
+                'rank': 1,
+            },
+            {
+                'page_market_cluster_id': 801,
+                'theme_code': 'THEME_STORED_C',
+                'rank': 3,
+            },
         ],
     }
 
@@ -311,6 +340,15 @@ async def test_all_recovery_creates_ready_vnext_with_ai_overlay_and_cloned_links
     )
     assert writes.markets[0]['news_coverage_complete'] is True
     assert writes.clusters[0]['summary'] == ('new body CLUSTER_CARD_SUMMARY:7')
+    assert writes.themes == [
+        (
+            9001,
+            [
+                {'theme_code': 'THEME_STORED_A', 'rank': 1},
+                {'theme_code': 'THEME_STORED_C', 'rank': 3},
+            ],
+        )
+    ]
     assert writes.indices[0]['index_code'] == 'IXIC'
     assert writes.links[0]['origin_link'] == 'https://example.com/a'
     assert source_state == original_state
@@ -454,6 +492,39 @@ async def test_partial_recovery_creates_partial_vnext():
     assert 'remain' in (result.partial_message or '')
     assert writes.page is not None
     assert len(writes.page['metadata_json']['issues']) == 2
+    assert writes.markets[0]['search_document'] == 'stored market search document'
+    assert writes.clusters[0]['search_document'] == 'stored cluster search document'
+
+
+@pytest.mark.anyio
+async def test_retry_theme_write_failure_propagates_without_filling_from_mutable_source():
+    source_state = _source_state()
+    writes = FakePageWriteRepository(theme_error=RuntimeError('theme write failed'))
+    builder = AiRetryPageBuilder(
+        source_page_repo_factory=lambda _: FakeSourcePageRepository(source_state),
+        snapshot_repo_factory=lambda _: writes,
+    )
+
+    with pytest.raises(RuntimeError, match='theme write failed'):
+        await builder.build(
+            session=object(),
+            source_page_id=501,
+            source_job_id=10,
+            retry_job_id=20,
+            summaries=_lineage(recover_market=False, recover_all=False),
+            counts=AiRetryCounts(
+                target_count=3,
+                attempted_count=3,
+                success_count=1,
+                fallback_count=2,
+                recovered_count=1,
+            ),
+        )
+
+    assert writes.page is not None
+    assert writes.markets[0]['search_document'] == 'stored market search document'
+    assert writes.clusters[0]['search_document'] == 'stored cluster search document'
+    assert writes.themes == []
 
 
 @pytest.mark.anyio

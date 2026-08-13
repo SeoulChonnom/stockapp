@@ -6,6 +6,7 @@ from typing import Any
 
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import metadata_string_list
+from app.batch.snapshot_contract import require_snapshot_cluster_id
 from app.batch.steps.page_snapshot_cloner import clone_child_rows, clone_page_markets
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
@@ -26,9 +27,8 @@ def _build_rebuild_market_fields(source_market: dict[str, Any]) -> dict[str, Any
         'cluster_count': source_market['cluster_count'],
         'partial_message': source_market.get('partial_message'),
         'metadata_json': source_market.get('metadata_json') or {},
+        'search_document': source_market['search_document'],
     }
-    if 'search_document' in source_market:
-        fields['search_document'] = source_market['search_document']
     for snapshot_field in (
         'expected_session_date',
         'actual_index_source_date',
@@ -101,11 +101,8 @@ async def rebuild_page_snapshot_from_persisted_page(
     source_article_links = await source_page_repo.get_page_article_links(
         source_market_ids
     )
-    get_page_cluster_themes = getattr(source_page_repo, 'get_page_cluster_themes', None)
-    source_cluster_themes = (
-        await get_page_cluster_themes([cluster['id'] for cluster in source_clusters])
-        if callable(get_page_cluster_themes) and source_clusters
-        else []
+    source_cluster_themes = await source_page_repo.get_page_cluster_themes(
+        [cluster['id'] for cluster in source_clusters]
     )
     themes_by_cluster_id: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for theme in source_cluster_themes:
@@ -147,20 +144,11 @@ async def rebuild_page_snapshot_from_persisted_page(
         payload['page_market_id'] = new_market_ids[source_cluster['page_market_id']]
         payload = _apply_rebuild_cluster_tags_fallback(source_cluster, payload)
         snapshot_cluster_id = await snapshot_repo.insert_page_market_cluster(payload)
-        if snapshot_cluster_id is None:
-            if themes_by_cluster_id.get(source_cluster.get('id')):
-                raise RuntimeError(
-                    'snapshot cluster insert must return an id before themes are copied'
-                )
-            continue
-        insert_themes = getattr(
-            snapshot_repo, 'insert_page_market_cluster_themes', None
+        snapshot_cluster_id = require_snapshot_cluster_id(snapshot_cluster_id)
+        await snapshot_repo.insert_page_market_cluster_themes(
+            snapshot_cluster_id,
+            themes_by_cluster_id.get(source_cluster.get('id'), []),
         )
-        if callable(insert_themes):
-            await insert_themes(
-                snapshot_cluster_id,
-                themes_by_cluster_id.get(source_cluster.get('id'), []),
-            )
     await clone_child_rows(
         source_article_links,
         new_market_ids=new_market_ids,

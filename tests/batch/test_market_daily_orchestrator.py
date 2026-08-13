@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 
+from tests.market_context_fakes import CompleteMarketContextRepository
 from tests.support import DummyResult, RecordingAsyncSession, load_module
 
 orchestrator_module = load_module('app.batch.orchestrators.market_daily')
@@ -291,6 +292,159 @@ async def test_market_daily_orchestrator_commits_failure_state_after_step_rollba
         if isinstance(params, dict) and params.get('status') == 'FAILED'
     ]
     assert failed_status_payloads[-1]['error_code'] == 'INTERNAL_BATCH_ERROR'
+
+
+@pytest.mark.anyio
+async def test_snapshot_theme_failure_rolls_back_page_publication_and_checkpoint(
+    monkeypatch,
+):
+    session = RecordingAsyncSession()
+
+    class SnapshotSourceRepository:
+        def __init__(self, _session):
+            pass
+
+        async def list_clusters_by_business_date(self, _business_date):
+            return [
+                {
+                    'id': 7001,
+                    'cluster_uid': 'cluster-uid',
+                    'market_type': 'US',
+                    'title': 'source cluster',
+                    'summary_short': 'source summary',
+                    'tags_json': [],
+                    'representative_article_id': 4001,
+                    'representative_title': 'source article',
+                    'representative_publisher_name': 'source publisher',
+                    'representative_published_at': None,
+                    'representative_origin_link': 'https://example.com/source',
+                    'representative_naver_link': None,
+                    'article_count': 1,
+                }
+            ]
+
+        async def list_cluster_article_links_by_business_date(self, _business_date):
+            return []
+
+        async def list_cluster_themes_by_business_date(self, _business_date):
+            return []
+
+    class EmptySummaryRepository:
+        def __init__(self, _session):
+            pass
+
+        async def list_summaries_for_job(self, _job_id):
+            return []
+
+    class EmptyIndexRepository:
+        def __init__(self, _session):
+            pass
+
+        async def list_indices_by_business_date(self, _business_date):
+            return []
+
+    class FailingSnapshotRepository:
+        def __init__(self, write_session):
+            self.session = write_session
+
+        async def get_next_version_no(self, _business_date):
+            return 1
+
+        async def create_page(self, **_kwargs):
+            await self.session.execute('DOMAIN_WRITE:page')
+            return 501
+
+        async def create_page_market(self, **_kwargs):
+            await self.session.execute('DOMAIN_WRITE:page_market')
+            return 601
+
+        async def insert_page_market_index(self, _params):
+            return None
+
+        async def insert_page_market_cluster(self, _params):
+            await self.session.execute('DOMAIN_WRITE:page_market_cluster')
+            return 701
+
+        async def insert_page_market_cluster_themes(self, _page_cluster_id, _themes):
+            await self.session.execute('DOMAIN_WRITE:page_market_cluster_theme')
+            raise RuntimeError('theme catalog foreign key violation')
+
+        async def insert_page_article_link(self, _params):
+            return None
+
+    class TransactionRepository:
+        def __init__(self, repository_session):
+            self.session = repository_session
+            self.events: list[dict] = []
+            self.failure_payload: dict | None = None
+            self.checkpoint_calls = 0
+
+        async def get_job_by_id(self, job_id):
+            return BatchJobRecord(
+                job_id=job_id,
+                job_name='market_daily_batch',
+                business_date=date(2026, 3, 17),
+                status='RUNNING',
+                started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+                ended_at=None,
+                duration_seconds=None,
+                market_scope='GLOBAL',
+                raw_news_count=0,
+                processed_news_count=0,
+                cluster_count=0,
+                page_id=None,
+                page_version_no=None,
+                force_run=False,
+                rebuild_page_only=False,
+            )
+
+        async def add_event(self, **kwargs):
+            self.events.append(kwargs)
+
+        async def mark_job_failed(self, **kwargs):
+            self.failure_payload = kwargs
+
+        async def save_checkpoint(self, **_kwargs):
+            self.checkpoint_calls += 1
+            return True
+
+        async def commit(self):
+            await self.session.commit()
+
+        async def rollback(self):
+            await self.session.rollback()
+
+    repository = TransactionRepository(session)
+    monkeypatch.setattr(
+        orchestrator_module, 'BatchJobRepository', lambda _session: repository
+    )
+    orchestrator = MarketDailyBatchOrchestrator(
+        session_maker=RecordingSessionMaker(session)
+    )
+    orchestrator._steps = [
+        orchestrator_module.BuildPageSnapshotStep(
+            cluster_repo_factory=SnapshotSourceRepository,
+            summary_repo_factory=EmptySummaryRepository,
+            index_repo_factory=EmptyIndexRepository,
+            snapshot_repo_factory=FailingSnapshotRepository,
+            context_repo_factory=CompleteMarketContextRepository,
+        )
+    ]
+
+    with pytest.raises(RuntimeError, match='theme catalog foreign key violation'):
+        await orchestrator.run(1001)
+
+    assert session.committed_domain_writes == []
+    assert session.rolled_back_domain_writes == [
+        'DOMAIN_WRITE:page',
+        'DOMAIN_WRITE:page_market',
+        'DOMAIN_WRITE:page_market_cluster',
+        'DOMAIN_WRITE:page_market_cluster_theme',
+    ]
+    assert session.pending_domain_writes == []
+    assert repository.checkpoint_calls == 0
+    assert repository.failure_payload is not None
+    assert repository.failure_payload.get('page_id') is None
 
 
 @pytest.mark.anyio

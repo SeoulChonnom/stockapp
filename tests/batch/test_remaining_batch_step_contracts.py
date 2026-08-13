@@ -1199,6 +1199,10 @@ async def test_build_page_snapshot_step_sets_page_identity_and_writes_snapshot(
                 },
             ]
 
+        async def list_cluster_themes_by_business_date(self, business_date):
+            _ = business_date
+            return [{'cluster_id': 7001, 'theme_code': 'THEME_A', 'rank': 1}]
+
     class FakeIndexRepo:
         def __init__(self, session):
             _ = session
@@ -1311,6 +1315,15 @@ async def test_build_page_snapshot_step_sets_page_identity_and_writes_snapshot(
 
         async def insert_page_market_cluster(self, params):
             self.calls.append(('insert_page_market_cluster', params))
+            return 1002
+
+        async def insert_page_market_cluster_themes(self, params, themes):
+            self.calls.append(
+                (
+                    'insert_page_market_cluster_themes',
+                    {'page_market_cluster_id': params, 'themes': themes},
+                )
+            )
 
         async def insert_page_article_link(self, params):
             self.calls.append(('insert_page_article_link', params))
@@ -1390,6 +1403,10 @@ async def test_build_page_snapshot_step_uses_per_market_news_counts(monkeypatch)
             _ = business_date
             return []
 
+        async def list_cluster_themes_by_business_date(self, business_date):
+            _ = business_date
+            return [{'cluster_id': 7001, 'theme_code': 'THEME_A', 'rank': 1}]
+
     class EmptyIndexRepo:
         def __init__(self, session):
             _ = session
@@ -1428,6 +1445,10 @@ async def test_build_page_snapshot_step_uses_per_market_news_counts(monkeypatch)
 
         async def insert_page_market_cluster(self, params):
             _ = params
+            return 1002
+
+        async def insert_page_market_cluster_themes(self, page_cluster_id, themes):
+            _ = (page_cluster_id, themes)
 
         async def insert_page_article_link(self, params):
             _ = params
@@ -1488,6 +1509,10 @@ async def test_build_page_snapshot_drops_malformed_market_metadata_fields():
             _ = business_date
             return []
 
+        async def list_cluster_themes_by_business_date(self, business_date):
+            _ = business_date
+            return [{'cluster_id': 7001, 'theme_code': 'THEME_A', 'rank': 1}]
+
     class EmptyIndexRepo:
         def __init__(self, session):
             _ = session
@@ -1546,6 +1571,10 @@ async def test_build_page_snapshot_drops_malformed_market_metadata_fields():
 
         async def insert_page_market_cluster(self, params):
             _ = params
+            return 1002
+
+        async def insert_page_market_cluster_themes(self, page_cluster_id, themes):
+            _ = (page_cluster_id, themes)
 
     snapshot_repo = RecordingSnapshotRepo(RecordingAsyncSession())
     repository = EventRepository(session=RecordingAsyncSession(), events=[])

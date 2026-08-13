@@ -86,6 +86,10 @@ class SourceClusterRepository:
         _ = business_date
         return []
 
+    async def list_cluster_themes_by_business_date(self, business_date):
+        _ = business_date
+        return [{'cluster_id': 7001, 'theme_code': 'THEME_A', 'rank': 1}]
+
 
 class EmptyIndexRepository:
     def __init__(self, session):
@@ -224,6 +228,7 @@ class ExistingPageRepository:
                 'cluster_count': 1,
                 'partial_message': '저장된 시장 부분 사유',
                 'metadata_json': {'sourceMarker': 'stored-market'},
+                'search_document': '저장된 시장 문서 그대로',
             }
         ]
 
@@ -265,6 +270,7 @@ class ExistingPageRepository:
                 'representative_published_at': None,
                 'representative_origin_link': 'https://stored.example/article',
                 'representative_naver_link': None,
+                'search_document': '저장된 클러스터 문서 그대로',
             }
         ]
 
@@ -286,6 +292,10 @@ class ExistingPageRepository:
                 'naver_link': None,
             }
         ]
+
+    async def get_page_cluster_themes(self, page_market_cluster_ids):
+        assert page_market_cluster_ids == [701]
+        return []
 
 
 class EmptyStoredPageRepository(ExistingPageRepository):
@@ -309,6 +319,7 @@ class RecordingSnapshotRepository:
     def __init__(self, session):
         _ = session
         self.calls: list[tuple[str, dict]] = []
+        self.next_snapshot_cluster_id = 1002
 
     async def get_next_version_no(self, business_date):
         _ = business_date
@@ -327,6 +338,17 @@ class RecordingSnapshotRepository:
 
     async def insert_page_market_cluster(self, params):
         self.calls.append(('insert_page_market_cluster', params))
+        snapshot_cluster_id = self.next_snapshot_cluster_id
+        self.next_snapshot_cluster_id += 1
+        return snapshot_cluster_id
+
+    async def insert_page_market_cluster_themes(self, page_cluster_id, themes):
+        self.calls.append(
+            (
+                'insert_page_market_cluster_themes',
+                {'page_market_cluster_id': page_cluster_id, 'themes': themes},
+            )
+        )
 
     async def insert_page_article_link(self, params):
         self.calls.append(('insert_page_article_link', params))
@@ -402,6 +424,7 @@ async def test_rebuild_uses_persisted_source_and_preserves_page_outcome():
         'cluster_count': 1,
         'partial_message': '저장된 시장 부분 사유',
         'metadata_json': {'sourceMarker': 'stored-market'},
+        'search_document': '저장된 시장 문서 그대로',
     }
     index_row = next(
         payload
@@ -441,6 +464,7 @@ async def test_rebuild_uses_persisted_source_and_preserves_page_outcome():
         'representative_published_at': None,
         'representative_origin_link': 'https://stored.example/article',
         'representative_naver_link': None,
+        'search_document': '저장된 클러스터 문서 그대로',
     }
     article_row = next(
         payload
@@ -672,6 +696,50 @@ async def test_normal_snapshot_records_key_point_failure_as_explicit_partial_iss
 
 
 @pytest.mark.anyio
+async def test_normal_snapshot_normalizes_classifier_fallback_code_to_canonical_issue():
+    class MissingThemesSourceClusterRepository(SourceClusterRepository):
+        async def list_cluster_themes_by_business_date(self, business_date):
+            _ = business_date
+            return []
+
+    snapshot_repository = RecordingSnapshotRepository(RecordingAsyncSession())
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=False,
+        partial_reasons=[build_module.THEME_CLASSIFICATION_MISSING],
+        partial_categories={build_module.THEME_CLASSIFICATION: 1},
+    )
+
+    await BuildPageSnapshotStep(
+        cluster_repo_factory=MissingThemesSourceClusterRepository,
+        summary_repo_factory=SuccessfulKeyPointSummaryRepository,
+        index_repo_factory=EmptyIndexRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+        context_repo_factory=CompleteMarketContextRepository,
+    ).run(EventRepository(session=RecordingAsyncSession(), events=[]), context)
+
+    page = next(
+        payload for name, payload in snapshot_repository.calls if name == 'create_page'
+    )
+    assert page['status'] == 'PARTIAL'
+    assert page['partial_message'] == build_module.THEME_CLASSIFICATION_MISSING_MESSAGE
+    assert page['metadata_json']['issues'] == [
+        {
+            'category': build_module.THEME_CLASSIFICATION,
+            'code': build_module.THEME_CLASSIFICATION_MISSING,
+            'message': build_module.THEME_CLASSIFICATION_MISSING_MESSAGE,
+        }
+    ]
+    assert build_module.THEME_CLASSIFICATION_MISSING not in page['partial_message']
+    assert context.partial_reasons == [
+        build_module.THEME_CLASSIFICATION_MISSING_MESSAGE
+    ]
+    assert context.partial_categories == {build_module.THEME_CLASSIFICATION: 1}
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     'invalid_field',
     ['processed_article_id', 'cluster_uid'],
@@ -789,12 +857,37 @@ class ThemeRecordingSnapshotRepository(RecordingSnapshotRepository):
         super().__init__(session)
         self.theme_rows: list[tuple[int, list[dict]]] = []
 
+    async def insert_page_market_cluster_themes(self, page_cluster_id, themes):
+        await super().insert_page_market_cluster_themes(page_cluster_id, themes)
+        self.theme_rows.append((page_cluster_id, themes))
+
+
+class NullClusterIdSnapshotRepository(ThemeRecordingSnapshotRepository):
     async def insert_page_market_cluster(self, params):
         self.calls.append(('insert_page_market_cluster', params))
-        return 1002
+        return None
 
-    async def insert_page_market_cluster_themes(self, page_cluster_id, themes):
-        self.theme_rows.append((page_cluster_id, themes))
+
+@pytest.mark.anyio
+async def test_normal_snapshot_rejects_missing_cluster_id_even_when_theme_rows_are_empty():
+    snapshot_repository = NullClusterIdSnapshotRepository(RecordingAsyncSession())
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    with pytest.raises(RuntimeError, match='positive integer id'):
+        await BuildPageSnapshotStep(
+            cluster_repo_factory=ThemedSourceFactory(missing_themes=True),
+            summary_repo_factory=MarketSummaryRepository,
+            index_repo_factory=EmptyIndexRepository,
+            snapshot_repo_factory=lambda session: snapshot_repository,
+            context_repo_factory=CompleteMarketContextRepository,
+        ).run(EventRepository(session=RecordingAsyncSession(), events=[]), context)
+
+    assert snapshot_repository.theme_rows == []
 
 
 @pytest.mark.anyio
@@ -883,6 +976,21 @@ class ThemedSourceClusterRepository:
                 'representative_naver_link': None,
                 'article_count': 1,
             },
+            {
+                'id': 7003,
+                'cluster_uid': 'cluster-uid-3',
+                'market_type': 'KR',
+                'title': '한국 시장 클러스터',
+                'summary_short': '한국 시장 요약',
+                'tags_json': [],
+                'representative_article_id': None,
+                'representative_title': None,
+                'representative_publisher_name': None,
+                'representative_published_at': None,
+                'representative_origin_link': None,
+                'representative_naver_link': None,
+                'article_count': 0,
+            },
         ]
 
     async def list_cluster_article_links_by_business_date(self, business_date):
@@ -937,6 +1045,7 @@ class ThemedSourceClusterRepository:
             {'cluster_id': 7001, 'theme_code': 'THEME_B', 'rank': 2},
             {'cluster_id': 7001, 'theme_code': 'THEME_C', 'rank': 3},
             {'cluster_id': 7002, 'theme_code': 'THEME_Z', 'rank': 2},
+            {'cluster_id': 7003, 'theme_code': 'THEME_KR', 'rank': 1},
         ]
 
 
@@ -1003,12 +1112,13 @@ async def test_normal_snapshot_groups_articles_and_preserves_one_to_three_theme_
         for name, payload in snapshot_repository.calls
         if name == 'insert_page_market_cluster'
     ]
-    assert len(clusters) == 2
-    first, second = clusters
+    assert len(clusters) == 3
+    first, second, third = clusters
     assert '첫 번째 일반 기사' in first['search_document']
     assert '두 번째 일반 기사' not in first['search_document']
     assert '두 번째 일반 기사' in second['search_document']
-    assert snapshot_repository.theme_rows[:2] == [
+    assert third['title'] == '한국 시장 클러스터'
+    assert snapshot_repository.theme_rows == [
         (
             1002,
             [
@@ -1017,7 +1127,8 @@ async def test_normal_snapshot_groups_articles_and_preserves_one_to_three_theme_
                 {'theme_code': 'THEME_C', 'rank': 3},
             ],
         ),
-        (1002, [{'theme_code': 'THEME_Z', 'rank': 2}]),
+        (1003, [{'theme_code': 'THEME_Z', 'rank': 2}]),
+        (1004, [{'theme_code': 'THEME_KR', 'rank': 1}]),
     ]
     assert context.partial_reasons == []
 
@@ -1056,4 +1167,4 @@ async def test_normal_snapshot_missing_themes_is_partial_with_one_deduplicated_i
         event['context_json']['clusterId']
         for event in repository.events
         if event.get('context_json', {}).get('reason') == 'THEME_CLASSIFICATION_MISSING'
-    ] == [7001, 7002]
+    ] == [7001, 7002, 7003]

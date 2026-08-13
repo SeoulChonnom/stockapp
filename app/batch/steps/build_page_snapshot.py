@@ -8,11 +8,18 @@ from typing import Any
 from app.batch.ai_output_contracts import KEY_POINT_FAILURE
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import metadata_optional_string, metadata_string_list
+from app.batch.snapshot_contract import require_snapshot_cluster_id
 from app.batch.steps.base import BatchStep, require_repository_session
 from app.batch.steps.build_page_snapshot_rebuild import (
     rebuild_page_snapshot_from_persisted_page,
 )
 from app.batch.theme_classifier import normalize_text
+from app.batch.theme_contract import (
+    THEME_CLASSIFICATION,
+    THEME_CLASSIFICATION_MISSING,
+    THEME_CLASSIFICATION_MISSING_MESSAGE,
+    theme_classification_missing_issue,
+)
 from app.core.public_diagnostics import (
     sanitize_public_diagnostic,
     sanitize_public_diagnostics,
@@ -31,12 +38,6 @@ MARKET_LABELS = {
     MarketType.US: '미국 증시 일간 요약',
     MarketType.KR: '한국 증시 일간 요약',
 }
-
-THEME_CLASSIFICATION = 'THEME_CLASSIFICATION'
-THEME_CLASSIFICATION_MISSING = 'THEME_CLASSIFICATION_MISSING'
-THEME_CLASSIFICATION_MISSING_MESSAGE = (
-    '일부 뉴스 주제의 검색 테마를 분류하지 못했습니다.'
-)
 
 
 def _build_search_document(
@@ -132,14 +133,10 @@ def _structured_page_issues(
         if reason == KEY_POINT_FAILURE['message']:
             issues.append(dict(KEY_POINT_FAILURE))
             continue
-        if reason == THEME_CLASSIFICATION_MISSING_MESSAGE:
-            issues.append(
-                {
-                    'category': THEME_CLASSIFICATION,
-                    'code': THEME_CLASSIFICATION_MISSING,
-                    'message': THEME_CLASSIFICATION_MISSING_MESSAGE,
-                }
-            )
+        theme_issue = theme_classification_missing_issue(reason)
+        if theme_issue is not None:
+            if theme_issue not in issues:
+                issues.append(theme_issue)
             continue
         is_ai_issue = reason.startswith('AI summary fallback')
         issues.append(
@@ -158,6 +155,30 @@ def _structured_page_issues(
         for warning in sanitize_public_diagnostics(context.warning_messages)
     )
     return issues
+
+
+def _normalize_theme_partial_diagnostics(
+    context: BatchExecutionContext,
+) -> None:
+    """Collapse classifier aliases before public page metadata is written."""
+    normalized_reasons: list[str] = []
+    for reason in context.partial_reasons:
+        issue = theme_classification_missing_issue(reason)
+        normalized_reason = issue['message'] if issue is not None else reason
+        if normalized_reason not in normalized_reasons:
+            normalized_reasons.append(normalized_reason)
+    context.partial_reasons[:] = normalized_reasons
+
+    if context.partial_message:
+        partial_message = context.partial_message
+        for alias in (
+            THEME_CLASSIFICATION_MISSING,
+            THEME_CLASSIFICATION_MISSING_MESSAGE,
+        ):
+            partial_message = partial_message.replace(
+                alias, THEME_CLASSIFICATION_MISSING_MESSAGE
+            )
+        context.partial_message = partial_message
 
 
 def _global_key_point_metadata(
@@ -263,13 +284,8 @@ class BuildPageSnapshotStep(BatchStep):
             )
             return context
         _validate_snapshot_public_identities(clusters, cluster_article_links)
-        list_cluster_themes = getattr(
-            cluster_repo, 'list_cluster_themes_by_business_date', None
-        )
-        theme_rows = (
-            await list_cluster_themes(context.business_date)
-            if callable(list_cluster_themes)
-            else []
+        theme_rows = await cluster_repo.list_cluster_themes_by_business_date(
+            context.business_date
         )
         themes_by_cluster_id: dict[int, list[object]] = defaultdict(list)
         for theme in theme_rows:
@@ -284,14 +300,20 @@ class BuildPageSnapshotStep(BatchStep):
         missing_theme_cluster_ids = [
             cluster['id']
             for cluster in clusters
-            if callable(list_cluster_themes)
-            and not themes_by_cluster_id.get(cluster['id'])
+            if not themes_by_cluster_id.get(cluster['id'])
         ]
+        theme_issue_already_recorded = any(
+            theme_classification_missing_issue(reason) is not None
+            for reason in context.partial_reasons
+        )
         for _cluster_id in missing_theme_cluster_ids:
+            if theme_issue_already_recorded:
+                continue
             context.add_partial(
                 THEME_CLASSIFICATION,
                 THEME_CLASSIFICATION_MISSING_MESSAGE,
             )
+            theme_issue_already_recorded = True
         market_contexts = {
             row.market_type: row
             for row in await self._context_repo_factory(session).list_for_job(
@@ -334,6 +356,7 @@ class BuildPageSnapshotStep(BatchStep):
                 KEY_POINT_FAILURE['message'],
             )
 
+        _normalize_theme_partial_diagnostics(context)
         if not context.partial_message:
             partial_messages = sanitize_public_diagnostics(
                 [*context.partial_reasons, *context.warning_messages]
@@ -480,6 +503,11 @@ class BuildPageSnapshotStep(BatchStep):
                     by_id=article_links_by_cluster_id,
                     by_uid=article_links_by_cluster_uid,
                 )
+                article_titles = [
+                    title
+                    for article_link in cluster_article_links
+                    if isinstance(title := article_link.get('title'), str)
+                ]
                 representative_link = _representative_article_link(
                     cluster, cluster_article_links
                 )
@@ -532,10 +560,7 @@ class BuildPageSnapshotStep(BatchStep):
                         cluster['title'],
                         cluster_summary,
                         representative_title,
-                        [
-                            article_link.get('title')
-                            for article_link in cluster_article_links
-                        ],
+                        article_titles,
                     ),
                     'article_count': cluster['article_count'],
                     'tags_json': cluster.get('tags_json') or [],
@@ -549,18 +574,11 @@ class BuildPageSnapshotStep(BatchStep):
                 snapshot_cluster_id = await snapshot_repo.insert_page_market_cluster(
                     cluster_payload
                 )
-                insert_cluster_themes = getattr(
-                    snapshot_repo, 'insert_page_market_cluster_themes', None
+                snapshot_cluster_id = require_snapshot_cluster_id(snapshot_cluster_id)
+                await snapshot_repo.insert_page_market_cluster_themes(
+                    snapshot_cluster_id,
+                    themes_by_cluster_id.get(cluster['id'], []),
                 )
-                if callable(insert_cluster_themes):
-                    if snapshot_cluster_id is None:
-                        raise RuntimeError(
-                            'snapshot cluster insert must return an id before themes'
-                        )
-                    await insert_cluster_themes(
-                        snapshot_cluster_id,
-                        themes_by_cluster_id.get(cluster['id'], []),
-                    )
                 if cluster['id'] in missing_theme_cluster_ids:
                     await repository.add_event(
                         job_id=context.job_id,

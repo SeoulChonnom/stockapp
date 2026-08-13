@@ -13,6 +13,7 @@ from app.batch.ai_retry.resolver import (
 )
 from app.batch.ai_summary_targets import build_ai_summary_target_key
 from app.batch.normalizers import metadata_optional_string, metadata_string_list
+from app.batch.snapshot_contract import require_snapshot_cluster_id
 from app.batch.steps.build_page_snapshot import _build_search_document
 from app.batch.steps.page_snapshot_cloner import clone_child_rows, clone_page_markets
 from app.db.enums import AiSummaryType, PageStatus
@@ -65,13 +66,8 @@ class AiRetryPageBuilder:
         source_indices = await source_repo.get_page_indices(source_market_ids)
         source_clusters = await source_repo.get_page_clusters(source_market_ids)
         source_links = await source_repo.get_page_article_links(source_market_ids)
-        get_page_cluster_themes = getattr(source_repo, 'get_page_cluster_themes', None)
-        source_cluster_themes = (
-            await get_page_cluster_themes(
-                [cluster['id'] for cluster in source_clusters]
-            )
-            if callable(get_page_cluster_themes) and source_clusters
-            else []
+        source_cluster_themes = await source_repo.get_page_cluster_themes(
+            [cluster['id'] for cluster in source_clusters]
         )
         themes_by_cluster_id: dict[int, list[dict[str, Any]]] = defaultdict(list)
         for theme in source_cluster_themes:
@@ -141,12 +137,18 @@ class AiRetryPageBuilder:
         def build_market_fields(source_market: dict[str, Any]) -> dict[str, Any]:
             market_type = source_market['market_type']
             market_types[source_market['id']] = market_type
-            market_summary = effective.get(
+            market_summary_candidate = effective.get(
                 build_ai_summary_target_key(
                     AiSummaryType.MARKET_SUMMARY.value,
                     market_type=market_type,
                     cluster_id=None,
                 )
+            )
+            market_summary = (
+                market_summary_candidate
+                if market_summary_candidate is not None
+                and is_successful_summary(market_summary_candidate)
+                else None
             )
             market_metadata = (
                 market_summary.metadata_json if market_summary is not None else {}
@@ -202,7 +204,7 @@ class AiRetryPageBuilder:
             # Keep the exact persisted document when no market summary was
             # overlaid.  A successful retry summary changes the searchable
             # fields, so rebuild the document from the effective values.
-            if market_summary is None and 'search_document' in source_market:
+            if market_summary is None:
                 fields['search_document'] = source_market['search_document']
             else:
                 fields['search_document'] = _build_search_document(
@@ -234,7 +236,7 @@ class AiRetryPageBuilder:
                     cluster_id=source_cluster['cluster_id'],
                 )
             )
-            if card_summary is not None:
+            if card_summary is not None and is_successful_summary(card_summary):
                 payload['summary'] = card_summary.body
             return payload
 
@@ -256,7 +258,7 @@ class AiRetryPageBuilder:
                     cluster_id=source_cluster.get('cluster_id'),
                 )
             )
-            if card_summary is not None:
+            if card_summary is not None and is_successful_summary(card_summary):
                 cluster_id = source_cluster.get('cluster_id')
                 article_titles = (
                     article_titles_by_cluster_id.get(cluster_id, [])
@@ -272,18 +274,11 @@ class AiRetryPageBuilder:
                     article_titles,
                 )
             snapshot_cluster_id = await write_repo.insert_page_market_cluster(payload)
-            insert_cluster_themes = getattr(
-                write_repo, 'insert_page_market_cluster_themes', None
+            snapshot_cluster_id = require_snapshot_cluster_id(snapshot_cluster_id)
+            await write_repo.insert_page_market_cluster_themes(
+                snapshot_cluster_id,
+                themes_by_cluster_id.get(source_cluster.get('id'), []),
             )
-            if callable(insert_cluster_themes):
-                if snapshot_cluster_id is None:
-                    raise RuntimeError(
-                        'snapshot cluster insert must return an id before themes'
-                    )
-                await insert_cluster_themes(
-                    snapshot_cluster_id,
-                    themes_by_cluster_id.get(source_cluster.get('id'), []),
-                )
         await clone_child_rows(
             source_links,
             new_market_ids=new_market_ids,
