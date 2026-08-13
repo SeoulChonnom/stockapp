@@ -196,6 +196,48 @@ async def test_insert_page_article_link_rejects_null_public_identity(field):
 
 
 @pytest.mark.anyio
+async def test_get_page_cluster_themes_reads_ranked_snapshot_rows_in_one_query():
+    session = RecordingAsyncSession(
+        results=[
+            DummyResult(
+                [
+                    {
+                        'page_market_cluster_id': 701,
+                        'theme_code': 'THEME_A',
+                        'rank': 1,
+                    },
+                    {
+                        'page_market_cluster_id': 702,
+                        'theme_code': 'THEME_B',
+                        'rank': 2,
+                    },
+                ]
+            )
+        ]
+    )
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.get_page_cluster_themes([701, 702])
+
+    assert result == [
+        {
+            'page_market_cluster_id': 701,
+            'theme_code': 'THEME_A',
+            'rank': 1,
+        },
+        {
+            'page_market_cluster_id': 702,
+            'theme_code': 'THEME_B',
+            'rank': 2,
+        },
+    ]
+    assert len(session.statements) == 1
+    sql = normalize_sql(session.statements[0])
+    assert 'market_daily_page_market_cluster_theme' in sql
+    assert 'ORDER BY page_market_cluster_id, rank' in sql
+
+
+@pytest.mark.anyio
 async def test_exists_page_for_business_date_checks_date_boundary(sample_business_date):
     session = RecordingAsyncSession(results=[DummyResult([1])])
     repo = PageSnapshotRepository(session)

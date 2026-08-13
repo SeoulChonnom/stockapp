@@ -320,6 +320,7 @@ class PageSnapshotRepository(PostgresRepository):
                 analysis_background_json,
                 analysis_key_themes_json,
                 analysis_outlook,
+                search_document,
                 raw_news_count,
                 processed_news_count,
                 cluster_count,
@@ -382,6 +383,7 @@ class PageSnapshotRepository(PostgresRepository):
                 display_order,
                 title,
                 summary,
+                search_document,
                 article_count,
                 tags_json,
                 representative_article_id,
@@ -399,6 +401,36 @@ class PageSnapshotRepository(PostgresRepository):
                 )
             )
         ).bindparams(bindparam('page_market_ids', page_market_ids, expanding=True))
+        result = await self.session.execute(statement)
+        return [self._row_to_dict(row) for row in result.all()]
+
+    async def get_page_cluster_themes(
+        self, page_market_cluster_ids: list[int]
+    ) -> list[dict]:
+        """Return ranked theme rows stored with page-cluster snapshots."""
+        if not page_market_cluster_ids:
+            return []
+        statement = text(
+            """
+            SELECT
+                page_market_cluster_id,
+                theme_code,
+                rank
+            FROM {theme_table}
+            WHERE page_market_cluster_id IN :page_market_cluster_ids
+            ORDER BY page_market_cluster_id, rank
+            """.format(
+                theme_table=qualify_db_identifier(
+                    'market_daily_page_market_cluster_theme'
+                )
+            )
+        ).bindparams(
+            bindparam(
+                'page_market_cluster_ids',
+                page_market_cluster_ids,
+                expanding=True,
+            )
+        )
         result = await self.session.execute(statement)
         return [self._row_to_dict(row) for row in result.all()]
 

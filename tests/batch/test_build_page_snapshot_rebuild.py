@@ -16,6 +16,19 @@ build_module = load_module('app.batch.steps.build_page_snapshot')
 BatchExecutionContext = batch_models_module.BatchExecutionContext
 BuildPageSnapshotStep = build_module.BuildPageSnapshotStep
 
+
+def test_search_document_uses_shared_nfc_casefold_and_whitespace_normalizer():
+    assert (
+        build_module._build_search_document(
+            '  A\u0301  ',
+            '제목\n본문',
+            ['  배경  ', '테  마'],
+            None,
+        )
+        == 'á 제목 본문 배경 테 마'
+    )
+
+
 KEY_POINTS = [
     {
         'kind': 'direction',
@@ -742,3 +755,305 @@ async def test_normal_snapshot_redacts_provider_payload_from_page_and_event():
     assert 'RetryInfo' not in serialized
     assert 'secret-token' not in serialized
     assert 'googleapis.com' not in serialized
+
+
+class PersistedSearchDocumentPageRepository(ExistingPageRepository):
+    async def get_page_markets(self, page_id):
+        markets = await super().get_page_markets(page_id)
+        markets[0]['search_document'] = '저장된 시장 문서  그대로'
+        return markets
+
+    async def get_page_clusters(self, page_market_ids):
+        clusters = await super().get_page_clusters(page_market_ids)
+        clusters[0]['search_document'] = '저장된 클러스터 문서  그대로'
+        return clusters
+
+    async def get_page_cluster_themes(self, page_market_cluster_ids):
+        assert page_market_cluster_ids == [701]
+        return [
+            {
+                'page_market_cluster_id': 701,
+                'theme_code': 'SECTOR_AI_SOFTWARE_AI_INFRASTRUCTURE',
+                'rank': 1,
+            },
+            {
+                'page_market_cluster_id': 701,
+                'theme_code': 'MACRO_MONETARY_MARKETS_FX',
+                'rank': 3,
+            },
+        ]
+
+
+class ThemeRecordingSnapshotRepository(RecordingSnapshotRepository):
+    def __init__(self, session):
+        super().__init__(session)
+        self.theme_rows: list[tuple[int, list[dict]]] = []
+
+    async def insert_page_market_cluster(self, params):
+        self.calls.append(('insert_page_market_cluster', params))
+        return 1002
+
+    async def insert_page_market_cluster_themes(self, page_cluster_id, themes):
+        self.theme_rows.append((page_cluster_id, themes))
+
+
+@pytest.mark.anyio
+async def test_rebuild_copies_persisted_search_documents_and_theme_ranks_verbatim():
+    snapshot_repository = ThemeRecordingSnapshotRepository(RecordingAsyncSession())
+    step = BuildPageSnapshotStep(
+        cluster_repo_factory=FailingLiveRepository,
+        summary_repo_factory=FailingLiveRepository,
+        index_repo_factory=FailingLiveRepository,
+        source_page_repo_factory=PersistedSearchDocumentPageRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+    )
+    context = BatchExecutionContext(
+        job_id=2002,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=True,
+    )
+
+    await step.run(
+        EventRepository(session=RecordingAsyncSession(), events=[]),
+        context,
+    )
+
+    market = next(
+        payload
+        for name, payload in snapshot_repository.calls
+        if name == 'create_page_market'
+    )
+    cluster = next(
+        payload
+        for name, payload in snapshot_repository.calls
+        if name == 'insert_page_market_cluster'
+    )
+    assert market['search_document'] == '저장된 시장 문서  그대로'
+    assert cluster['search_document'] == '저장된 클러스터 문서  그대로'
+    assert snapshot_repository.theme_rows == [
+        (
+            1002,
+            [
+                {
+                    'theme_code': 'SECTOR_AI_SOFTWARE_AI_INFRASTRUCTURE',
+                    'rank': 1,
+                },
+                {'theme_code': 'MACRO_MONETARY_MARKETS_FX', 'rank': 3},
+            ],
+        )
+    ]
+
+
+class ThemedSourceClusterRepository:
+    def __init__(self, session, *, missing_themes: bool = False):
+        _ = session
+        self.missing_themes = missing_themes
+
+    async def list_clusters_by_business_date(self, business_date):
+        _ = business_date
+        return [
+            {
+                'id': 7001,
+                'cluster_uid': 'cluster-uid-1',
+                'market_type': 'US',
+                'title': 'A ́ 클러스터',
+                'summary_short': '첫 번째 요약',
+                'tags_json': [],
+                'representative_article_id': 4001,
+                'representative_title': '첫 번째 대표 기사',
+                'representative_publisher_name': '첫 매체',
+                'representative_published_at': None,
+                'representative_origin_link': 'https://example.com/1',
+                'representative_naver_link': None,
+                'article_count': 2,
+            },
+            {
+                'id': 7002,
+                'cluster_uid': 'cluster-uid-2',
+                'market_type': 'US',
+                'title': '두 번째 클러스터',
+                'summary_short': '두 번째 요약',
+                'tags_json': [],
+                'representative_article_id': 4003,
+                'representative_title': '두 번째 대표 기사',
+                'representative_publisher_name': '둘째 매체',
+                'representative_published_at': None,
+                'representative_origin_link': 'https://example.com/3',
+                'representative_naver_link': None,
+                'article_count': 1,
+            },
+        ]
+
+    async def list_cluster_article_links_by_business_date(self, business_date):
+        _ = business_date
+        # Deliberately interleave clusters to prove the document groups by
+        # source identity rather than by the input list position.
+        return [
+            {
+                'market_type': 'US',
+                'processed_article_id': 4002,
+                'cluster_id': 7001,
+                'cluster_uid': 'cluster-uid-1',
+                'cluster_title': 'A ́ 클러스터',
+                'title': '첫 번째 일반 기사',
+                'publisher_name': '첫 매체',
+                'published_at': None,
+                'origin_link': 'https://example.com/2',
+                'naver_link': None,
+            },
+            {
+                'market_type': 'US',
+                'processed_article_id': 4003,
+                'cluster_id': 7002,
+                'cluster_uid': 'cluster-uid-2',
+                'cluster_title': '두 번째 클러스터',
+                'title': '두 번째 일반 기사',
+                'publisher_name': '둘째 매체',
+                'published_at': None,
+                'origin_link': 'https://example.com/3',
+                'naver_link': None,
+            },
+            {
+                'market_type': 'US',
+                'processed_article_id': 4001,
+                'cluster_id': 7001,
+                'cluster_uid': 'cluster-uid-1',
+                'cluster_title': 'A ́ 클러스터',
+                'title': '첫 번째 대표 기사',
+                'publisher_name': '첫 매체',
+                'published_at': None,
+                'origin_link': 'https://example.com/1',
+                'naver_link': None,
+            },
+        ]
+
+    async def list_cluster_themes_by_business_date(self, business_date):
+        _ = business_date
+        if self.missing_themes:
+            return []
+        return [
+            {'cluster_id': 7001, 'theme_code': 'THEME_A', 'rank': 1},
+            {'cluster_id': 7001, 'theme_code': 'THEME_B', 'rank': 2},
+            {'cluster_id': 7001, 'theme_code': 'THEME_C', 'rank': 3},
+            {'cluster_id': 7002, 'theme_code': 'THEME_Z', 'rank': 2},
+        ]
+
+
+class ThemedSourceFactory:
+    def __init__(self, *, missing_themes: bool = False):
+        self.missing_themes = missing_themes
+
+    def __call__(self, session):
+        return ThemedSourceClusterRepository(
+            session, missing_themes=self.missing_themes
+        )
+
+
+class MarketSummaryRepository:
+    def __init__(self, session):
+        _ = session
+
+    async def list_summaries_for_job(self, job_id):
+        _ = job_id
+        return [
+            SimpleNamespace(
+                summary_type='MARKET_SUMMARY',
+                market_type='US',
+                cluster_id=None,
+                title='  US ́ 요약 ',
+                body='본문\n내용',
+                metadata_json={
+                    'background': [' 배경 '],
+                    'keyThemes': [' 테마 '],
+                    'outlook': ' 전망 ',
+                },
+            )
+        ]
+
+
+@pytest.mark.anyio
+async def test_normal_snapshot_groups_articles_and_preserves_one_to_three_theme_ranks():
+    snapshot_repository = ThemeRecordingSnapshotRepository(RecordingAsyncSession())
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await BuildPageSnapshotStep(
+        cluster_repo_factory=ThemedSourceFactory(),
+        summary_repo_factory=MarketSummaryRepository,
+        index_repo_factory=EmptyIndexRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+        context_repo_factory=CompleteMarketContextRepository,
+    ).run(EventRepository(session=RecordingAsyncSession(), events=[]), context)
+
+    market = next(
+        payload
+        for name, payload in snapshot_repository.calls
+        if name == 'create_page_market'
+    )
+    assert market['search_document'] == (
+        '미국 증시 일간 요약 us ́ 요약 본문 내용 배경 테마 전망'
+    )
+    clusters = [
+        payload
+        for name, payload in snapshot_repository.calls
+        if name == 'insert_page_market_cluster'
+    ]
+    assert len(clusters) == 2
+    first, second = clusters
+    assert '첫 번째 일반 기사' in first['search_document']
+    assert '두 번째 일반 기사' not in first['search_document']
+    assert '두 번째 일반 기사' in second['search_document']
+    assert snapshot_repository.theme_rows[:2] == [
+        (
+            1002,
+            [
+                {'theme_code': 'THEME_A', 'rank': 1},
+                {'theme_code': 'THEME_B', 'rank': 2},
+                {'theme_code': 'THEME_C', 'rank': 3},
+            ],
+        ),
+        (1002, [{'theme_code': 'THEME_Z', 'rank': 2}]),
+    ]
+    assert context.partial_reasons == []
+
+
+@pytest.mark.anyio
+async def test_normal_snapshot_missing_themes_is_partial_with_one_deduplicated_issue():
+    snapshot_repository = ThemeRecordingSnapshotRepository(RecordingAsyncSession())
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await BuildPageSnapshotStep(
+        cluster_repo_factory=ThemedSourceFactory(missing_themes=True),
+        summary_repo_factory=MarketSummaryRepository,
+        index_repo_factory=EmptyIndexRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+        context_repo_factory=CompleteMarketContextRepository,
+    ).run(repository, context)
+
+    page = next(
+        payload for name, payload in snapshot_repository.calls if name == 'create_page'
+    )
+    assert page['status'] == 'PARTIAL'
+    assert page['metadata_json']['issues'] == [
+        {
+            'category': 'THEME_CLASSIFICATION',
+            'code': 'THEME_CLASSIFICATION_MISSING',
+            'message': '일부 뉴스 주제의 검색 테마를 분류하지 못했습니다.',
+        }
+    ]
+    assert [
+        event['context_json']['clusterId']
+        for event in repository.events
+        if event.get('context_json', {}).get('reason') == 'THEME_CLASSIFICATION_MISSING'
+    ] == [7001, 7002]

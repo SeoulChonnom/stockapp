@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from datetime import date
 from hashlib import sha256
 from typing import Any
@@ -120,6 +121,7 @@ class PageSnapshotWriteRepository(PostgresRepository):
         cluster_count: int,
         partial_message: str | None,
         metadata_json: dict[str, Any],
+        search_document: str = '',
         expected_session_date: date | None = None,
         actual_index_source_date: date | None = None,
         session_close_at: Any | None = None,
@@ -145,6 +147,7 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 analysis_background_json,
                 analysis_key_themes_json,
                 analysis_outlook,
+                search_document,
                 raw_news_count,
                 processed_news_count,
                 cluster_count,
@@ -167,6 +170,7 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 CAST(:analysis_background_json AS JSONB),
                 CAST(:analysis_key_themes_json AS JSONB),
                 :analysis_outlook,
+                :search_document,
                 :raw_news_count,
                 :processed_news_count,
                 :cluster_count,
@@ -197,6 +201,7 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 'analysis_background_json': json.dumps(analysis_background_json),
                 'analysis_key_themes_json': json.dumps(analysis_key_themes_json),
                 'analysis_outlook': analysis_outlook,
+                'search_document': search_document,
                 'raw_news_count': raw_news_count,
                 'processed_news_count': processed_news_count,
                 'cluster_count': cluster_count,
@@ -248,7 +253,7 @@ class PageSnapshotWriteRepository(PostgresRepository):
         )
         await self.session.execute(statement, params)
 
-    async def insert_page_market_cluster(self, params: dict[str, Any]) -> None:
+    async def insert_page_market_cluster(self, params: dict[str, Any]) -> int:
         statement = text(
             """
             INSERT INTO {cluster_table} (
@@ -258,6 +263,7 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 display_order,
                 title,
                 summary,
+                search_document,
                 article_count,
                 tags_json,
                 representative_article_id,
@@ -274,6 +280,7 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 :display_order,
                 :title,
                 :summary,
+                :search_document,
                 :article_count,
                 CAST(:tags_json AS JSONB),
                 :representative_article_id,
@@ -286,10 +293,92 @@ class PageSnapshotWriteRepository(PostgresRepository):
             """.format(
                 cluster_table=qualify_db_identifier('market_daily_page_market_cluster')
             )
+            + '\n            RETURNING id'
         )
         payload = dict(params)
+        payload.setdefault('search_document', '')
         payload['tags_json'] = json.dumps(payload['tags_json'])
-        await self.session.execute(statement, payload)
+        result = await self.session.execute(statement, payload)
+        return int(result.scalar_one())
+
+    async def insert_page_market_cluster_themes(
+        self,
+        page_market_cluster_id: int,
+        themes: Sequence[Mapping[str, Any] | Any],
+    ) -> None:
+        """Insert ranked theme rows for one immutable snapshot cluster.
+
+        The caller owns the surrounding transaction.  Snapshot rows are never
+        re-ranked or replaced here: source ranks are validated and persisted
+        exactly as supplied, while PostgreSQL enforces the catalog FK and
+        uniqueness constraints.
+        """
+        if (
+            isinstance(page_market_cluster_id, bool)
+            or not isinstance(page_market_cluster_id, int)
+            or page_market_cluster_id <= 0
+        ):
+            raise ValueError('page_market_cluster_id must be a positive integer')
+
+        try:
+            raw_themes = list(themes)
+        except TypeError as exc:
+            raise ValueError('snapshot themes must be a sequence') from exc
+        if len(raw_themes) > 3:
+            raise ValueError('snapshot themes must contain at most 3 items')
+
+        normalized: list[dict[str, Any]] = []
+        seen_codes: set[str] = set()
+        seen_ranks: set[int] = set()
+        for theme in raw_themes:
+            if isinstance(theme, Mapping):
+                theme_code = theme.get('theme_code')
+                rank = theme.get('rank')
+            else:
+                theme_code = getattr(theme, 'theme_code', None)
+                rank = getattr(theme, 'rank', None)
+            if not isinstance(theme_code, str) or not theme_code:
+                raise ValueError('snapshot theme code must be a nonempty string')
+            if isinstance(rank, bool) or not isinstance(rank, int):
+                raise ValueError('snapshot theme rank must be an integer')
+            if rank not in {1, 2, 3}:
+                raise ValueError('snapshot theme rank must be between 1 and 3')
+            if theme_code in seen_codes:
+                raise ValueError('snapshot theme codes must be unique')
+            if rank in seen_ranks:
+                raise ValueError('snapshot theme ranks must be unique')
+            seen_codes.add(theme_code)
+            seen_ranks.add(rank)
+            normalized.append(
+                {
+                    'page_market_cluster_id': page_market_cluster_id,
+                    'theme_code': theme_code,
+                    'rank': rank,
+                }
+            )
+
+        if not normalized:
+            return
+
+        statement = text(
+            """
+            INSERT INTO {theme_table} (
+                page_market_cluster_id,
+                theme_code,
+                rank
+            )
+            VALUES (
+                :page_market_cluster_id,
+                :theme_code,
+                :rank
+            )
+            """.format(
+                theme_table=qualify_db_identifier(
+                    'market_daily_page_market_cluster_theme'
+                )
+            )
+        )
+        await self.session.execute(statement, normalized)
 
     async def insert_page_article_link(self, params: dict[str, Any]) -> None:
         for required_identity in ('processed_article_id', 'cluster_uid'):

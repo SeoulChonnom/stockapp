@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from copy import deepcopy
 from typing import Any
 
@@ -26,6 +27,8 @@ def _build_rebuild_market_fields(source_market: dict[str, Any]) -> dict[str, Any
         'partial_message': source_market.get('partial_message'),
         'metadata_json': source_market.get('metadata_json') or {},
     }
+    if 'search_document' in source_market:
+        fields['search_document'] = source_market['search_document']
     for snapshot_field in (
         'expected_session_date',
         'actual_index_source_date',
@@ -98,6 +101,20 @@ async def rebuild_page_snapshot_from_persisted_page(
     source_article_links = await source_page_repo.get_page_article_links(
         source_market_ids
     )
+    get_page_cluster_themes = getattr(source_page_repo, 'get_page_cluster_themes', None)
+    source_cluster_themes = (
+        await get_page_cluster_themes([cluster['id'] for cluster in source_clusters])
+        if callable(get_page_cluster_themes) and source_clusters
+        else []
+    )
+    themes_by_cluster_id: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for theme in source_cluster_themes:
+        themes_by_cluster_id[theme['page_market_cluster_id']].append(
+            {
+                'theme_code': theme['theme_code'],
+                'rank': theme['rank'],
+            }
+        )
 
     version_no = await snapshot_repo.get_next_version_no(context.business_date)
     page_id = await snapshot_repo.create_page(
@@ -125,12 +142,25 @@ async def rebuild_page_snapshot_from_persisted_page(
         new_market_ids=new_market_ids,
         insert_fn=snapshot_repo.insert_page_market_index,
     )
-    await clone_child_rows(
-        source_clusters,
-        new_market_ids=new_market_ids,
-        insert_fn=snapshot_repo.insert_page_market_cluster,
-        transform=_apply_rebuild_cluster_tags_fallback,
-    )
+    for source_cluster in source_clusters:
+        payload = {key: value for key, value in source_cluster.items() if key != 'id'}
+        payload['page_market_id'] = new_market_ids[source_cluster['page_market_id']]
+        payload = _apply_rebuild_cluster_tags_fallback(source_cluster, payload)
+        snapshot_cluster_id = await snapshot_repo.insert_page_market_cluster(payload)
+        if snapshot_cluster_id is None:
+            if themes_by_cluster_id.get(source_cluster.get('id')):
+                raise RuntimeError(
+                    'snapshot cluster insert must return an id before themes are copied'
+                )
+            continue
+        insert_themes = getattr(
+            snapshot_repo, 'insert_page_market_cluster_themes', None
+        )
+        if callable(insert_themes):
+            await insert_themes(
+                snapshot_cluster_id,
+                themes_by_cluster_id.get(source_cluster.get('id'), []),
+            )
     await clone_child_rows(
         source_article_links,
         new_market_ids=new_market_ids,

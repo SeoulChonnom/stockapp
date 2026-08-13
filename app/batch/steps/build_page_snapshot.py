@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from typing import Any
@@ -11,6 +12,7 @@ from app.batch.steps.base import BatchStep, require_repository_session
 from app.batch.steps.build_page_snapshot_rebuild import (
     rebuild_page_snapshot_from_persisted_page,
 )
+from app.batch.theme_classifier import normalize_text
 from app.core.public_diagnostics import (
     sanitize_public_diagnostic,
     sanitize_public_diagnostics,
@@ -29,6 +31,80 @@ MARKET_LABELS = {
     MarketType.US: '미국 증시 일간 요약',
     MarketType.KR: '한국 증시 일간 요약',
 }
+
+THEME_CLASSIFICATION = 'THEME_CLASSIFICATION'
+THEME_CLASSIFICATION_MISSING = 'THEME_CLASSIFICATION_MISSING'
+THEME_CLASSIFICATION_MISSING_MESSAGE = (
+    '일부 뉴스 주제의 검색 테마를 분류하지 못했습니다.'
+)
+
+
+def _build_search_document(
+    *values: str | list[str] | tuple[str, ...] | None,
+) -> str:
+    """Build one normalized, space-delimited snapshot search document."""
+    normalized_values: list[str] = []
+    for value in values:
+        candidates = [value] if isinstance(value, str) else value
+        if candidates is None:
+            continue
+        for candidate in candidates:
+            if not isinstance(candidate, str):
+                continue
+            normalized = normalize_text(candidate)
+            if normalized:
+                normalized_values.append(normalized)
+    return ' '.join(normalized_values)
+
+
+def _row_value(row: Mapping[str, Any] | object, key: str) -> Any:
+    if isinstance(row, Mapping):
+        return row.get(key)
+    return getattr(row, key, None)
+
+
+def _group_article_links_by_cluster(
+    article_links: list[dict[str, Any]],
+) -> tuple[dict[int, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
+    by_id: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    by_uid: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for article_link in article_links:
+        cluster_id = article_link.get('cluster_id')
+        if cluster_id is not None:
+            by_id[cluster_id].append(article_link)
+        cluster_uid = article_link.get('cluster_uid')
+        if cluster_uid is not None:
+            by_uid[str(cluster_uid)].append(article_link)
+    return by_id, by_uid
+
+
+def _article_links_for_cluster(
+    cluster: Mapping[str, Any],
+    *,
+    by_id: Mapping[int, list[dict[str, Any]]],
+    by_uid: Mapping[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    cluster_id = cluster.get('id')
+    if cluster_id is not None and cluster_id in by_id:
+        return by_id[cluster_id]
+    cluster_uid = cluster.get('cluster_uid')
+    if cluster_uid is not None:
+        return by_uid.get(str(cluster_uid), [])
+    return []
+
+
+def _representative_article_link(
+    cluster: Mapping[str, Any], article_links: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    representative_id = cluster.get('representative_article_id')
+    return next(
+        (
+            article_link
+            for article_link in article_links
+            if article_link.get('processed_article_id') == representative_id
+        ),
+        None,
+    )
 
 
 def _market_news_count(
@@ -55,6 +131,15 @@ def _structured_page_issues(
     for reason in sanitize_public_diagnostics(context.partial_reasons):
         if reason == KEY_POINT_FAILURE['message']:
             issues.append(dict(KEY_POINT_FAILURE))
+            continue
+        if reason == THEME_CLASSIFICATION_MISSING_MESSAGE:
+            issues.append(
+                {
+                    'category': THEME_CLASSIFICATION,
+                    'code': THEME_CLASSIFICATION_MISSING,
+                    'message': THEME_CLASSIFICATION_MISSING_MESSAGE,
+                }
+            )
             continue
         is_ai_issue = reason.startswith('AI summary fallback')
         issues.append(
@@ -178,6 +263,35 @@ class BuildPageSnapshotStep(BatchStep):
             )
             return context
         _validate_snapshot_public_identities(clusters, cluster_article_links)
+        list_cluster_themes = getattr(
+            cluster_repo, 'list_cluster_themes_by_business_date', None
+        )
+        theme_rows = (
+            await list_cluster_themes(context.business_date)
+            if callable(list_cluster_themes)
+            else []
+        )
+        themes_by_cluster_id: dict[int, list[object]] = defaultdict(list)
+        for theme in theme_rows:
+            cluster_id = _row_value(theme, 'cluster_id')
+            if cluster_id is not None:
+                themes_by_cluster_id[int(cluster_id)].append(
+                    {
+                        'theme_code': _row_value(theme, 'theme_code'),
+                        'rank': _row_value(theme, 'rank'),
+                    }
+                )
+        missing_theme_cluster_ids = [
+            cluster['id']
+            for cluster in clusters
+            if callable(list_cluster_themes)
+            and not themes_by_cluster_id.get(cluster['id'])
+        ]
+        for _cluster_id in missing_theme_cluster_ids:
+            context.add_partial(
+                THEME_CLASSIFICATION,
+                THEME_CLASSIFICATION_MISSING_MESSAGE,
+            )
         market_contexts = {
             row.market_type: row
             for row in await self._context_repo_factory(session).list_for_job(
@@ -271,6 +385,9 @@ class BuildPageSnapshotStep(BatchStep):
             article_links_by_market.setdefault(article_link['market_type'], []).append(
                 article_link
             )
+        article_links_by_cluster_id, article_links_by_cluster_uid = (
+            _group_article_links_by_cluster(cluster_article_links)
+        )
         indices_by_market: dict[str, list] = {
             market_type: [] for market_type in SUPPORTED_MARKET_TYPES
         }
@@ -283,6 +400,9 @@ class BuildPageSnapshotStep(BatchStep):
                 (AiSummaryType.MARKET_SUMMARY.value, market_type, None)
             )
             market_metadata = getattr(market_summary, 'metadata_json', {}) or {}
+            market_background = metadata_string_list(market_metadata, 'background')
+            market_key_themes = metadata_string_list(market_metadata, 'keyThemes')
+            market_outlook = metadata_optional_string(market_metadata, 'outlook')
             page_market_id = await snapshot_repo.create_page_market(
                 page_id=page_id,
                 market_type=market_type,
@@ -296,13 +416,17 @@ class BuildPageSnapshotStep(BatchStep):
                 market_label=MARKET_LABELS[market_type],
                 summary_title=getattr(market_summary, 'title', None),
                 summary_body=getattr(market_summary, 'body', None),
-                analysis_background_json=metadata_string_list(
-                    market_metadata, 'background'
+                analysis_background_json=market_background,
+                analysis_key_themes_json=market_key_themes,
+                analysis_outlook=market_outlook,
+                search_document=_build_search_document(
+                    MARKET_LABELS[market_type],
+                    getattr(market_summary, 'title', None),
+                    getattr(market_summary, 'body', None),
+                    market_background,
+                    market_key_themes,
+                    market_outlook,
                 ),
-                analysis_key_themes_json=metadata_string_list(
-                    market_metadata, 'keyThemes'
-                ),
-                analysis_outlook=metadata_optional_string(market_metadata, 'outlook'),
                 raw_news_count=_market_news_count(
                     context.raw_news_count_by_market,
                     market_type,
@@ -348,35 +472,106 @@ class BuildPageSnapshotStep(BatchStep):
                         cluster['id'],
                     )
                 )
-                await snapshot_repo.insert_page_market_cluster(
-                    {
-                        'page_market_id': page_market_id,
-                        'cluster_id': cluster['id'],
-                        'cluster_uid': cluster['cluster_uid'],
-                        'display_order': cluster_order,
-                        'title': cluster['title'],
-                        'summary': getattr(card_summary, 'body', None)
-                        or cluster['summary_short'],
-                        'article_count': cluster['article_count'],
-                        'tags_json': cluster.get('tags_json') or [],
-                        'representative_article_id': cluster[
-                            'representative_article_id'
-                        ],
-                        'representative_title': cluster.get('representative_title'),
-                        'representative_publisher_name': cluster.get(
-                            'representative_publisher_name'
-                        ),
-                        'representative_published_at': cluster.get(
-                            'representative_published_at'
-                        ),
-                        'representative_origin_link': cluster.get(
-                            'representative_origin_link'
-                        ),
-                        'representative_naver_link': cluster.get(
-                            'representative_naver_link'
-                        ),
-                    }
+                cluster_summary = (
+                    getattr(card_summary, 'body', None) or cluster['summary_short']
                 )
+                cluster_article_links = _article_links_for_cluster(
+                    cluster,
+                    by_id=article_links_by_cluster_id,
+                    by_uid=article_links_by_cluster_uid,
+                )
+                representative_link = _representative_article_link(
+                    cluster, cluster_article_links
+                )
+                representative_article_id = cluster.get(
+                    'representative_article_id'
+                ) or (
+                    representative_link.get('processed_article_id')
+                    if representative_link
+                    else None
+                )
+                representative_title = cluster.get('representative_title') or (
+                    representative_link.get('title') if representative_link else None
+                )
+                representative_publisher_name = cluster.get(
+                    'representative_publisher_name'
+                ) or (
+                    representative_link.get('publisher_name')
+                    if representative_link
+                    else None
+                )
+                representative_published_at = cluster.get(
+                    'representative_published_at'
+                ) or (
+                    representative_link.get('published_at')
+                    if representative_link
+                    else None
+                )
+                representative_origin_link = cluster.get(
+                    'representative_origin_link'
+                ) or (
+                    representative_link.get('origin_link')
+                    if representative_link
+                    else None
+                )
+                representative_naver_link = cluster.get(
+                    'representative_naver_link'
+                ) or (
+                    representative_link.get('naver_link')
+                    if representative_link
+                    else None
+                )
+                cluster_payload = {
+                    'page_market_id': page_market_id,
+                    'cluster_id': cluster['id'],
+                    'cluster_uid': cluster['cluster_uid'],
+                    'display_order': cluster_order,
+                    'title': cluster['title'],
+                    'summary': cluster_summary,
+                    'search_document': _build_search_document(
+                        cluster['title'],
+                        cluster_summary,
+                        representative_title,
+                        [
+                            article_link.get('title')
+                            for article_link in cluster_article_links
+                        ],
+                    ),
+                    'article_count': cluster['article_count'],
+                    'tags_json': cluster.get('tags_json') or [],
+                    'representative_article_id': representative_article_id,
+                    'representative_title': representative_title,
+                    'representative_publisher_name': representative_publisher_name,
+                    'representative_published_at': representative_published_at,
+                    'representative_origin_link': representative_origin_link,
+                    'representative_naver_link': representative_naver_link,
+                }
+                snapshot_cluster_id = await snapshot_repo.insert_page_market_cluster(
+                    cluster_payload
+                )
+                insert_cluster_themes = getattr(
+                    snapshot_repo, 'insert_page_market_cluster_themes', None
+                )
+                if callable(insert_cluster_themes):
+                    if snapshot_cluster_id is None:
+                        raise RuntimeError(
+                            'snapshot cluster insert must return an id before themes'
+                        )
+                    await insert_cluster_themes(
+                        snapshot_cluster_id,
+                        themes_by_cluster_id.get(cluster['id'], []),
+                    )
+                if cluster['id'] in missing_theme_cluster_ids:
+                    await repository.add_event(
+                        job_id=context.job_id,
+                        step_code=self.step_code,
+                        level=EventLevel.WARN.value,
+                        message='Cluster theme classification produced no assignment.',
+                        context_json={
+                            'clusterId': cluster['id'],
+                            'reason': THEME_CLASSIFICATION_MISSING,
+                        },
+                    )
             for link_order, article_link in enumerate(
                 article_links_by_market.get(market_type, []), start=1
             ):
