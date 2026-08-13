@@ -6,6 +6,12 @@ from collections.abc import Iterable, Mapping, Set
 from types import MappingProxyType
 from typing import Any, Final
 
+from app.core.ai_contracts import (
+    ANALYSIS_ISSUE_MESSAGES,
+    ANALYSIS_SECTION_KIND_ORDER,
+    ANALYSIS_SECTION_TITLES,
+    aggregate_conflict_status,
+)
 from app.core.plain_text import is_complete_plain_sentence
 
 type KeyPoint = dict[str, str]
@@ -26,23 +32,6 @@ KEY_POINT_FAILURE: Final = MappingProxyType(
         'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
     }
 )
-ANALYSIS_SECTION_KIND_ORDER: Final = ('background', 'impact', 'related', 'outlook')
-ANALYSIS_SECTION_TITLES: Final = MappingProxyType(
-    {
-        'background': '발생 배경',
-        'impact': '시장 영향',
-        'related': '관련 업종·종목',
-        'outlook': '향후 관전 포인트',
-    }
-)
-ANALYSIS_ISSUE_MESSAGES: Final = MappingProxyType(
-    {
-        'ANALYSIS_GENERATION_FAILED': '분석을 생성하지 못했습니다.',
-        'NO_GROUNDED_SENTENCES': '근거를 확인할 수 있는 분석 문장이 없습니다.',
-        'INVALID_SOURCE_REFERENCE': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
-        'CONFLICT_CHECK_FAILED': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
-    }
-)
 
 
 def normalize_key_points(payload: object) -> dict[str, object]:
@@ -57,25 +46,6 @@ def normalize_key_points(payload: object) -> dict[str, object]:
             return _key_point_failure()
         key_points.append(normalized)
     return {'keyPoints': key_points}
-
-
-def aggregate_conflict_status(sentences: Iterable[Mapping[str, object]]) -> str:
-    """Aggregate sentence conflict states using the public priority ordering."""
-    has_not_checked = False
-    has_none = False
-    for sentence in sentences:
-        status = sentence.get('conflictStatus')
-        if status == 'FOUND':
-            return 'FOUND'
-        if status == 'NOT_CHECKED':
-            has_not_checked = True
-        elif status == 'NONE':
-            has_none = True
-    if has_not_checked:
-        return 'NOT_CHECKED'
-    if has_none:
-        return 'NONE'
-    return 'NOT_CHECKED'
 
 
 def build_unavailable_analysis(*issue_codes: str) -> AnalysisResult:

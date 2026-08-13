@@ -35,9 +35,57 @@ SECTIONS = [
             }
         ],
     },
-    {'kind': 'impact', 'title': '시장 영향', 'paragraphs': []},
-    {'kind': 'related', 'title': '관련 업종·종목', 'paragraphs': []},
-    {'kind': 'outlook', 'title': '향후 관전 포인트', 'paragraphs': []},
+    {
+        'kind': 'impact',
+        'title': '시장 영향',
+        'paragraphs': [
+            {
+                'sentences': [
+                    {
+                        'text': '반도체 업종 약세가 지수에 부담을 줬습니다.',
+                        'sourceArticleIds': [2002],
+                        'conflictStatus': 'NONE',
+                        'conflictingSourceArticleIds': [],
+                        'conflictNote': None,
+                    }
+                ]
+            }
+        ],
+    },
+    {
+        'kind': 'related',
+        'title': '관련 업종·종목',
+        'paragraphs': [
+            {
+                'sentences': [
+                    {
+                        'text': '관련 업종도 함께 움직였습니다.',
+                        'sourceArticleIds': [2003],
+                        'conflictStatus': 'NONE',
+                        'conflictingSourceArticleIds': [],
+                        'conflictNote': None,
+                    }
+                ]
+            }
+        ],
+    },
+    {
+        'kind': 'outlook',
+        'title': '향후 관전 포인트',
+        'paragraphs': [
+            {
+                'sentences': [
+                    {
+                        'text': '다음 거래일 수급을 확인해야 합니다.',
+                        'sourceArticleIds': [2001],
+                        'conflictStatus': 'NONE',
+                        'conflictingSourceArticleIds': [],
+                        'conflictNote': None,
+                    }
+                ]
+            }
+        ],
+    },
 ]
 
 
@@ -218,6 +266,122 @@ def test_cluster_summary_rejects_unapproved_section_kind(
 ):
     payload = _structured_cluster_payload(sample_cluster_detail_payload)
     payload['summary']['sections'][0]['kind'] = 'summary'
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize(
+    'text',
+    ['', '   ', None, 123, []],
+    ids=['empty', 'whitespace', 'null', 'number', 'list'],
+)
+def test_analysis_sentence_rejects_malformed_text(
+    text,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary']['sections'][0]['paragraphs'][0]['sentences'][0]['text'] = text
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize(
+    'sections',
+    [
+        [{**SECTIONS[0], 'paragraphs': []}],
+        [{**SECTIONS[0], 'paragraphs': [{'sentences': []}]}],
+    ],
+    ids=['empty-paragraphs', 'empty-sentences'],
+)
+def test_analysis_section_rejects_empty_nested_containers(
+    sections,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary']['sections'] = sections
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize(
+    'summary_updates',
+    [
+        {
+            'analysisStatus': 'READY',
+            'analysisIssues': [
+                {
+                    'code': 'NO_GROUNDED_SENTENCES',
+                    'message': '근거를 확인할 수 있는 분석 문장이 없습니다.',
+                }
+            ],
+        },
+        {'analysisStatus': 'PARTIAL', 'analysisIssues': []},
+        {'analysisStatus': 'READY', 'sections': []},
+        {'analysisStatus': 'PARTIAL', 'sections': []},
+    ],
+    ids=[
+        'ready-with-issues',
+        'partial-without-issues',
+        'ready-empty-sections',
+        'partial-empty-sections',
+    ],
+)
+def test_cluster_summary_requires_status_specific_content(
+    summary_updates,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary'].update(summary_updates)
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize(
+    'conflict_status',
+    ['NOT_CHECKED', 'FOUND'],
+    ids=['not-checked', 'aggregate-mismatch'],
+)
+def test_ready_analysis_requires_completed_consistent_conflict_aggregate(
+    conflict_status,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    if conflict_status == 'FOUND':
+        sentence = payload['summary']['sections'][0]['paragraphs'][0]['sentences'][0]
+        sentence.update(
+            {
+                'conflictStatus': 'FOUND',
+                'conflictingSourceArticleIds': [2002],
+                'conflictNote': '기사별 수급 방향이 다르게 보도됐습니다.',
+            }
+        )
+        payload['summary']['conflictStatus'] = 'NONE'
+    else:
+        payload['summary']['conflictStatus'] = conflict_status
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+def test_analysis_issue_message_must_match_approved_code(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary'].update(
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'CONFLICT_CHECK_FAILED',
+                    'message': '저장된 임의 메시지입니다.',
+                }
+            ],
+        }
+    )
 
     with pytest.raises(ValidationError):
         assemble_cluster_detail_response(payload)

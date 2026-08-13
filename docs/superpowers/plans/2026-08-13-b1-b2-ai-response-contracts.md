@@ -331,6 +331,9 @@ git commit -m "feat: 근거 기반 클러스터 분석 생성"
 ```
 
 5. Preserve `short`/`long` from the cluster record; only the analysis metadata/sections comes from `ai_summary`.
+   A missing summary must not replace either value: use `cluster.summary_short` and
+   `cluster.summary_long` unchanged, and emit `null` only when the corresponding
+   cluster column is `null`.
 6. Ensure representative/article payloads use required integer IDs; missing processed records remain an existing not-found/data-integrity error rather than emitting null IDs.
 7. Run:
 

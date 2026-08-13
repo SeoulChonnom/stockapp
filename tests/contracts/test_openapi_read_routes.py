@@ -193,6 +193,58 @@ def test_openapi_links_daily_read_responses_to_the_b1_contract() -> None:
     assert schema['components']['schemas']['DirectionKeyPointResponse']['properties'][
         'direction'
     ]['enum'] == ['UP', 'DOWN', 'MIXED', 'FLAT']
+    assert schema['components']['schemas']['DirectionKeyPointResponse']['required'] == [
+        'kind',
+        'label',
+        'text',
+        'direction',
+    ]
+    assert (
+        schema['components']['schemas']['DirectionKeyPointResponse']['properties'][
+            'kind'
+        ]['const']
+        == 'direction'
+    )
+    assert (
+        schema['components']['schemas']['DirectionKeyPointResponse']['properties'][
+            'label'
+        ]['const']
+        == '시장 방향'
+    )
+    assert schema['components']['schemas']['DriverKeyPointResponse']['required'] == [
+        'kind',
+        'label',
+        'text',
+    ]
+    assert (
+        schema['components']['schemas']['DriverKeyPointResponse']['properties']['kind'][
+            'const'
+        ]
+        == 'driver'
+    )
+    assert (
+        schema['components']['schemas']['DriverKeyPointResponse']['properties'][
+            'label'
+        ]['const']
+        == '주요 원인'
+    )
+    assert schema['components']['schemas']['WatchKeyPointResponse']['required'] == [
+        'kind',
+        'label',
+        'text',
+    ]
+    assert (
+        schema['components']['schemas']['WatchKeyPointResponse']['properties']['kind'][
+            'const'
+        ]
+        == 'watch'
+    )
+    assert (
+        schema['components']['schemas']['WatchKeyPointResponse']['properties']['label'][
+            'const'
+        ]
+        == '관전 포인트'
+    )
     for name in (
         'DirectionKeyPointResponse',
         'DriverKeyPointResponse',
@@ -250,6 +302,7 @@ def test_openapi_links_cluster_read_response_to_the_b2_and_grouping_contracts() 
     }
 
     summary = schema['components']['schemas']['ClusterSummaryResponse']
+    assert summary['additionalProperties'] is False
     assert summary['required'] == [
         'analysisStatus',
         'analysisGeneratedAt',
@@ -269,24 +322,56 @@ def test_openapi_links_cluster_read_response_to_the_b2_and_grouping_contracts() 
         'FOUND',
     ]
     assert summary['properties']['sections']['items'] == {
-        '$ref': '#/components/schemas/AnalysisSectionResponse'
+        'oneOf': [
+            {'$ref': '#/components/schemas/BackgroundAnalysisSectionResponse'},
+            {'$ref': '#/components/schemas/ImpactAnalysisSectionResponse'},
+            {'$ref': '#/components/schemas/RelatedAnalysisSectionResponse'},
+            {'$ref': '#/components/schemas/OutlookAnalysisSectionResponse'},
+        ],
+        'discriminator': {
+            'propertyName': 'kind',
+            'mapping': {
+                'background': '#/components/schemas/BackgroundAnalysisSectionResponse',
+                'impact': '#/components/schemas/ImpactAnalysisSectionResponse',
+                'related': '#/components/schemas/RelatedAnalysisSectionResponse',
+                'outlook': '#/components/schemas/OutlookAnalysisSectionResponse',
+            },
+        },
     }
 
-    section = schema['components']['schemas']['AnalysisSectionResponse']
-    assert section['properties']['kind']['enum'] == [
-        'background',
-        'impact',
-        'related',
-        'outlook',
-    ]
-    assert section['properties']['paragraphs']['items'] == {
-        '$ref': '#/components/schemas/AnalysisParagraphResponse'
-    }
+    for name, kind, title in (
+        ('BackgroundAnalysisSectionResponse', 'background', '발생 배경'),
+        ('ImpactAnalysisSectionResponse', 'impact', '시장 영향'),
+        ('RelatedAnalysisSectionResponse', 'related', '관련 업종·종목'),
+        ('OutlookAnalysisSectionResponse', 'outlook', '향후 관전 포인트'),
+    ):
+        section = schema['components']['schemas'][name]
+        assert section['required'] == ['kind', 'title', 'paragraphs']
+        assert section['additionalProperties'] is False
+        assert section['properties']['kind']['const'] == kind
+        assert section['properties']['title']['const'] == title
+        assert section['properties']['paragraphs']['minItems'] == 1
+        assert section['properties']['paragraphs']['items'] == {
+            '$ref': '#/components/schemas/AnalysisParagraphResponse'
+        }
+
     paragraph = schema['components']['schemas']['AnalysisParagraphResponse']
+    assert paragraph['required'] == ['sentences']
+    assert paragraph['additionalProperties'] is False
+    assert paragraph['properties']['sentences']['minItems'] == 1
     assert paragraph['properties']['sentences']['items'] == {
         '$ref': '#/components/schemas/AnalysisSentenceResponse'
     }
     sentence = schema['components']['schemas']['AnalysisSentenceResponse']
+    assert sentence['required'] == [
+        'text',
+        'sourceArticleIds',
+        'conflictStatus',
+        'conflictingSourceArticleIds',
+        'conflictNote',
+    ]
+    assert sentence['additionalProperties'] is False
+    assert sentence['properties']['text']['minLength'] == 1
     assert sentence['properties']['sourceArticleIds']['items'] == {'type': 'integer'}
     assert sentence['properties']['conflictingSourceArticleIds']['items'] == {
         'type': 'integer'
@@ -295,6 +380,16 @@ def test_openapi_links_cluster_read_response_to_the_b2_and_grouping_contracts() 
         'NOT_CHECKED',
         'NONE',
         'FOUND',
+    ]
+
+    issue = schema['components']['schemas']['AnalysisIssueResponse']
+    assert issue['required'] == ['code', 'message']
+    assert issue['additionalProperties'] is False
+    assert issue['properties']['code']['enum'] == [
+        'ANALYSIS_GENERATION_FAILED',
+        'NO_GROUNDED_SENTENCES',
+        'INVALID_SOURCE_REFERENCE',
+        'CONFLICT_CHECK_FAILED',
     ]
 
     article = schema['components']['schemas']['ClusterArticleResponse']

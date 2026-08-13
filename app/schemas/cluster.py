@@ -1,24 +1,39 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
+from app.core.ai_contracts import (
+    ANALYSIS_ISSUE_MESSAGES,
+    ANALYSIS_SECTION_KIND_ORDER,
+    ANALYSIS_SECTION_TITLES,
+    aggregate_conflict_status,
+)
 from app.schemas.common import normalize_timestamp as _normalize_timestamp
 
 
 class AnalysisSentenceResponse(BaseModel):
-    text: str
-    sourceArticleIds: list[StrictInt]
+    model_config = ConfigDict(extra='forbid')
+
+    text: Annotated[str, Field(min_length=1)]
+    sourceArticleIds: Annotated[list[StrictInt], Field(min_length=1)]
     conflictStatus: Literal['NOT_CHECKED', 'NONE', 'FOUND']
     conflictingSourceArticleIds: list[StrictInt]
     conflictNote: str | None
 
     @model_validator(mode='after')
     def validate_source_and_conflict_cardinality(self) -> Self:
-        if not self.sourceArticleIds:
-            raise ValueError('sourceArticleIds must not be empty')
+        if not self.text.strip():
+            raise ValueError('text must not be blank')
         if len(self.sourceArticleIds) != len(set(self.sourceArticleIds)):
             raise ValueError('sourceArticleIds must be unique')
         if len(self.conflictingSourceArticleIds) != len(
@@ -43,16 +58,51 @@ class AnalysisSentenceResponse(BaseModel):
 
 
 class AnalysisParagraphResponse(BaseModel):
-    sentences: list[AnalysisSentenceResponse]
+    model_config = ConfigDict(extra='forbid')
+
+    sentences: Annotated[list[AnalysisSentenceResponse], Field(min_length=1)]
 
 
-class AnalysisSectionResponse(BaseModel):
-    kind: Literal['background', 'impact', 'related', 'outlook']
-    title: str
-    paragraphs: list[AnalysisParagraphResponse]
+class _AnalysisSectionBase(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+
+class BackgroundAnalysisSectionResponse(_AnalysisSectionBase):
+    kind: Literal['background']
+    title: Literal['발생 배경']
+    paragraphs: Annotated[list[AnalysisParagraphResponse], Field(min_length=1)]
+
+
+class ImpactAnalysisSectionResponse(_AnalysisSectionBase):
+    kind: Literal['impact']
+    title: Literal['시장 영향']
+    paragraphs: Annotated[list[AnalysisParagraphResponse], Field(min_length=1)]
+
+
+class RelatedAnalysisSectionResponse(_AnalysisSectionBase):
+    kind: Literal['related']
+    title: Literal['관련 업종·종목']
+    paragraphs: Annotated[list[AnalysisParagraphResponse], Field(min_length=1)]
+
+
+class OutlookAnalysisSectionResponse(_AnalysisSectionBase):
+    kind: Literal['outlook']
+    title: Literal['향후 관전 포인트']
+    paragraphs: Annotated[list[AnalysisParagraphResponse], Field(min_length=1)]
+
+
+AnalysisSectionResponse = Annotated[
+    BackgroundAnalysisSectionResponse
+    | ImpactAnalysisSectionResponse
+    | RelatedAnalysisSectionResponse
+    | OutlookAnalysisSectionResponse,
+    Field(discriminator='kind'),
+]
 
 
 class AnalysisIssueResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
     code: Literal[
         'ANALYSIS_GENERATION_FAILED',
         'NO_GROUNDED_SENTENCES',
@@ -61,8 +111,16 @@ class AnalysisIssueResponse(BaseModel):
     ]
     message: str
 
+    @model_validator(mode='after')
+    def validate_approved_message(self) -> Self:
+        if self.message != ANALYSIS_ISSUE_MESSAGES[self.code]:
+            raise ValueError('analysis issue message does not match its code')
+        return self
+
 
 class ClusterSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
     short: str | None = None
     long: str | None = None
     analysisStatus: Literal['READY', 'PARTIAL', 'UNAVAILABLE']
@@ -77,41 +135,62 @@ class ClusterSummaryResponse(BaseModel):
 
     @model_validator(mode='after')
     def validate_analysis_state(self) -> Self:
-        section_order = ['background', 'impact', 'related', 'outlook']
-        section_titles = {
-            'background': '발생 배경',
-            'impact': '시장 영향',
-            'related': '관련 업종·종목',
-            'outlook': '향후 관전 포인트',
-        }
         kinds = [section.kind for section in self.sections]
         if len(kinds) != len(set(kinds)):
             raise ValueError('analysis section kinds must be unique')
-        if kinds != sorted(kinds, key=section_order.index):
+        if kinds != sorted(kinds, key=ANALYSIS_SECTION_KIND_ORDER.index):
             raise ValueError('analysis sections must use the fixed order')
         if any(
-            section.title != section_titles[section.kind] for section in self.sections
+            section.title != ANALYSIS_SECTION_TITLES[section.kind]
+            for section in self.sections
         ):
             raise ValueError('analysis sections must use fixed titles')
 
-        if self.analysisStatus == 'UNAVAILABLE' and (
-            self.sections
-            or self.analysisGeneratedAt is not None
-            or self.conflictStatus != 'NOT_CHECKED'
-        ):
-            raise ValueError(
-                'UNAVAILABLE requires empty sections, null generatedAt, '
-                'and NOT_CHECKED aggregate conflict status'
-            )
+        if self.analysisStatus == 'UNAVAILABLE':
+            if (
+                self.sections
+                or self.analysisGeneratedAt is not None
+                or self.conflictStatus != 'NOT_CHECKED'
+            ):
+                raise ValueError(
+                    'UNAVAILABLE requires empty sections, null generatedAt, '
+                    'and NOT_CHECKED aggregate conflict status'
+                )
+            return self
+
+        if not self.sections:
+            raise ValueError('displayable analysis requires nonempty sections')
+        if self.analysisStatus == 'READY' and self.analysisIssues:
+            raise ValueError('READY analysis cannot contain issues')
+        if self.analysisStatus == 'PARTIAL' and not self.analysisIssues:
+            raise ValueError('PARTIAL analysis requires at least one issue')
+
+        sentences = [
+            sentence
+            for section in self.sections
+            for paragraph in section.paragraphs
+            for sentence in paragraph.sentences
+        ]
+        aggregate = aggregate_conflict_status(
+            {'conflictStatus': sentence.conflictStatus} for sentence in sentences
+        )
+        if self.conflictStatus == 'NOT_CHECKED' and self.analysisStatus == 'READY':
+            raise ValueError('READY analysis requires completed conflict checks')
+        if self.conflictStatus != aggregate:
+            raise ValueError('aggregate conflict status does not match sections')
         return self
 
 
 class ArticleGroupingIssueResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
     code: Literal['SIMILARITY_GROUPING_FAILED']
     message: Literal['유사 기사 묶음을 생성하지 못했습니다.']
 
 
 class ArticleGroupingResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
     status: Literal['READY', 'UNAVAILABLE']
     generatedAt: datetime | str | None
     issue: ArticleGroupingIssueResponse | None
@@ -132,6 +211,8 @@ class ArticleGroupingResponse(BaseModel):
 
 
 class ClusterArticleResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
     processedArticleId: StrictInt
     title: str
     publisherName: str | None = None
@@ -149,6 +230,8 @@ class ClusterArticleResponse(BaseModel):
 
 
 class ClusterDetailResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
     clusterId: str
     businessDate: date
     marketType: str
@@ -174,7 +257,11 @@ __all__ = [
     'AnalysisSentenceResponse',
     'ArticleGroupingIssueResponse',
     'ArticleGroupingResponse',
+    'BackgroundAnalysisSectionResponse',
     'ClusterArticleResponse',
     'ClusterDetailResponse',
     'ClusterSummaryResponse',
+    'ImpactAnalysisSectionResponse',
+    'OutlookAnalysisSectionResponse',
+    'RelatedAnalysisSectionResponse',
 ]
