@@ -20,6 +20,11 @@ projections_module = load_module('app.db.repositories.projections')
 ClusterThemeRecord = projections_module.ClusterThemeRecord
 
 
+def test_cluster_repository_keeps_only_the_full_record_business_date_read():
+    assert hasattr(ClusterRepository, 'list_cluster_themes_by_business_date')
+    assert not hasattr(ClusterRepository, 'list_cluster_theme_codes_by_business_date')
+
+
 @pytest.mark.anyio
 async def test_get_cluster_by_uid_looks_up_external_uuid(sample_cluster_row):
     session = RecordingAsyncSession(results=[DummyResult([sample_cluster_row])])

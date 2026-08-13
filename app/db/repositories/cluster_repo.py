@@ -138,18 +138,6 @@ class ClusterRepository(PostgresRepository):
             [self._row_to_dict(row) for row in result.all()],
         )
 
-    async def list_cluster_theme_codes_by_business_date(
-        self,
-        business_date: date,
-        *,
-        market_type: str | None = None,
-    ) -> list[ClusterThemeRecord]:
-        """Batch-load ranked theme codes, including their source metadata."""
-        return await self.list_cluster_themes_by_business_date(
-            business_date,
-            market_type=market_type,
-        )
-
     async def list_clusters_by_business_date(
         self,
         business_date,

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import get_type_hints
+
 import pytest
 
 pytest.importorskip('sqlalchemy')
@@ -18,6 +21,12 @@ projections_module = load_module('app.db.repositories.projections')
 NewsClusterWriteRepository = cluster_write_repo_module.NewsClusterWriteRepository
 NewsClusterCreateParams = projections_module.NewsClusterCreateParams
 ThemeAssignmentCreateParams = projections_module.ThemeAssignmentCreateParams
+
+
+def test_replace_cluster_themes_requires_persistence_assignment_params():
+    annotations = get_type_hints(NewsClusterWriteRepository.replace_cluster_themes)
+
+    assert annotations['assignments'] == Sequence[ThemeAssignmentCreateParams]
 
 
 class FakeThemeRepository:
@@ -278,5 +287,23 @@ async def test_replace_cluster_themes_rejects_parent_or_inactive_codes_before_de
                 )
             ],
         )
+
+    assert session.statements == []
+
+
+@pytest.mark.anyio
+async def test_replace_cluster_themes_rejects_classifier_assignment_objects():
+    class ClassifierAssignment:
+        theme_code = 'SECTOR_SEMICONDUCTORS_MEMORY_HBM'
+        rank = 1
+        classification_method = 'KEYWORD_FALLBACK'
+
+    session = RecordingAsyncSession()
+    repo = cluster_write_repo_module.NewsClusterWriteRepository(
+        session, theme_repository=FakeThemeRepository()
+    )
+
+    with pytest.raises(ValueError, match='ThemeAssignmentCreateParams'):
+        await repo.replace_cluster_themes(7001, [ClassifierAssignment()])
 
     assert session.statements == []

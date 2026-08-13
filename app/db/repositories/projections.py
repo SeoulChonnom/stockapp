@@ -424,12 +424,6 @@ class ThemeCatalogRecord:
     is_active: bool
 
 
-# Compatibility names for callers that describe these projections as reads.
-ThemeReadRecord = ThemeCatalogRecord
-ThemeRecord = ThemeCatalogRecord
-NewsClusterThemeRecord = ClusterThemeRecord
-
-
 @dataclass(slots=True)
 class MarketIndexDailyCreateParams:
     business_date: date

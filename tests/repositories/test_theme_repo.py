@@ -4,9 +4,19 @@ import pytest
 
 pytest.importorskip('sqlalchemy')
 
+import app.db.repositories.projections as projections_module
 from app.db.repositories.projections import ThemeCatalogRecord
 from app.db.repositories.theme_repo import ThemeRepository
 from tests.support import DummyResult, RecordingAsyncSession, normalize_sql
+
+
+def test_projections_keep_only_canonical_theme_projection_names():
+    assert hasattr(projections_module, 'ThemeCatalogRecord')
+    assert hasattr(projections_module, 'ClusterThemeRecord')
+    assert hasattr(projections_module, 'ThemeAssignmentCreateParams')
+    assert not hasattr(projections_module, 'ThemeReadRecord')
+    assert not hasattr(projections_module, 'ThemeRecord')
+    assert not hasattr(projections_module, 'NewsClusterThemeRecord')
 
 
 @pytest.mark.anyio

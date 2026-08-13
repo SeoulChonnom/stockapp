@@ -181,7 +181,7 @@ class NewsClusterWriteRepository(PostgresRepository):
     async def replace_cluster_themes(
         self,
         cluster_id: int,
-        assignments: Sequence[object],
+        assignments: Sequence[ThemeAssignmentCreateParams],
     ) -> None:
         """Replace ranked themes in the caller's current transaction.
 
@@ -245,7 +245,7 @@ class NewsClusterWriteRepository(PostgresRepository):
 
     @staticmethod
     def _validate_theme_assignments(
-        assignments: Sequence[object],
+        assignments: Sequence[ThemeAssignmentCreateParams],
     ) -> list[ThemeAssignmentCreateParams]:
         try:
             raw_assignments = list(assignments)
@@ -259,18 +259,20 @@ class NewsClusterWriteRepository(PostgresRepository):
 
         normalized: list[ThemeAssignmentCreateParams] = []
         for assignment in raw_assignments:
-            theme_code = getattr(assignment, 'theme_code', None)
-            rank = getattr(assignment, 'rank', None)
-            classification_method = getattr(
-                assignment,
-                'classification_method',
-                None,
-            )
+            if not isinstance(assignment, ThemeAssignmentCreateParams):
+                raise ValueError(
+                    'theme assignments must be ThemeAssignmentCreateParams'
+                )
+            theme_code = assignment.theme_code
+            rank = assignment.rank
+            classification_method = assignment.classification_method
             if not isinstance(theme_code, str) or not theme_code:
                 raise ValueError('theme assignment code must be a nonempty string')
             if isinstance(rank, bool) or not isinstance(rank, int):
                 raise ValueError('theme assignment rank must be an integer')
-            if classification_method not in {'LLM', 'KEYWORD_FALLBACK'}:
+            if not isinstance(classification_method, str) or (
+                classification_method not in {'LLM', 'KEYWORD_FALLBACK'}
+            ):
                 raise ValueError(
                     'theme assignment classification_method must be LLM or '
                     'KEYWORD_FALLBACK'
