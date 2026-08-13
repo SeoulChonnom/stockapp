@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from scripts.evaluate_theme_enrichment import (
@@ -13,6 +14,7 @@ from scripts.evaluate_theme_enrichment import (
     CallRecord,
     _audit_theme_output,
     _content_contract_valid,
+    _render_report,
     compute_metrics,
     evaluate_gates,
     load_dataset,
@@ -226,3 +228,35 @@ def test_latency_gate_can_be_marked_non_decisive_after_repeatability_crossing() 
         latency_status='NON_DECISIVE',
     )
     assert checks['p95_latency_increase']['status'] == 'NON_DECISIVE'
+
+
+def test_report_repeatability_wording_reflects_run_count_and_status() -> None:
+    zero_run_result = asyncio.run(
+        run_evaluation(write_outputs=False, repeatability_runs=0)
+    )
+    zero_report = _render_report(
+        zero_run_result,
+        Path('docs/evaluations/zero.json'),
+    )
+    assert 'No repeatability audit runs were performed' in zero_report
+    assert 'Three no-write full-matrix repeats were requested' not in zero_report
+
+    three_run_result = replace(
+        zero_run_result,
+        repeatability_audit={
+            'runCount': 3,
+            'matrixCallsPerRun': EXPECTED_CALL_COUNT,
+            'warmupCallsExcludedPerRun': 2,
+            'runs': [],
+            'minP95LatencyIncrease': 0.01,
+            'maxP95LatencyIncrease': 0.31,
+            'spreadP95LatencyIncrease': 0.30,
+            'latencyGateStatus': 'NON_DECISIVE',
+        },
+    )
+    three_report = _render_report(
+        three_run_result,
+        Path('docs/evaluations/three.json'),
+    )
+    assert '3 no-write full-matrix repeats were performed' in three_report
+    assert 'Wall-clock MockTransport gate status: **NON_DECISIVE**' in three_report

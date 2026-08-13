@@ -1098,7 +1098,7 @@ async def run_evaluation(
             'warmupCallsExcludedPerRun': 2,
             'runs': [],
             'crossesThreshold': False,
-            'latencyGateStatus': 'DECISIVE',
+            'latencyGateStatus': 'NOT_ASSESSED',
         }
     )
     latency_status = str(repeatability['latencyGateStatus'])
@@ -1400,16 +1400,20 @@ def _render_report(
             f'| {name} | {float(check["observed"]):.6f} | {float(check["threshold"]):.6f} | {check.get("status", "DECISIVE")} / {"PASS" if check["passed"] else "FAIL"} |'
         )
     audit = result.repeatability_audit
-    lines.extend(
-        [
-            '',
-            '## Latency repeatability audit',
-            '',
-            f'- Three no-write full-matrix repeats were requested; each repeat used {audit.get("matrixCallsPerRun", EXPECTED_CALL_COUNT)} matrix calls plus {audit.get("warmupCallsExcludedPerRun", 2)} excluded warmups.',
+    audit_run_count = int(audit.get('runCount', 0) or 0)
+    audit_status = str(audit.get('latencyGateStatus', 'NOT_ASSESSED'))
+    if audit_run_count:
+        repeatability_lines = [
+            f'- {audit_run_count} no-write full-matrix repeats were performed; each repeat used {audit.get("matrixCallsPerRun", EXPECTED_CALL_COUNT)} matrix calls plus {audit.get("warmupCallsExcludedPerRun", 2)} excluded warmups.',
             f'- Observed p95-increase range: {float(audit.get("minP95LatencyIncrease", 0.0)) * 100:.2f}%–{float(audit.get("maxP95LatencyIncrease", 0.0)) * 100:.2f}% (spread {float(audit.get("spreadP95LatencyIncrease", 0.0)) * 100:.2f} percentage points).',
-            f'- Wall-clock MockTransport gate status: **{audit.get("latencyGateStatus", "DECISIVE")}**. The canonical 240-call p95 remains recorded above; when repeatability crosses the threshold it is non-decisive, and it is never treated as production latency evidence.',
+            f'- Wall-clock MockTransport gate status: **{audit_status}**. The canonical 240-call p95 remains recorded above; when repeatability crosses the threshold it is non-decisive, and it is never treated as production latency evidence.',
         ]
-    )
+    else:
+        repeatability_lines = [
+            '- No repeatability audit runs were performed for this artifact; the canonical matrix p95 is reported without a repeatability determination.',
+            f'- Wall-clock MockTransport gate status: **{audit_status}**. No repeatability status is inferred from zero audit runs, and the measurement is never treated as production latency evidence.',
+        ]
+    lines.extend(['', '## Latency repeatability audit', '', *repeatability_lines])
     lines.extend(initial_run_lines)
     decision_line = (
         '- Production decision: `CANDIDATE_A` remains the selected inline enrichment strategy. Candidate B was not implemented.'

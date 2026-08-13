@@ -6,7 +6,7 @@
 - Model name: `mock-gemini-2.5-flash` (deterministic local Mockup API)
 - Prompt versions: baseline `historical-production-36411a6-parent`, Candidate A `v2`
 - Dataset SHA-256: `b5ffb015c031f18789229cb0ba9904fea21cb6a18098ee270bb4da2c19b1cd14`
-- Result JSON SHA-256: `3635646f8e3e3f6bca80f580e6a081ca5695e322915a5cf574d3d27ba160d80a`
+- Result JSON SHA-256: `b13e1d98df1134b1621a3ec025020959f19416661cf2fff8928f1f7cf35e66f0`
 - Hash manifest: `docs/evaluations/2026-08-13-theme-enrichment-initial.manifest.json`
 - Detailed JSON: `docs/evaluations/2026-08-13-theme-enrichment-initial.json`
 
@@ -35,12 +35,12 @@ This validates the enrichment content contract, independent `themeCodes` parsing
 | fallback assignment among failures | n/a | 100.00% | ≥ 95.00% |
 | manual primary accuracy | n/a | 99.17% | ≥ 90.00% |
 | three-run agreement | n/a | 95.00% | ≥ 80.00% |
-| p95 latency (ms) | 2.574 | 2.579 | increase ≤ 20.00% |
+| p95 latency (ms) | 2.581 | 2.549 | increase ≤ 20.00% |
 | average token usage | 415.30 | 920.12 | increase ≤ 25.00% |
 
 Token usage uses one deterministic estimator (`ceil(UTF-8 bytes / 4)`) over the actual serialized system prompt, user prompt, and raw response body. It is not manually normalized between variants.
 - Baseline prompt: `b8eabdbda4dcb46ff18797d12867ba8148dcbf0ec7ee5c12ab269bf74e6c7193` (178 bytes); Candidate v2: `89478326d2e6e9ceb7ded5bfb90bef4caf20d268fa40a23fbbcafa4d2566bc20`; Candidate v3: `2b12eb68abfd4b153fdce2d90d44a00aabbbc003e019d7ff5aba0e38f9378034`.
-- Evaluator script SHA-256: `ca3c10148cada76ca6d9cdd96aa2dd6f8910558431e85e9be147444c857edd58`; Mock implementation SHA-256: `ae64b3d145112896945a1e76045a12164fc6f4ef1ddee236b20f262a5a63c854`.
+- Evaluator script SHA-256: `275acc85c4a690f25abfe5d5f12f5655d0205e0023330b036d0266760d700967`; Mock implementation SHA-256: `ae64b3d145112896945a1e76045a12164fc6f4ef1ddee236b20f262a5a63c854`.
 
 | Gate | Observed | Threshold | Result |
 | --- | ---: | ---: | --- |
@@ -49,14 +49,13 @@ Token usage uses one deterministic estimator (`ceil(UTF-8 bytes / 4)`) over the 
 | fallback_assignment_rate | 1.000000 | 0.950000 | DECISIVE / PASS |
 | manual_primary_accuracy | 0.991667 | 0.900000 | DECISIVE / PASS |
 | three_run_agreement | 0.950000 | 0.800000 | DECISIVE / PASS |
-| p95_latency_increase | 0.002201 | 0.200000 | DECISIVE / PASS |
+| p95_latency_increase | -0.012254 | 0.200000 | NOT_ASSESSED / PASS |
 | average_token_increase | 1.215547 | 0.250000 | DECISIVE / FAIL |
 
 ## Latency repeatability audit
 
-- Three no-write full-matrix repeats were requested; each repeat used 240 matrix calls plus 2 excluded warmups.
-- Observed p95-increase range: 0.00%–0.00% (spread 0.00 percentage points).
-- Wall-clock MockTransport gate status: **DECISIVE**. The canonical 240-call p95 remains recorded above; when repeatability crosses the threshold it is non-decisive, and it is never treated as production latency evidence.
+- No repeatability audit runs were performed for this artifact; the canonical matrix p95 is reported without a repeatability determination.
+- Wall-clock MockTransport gate status: **NOT_ASSESSED**. No repeatability status is inferred from zero audit runs, and the measurement is never treated as production latency evidence.
 
 ## RED / GREEN evidence
 
