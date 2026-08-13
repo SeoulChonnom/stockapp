@@ -1,0 +1,840 @@
+# Human-reviewed definitions for the 40 active leaf themes.
+#
+# Inclusion/exclusion criteria are supplied to the production LLM prompt.
+# Only the twenty rules with fallback.enabled=true are used by the deterministic
+# classifier; every enabled rule has strong phrases and a score threshold of 6.
+
+MACRO_ECONOMIC_DATA_INFLATION:
+  inclusionCriteria:
+    - 물가
+    - 인플레이션
+    - 소비자물가
+    - CPI
+    - 물가상승률
+  exclusionCriteria:
+    - 개별 종목 가격
+    - 주가 상승
+    - 원자재 단일 가격
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 소비자물가지수
+      - CPI 발표
+    supportingTermGroups:
+      - [물가, 인플레이션]
+      - [소비자물가, 물가상승률]
+    excludedPhrases:
+      - 주가 상승
+      - 개별 종목 가격
+
+MACRO_ECONOMIC_DATA_EMPLOYMENT_GROWTH:
+  inclusionCriteria:
+    - 고용
+    - 경기성장
+    - 경제성장
+    - 실업률
+    - 고용지표
+  exclusionCriteria:
+    - 기업 매출 성장
+    - 주가 상승
+    - 산업 성장
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 비농업 고용
+      - GDP 성장률
+    supportingTermGroups:
+      - [고용, 실업률]
+      - [경기성장, 경제성장]
+    excludedPhrases:
+      - 기업 매출 성장
+      - 주가 상승
+
+MACRO_MONETARY_MARKETS_INTEREST_RATES_BONDS:
+  inclusionCriteria:
+    - 금리
+    - 채권
+    - 기준금리
+    - 국채
+    - 수익률곡선
+  exclusionCriteria:
+    - 배당수익률
+    - 주식 수익률
+    - 가상자산
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 기준금리 결정
+      - 국채 금리
+    supportingTermGroups:
+      - [금리, 기준금리]
+      - [채권, 국채]
+    excludedPhrases:
+      - 배당수익률
+      - 주식 수익률
+
+MACRO_MONETARY_MARKETS_LIQUIDITY:
+  inclusionCriteria:
+    - 유동성
+    - 통화량
+    - 자금시장
+    - 유동성 공급
+  exclusionCriteria:
+    - 기업 자금조달
+    - 거래량
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+MACRO_MONETARY_MARKETS_FX:
+  inclusionCriteria:
+    - 환율
+    - 외환
+    - 달러
+    - 원화
+    - 환율시장
+  exclusionCriteria:
+    - 해외 매출 환산
+    - 주가
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 원·달러 환율
+      - 외환보유액
+    supportingTermGroups:
+      - [환율, 외환]
+      - [달러, 원화]
+    excludedPhrases:
+      - 해외 매출 환산
+      - 주가
+
+MACRO_POLICY_RISK_FISCAL_REGULATION:
+  inclusionCriteria:
+    - 재정
+    - 규제
+    - 세제
+    - 산업 규제
+    - 정책
+  exclusionCriteria:
+    - 통화정책
+    - 지정학
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+MACRO_POLICY_RISK_GEOPOLITICS_TRADE:
+  inclusionCriteria:
+    - 지정학
+    - 무역
+    - 관세
+    - 수출규제
+    - 무역분쟁
+  exclusionCriteria:
+    - 국내 산업 규제
+    - 환율
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+SECTOR_SEMICONDUCTORS_MEMORY_HBM:
+  inclusionCriteria:
+    - 메모리 반도체
+    - HBM
+    - DRAM
+    - NAND
+    - 메모리
+  exclusionCriteria:
+    - 비메모리
+    - 파운드리
+    - 중고 메모리
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - HBM3E
+      - HBM4
+    supportingTermGroups:
+      - [HBM, 메모리 대역폭]
+      - [DRAM, 메모리 반도체]
+    excludedPhrases:
+      - 파운드리
+      - 시스템반도체
+
+SECTOR_SEMICONDUCTORS_FOUNDRY_SYSTEM:
+  inclusionCriteria:
+    - 파운드리
+    - 시스템반도체
+    - 비메모리
+    - 팹리스
+    - 웨이퍼
+  exclusionCriteria:
+    - HBM
+    - DRAM
+    - NAND
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 선단공정
+      - 파운드리 수주
+    supportingTermGroups:
+      - [파운드리, 위탁생산]
+      - [시스템반도체, 비메모리]
+    excludedPhrases:
+      - HBM
+      - DRAM
+
+SECTOR_SEMICONDUCTORS_EQUIPMENT_MATERIALS:
+  inclusionCriteria:
+    - 반도체 장비
+    - 반도체 소재
+    - 식각
+    - 증착
+    - 포토레지스트
+  exclusionCriteria:
+    - 반도체 설계
+    - 메모리 가격
+    - 완성차
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - EUV 장비
+      - 극자외선
+    supportingTermGroups:
+      - [반도체 장비, 반도체 소재]
+      - [식각, 증착]
+    excludedPhrases:
+      - 반도체 설계
+      - 메모리 가격
+
+SECTOR_AI_SOFTWARE_AI_INFRASTRUCTURE:
+  inclusionCriteria:
+    - AI 인프라
+    - GPU
+    - 데이터센터
+    - AI 서버
+    - 인공지능 연산
+  exclusionCriteria:
+    - 일반 소프트웨어
+    - 모바일 앱
+    - 클라우드 플랫폼
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+SECTOR_AI_SOFTWARE_CLOUD_PLATFORM:
+  inclusionCriteria:
+    - 클라우드
+    - 플랫폼
+    - SaaS
+    - 데이터 클라우드
+    - 클라우드 서비스
+  exclusionCriteria:
+    - AI 서버
+    - 데이터센터 건설
+    - 반도체 장비
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+SECTOR_FINANCIALS_BANKING:
+  inclusionCriteria:
+    - 은행
+    - 은행주
+    - 예대마진
+    - 대출
+    - 금융지주
+  exclusionCriteria:
+    - 증권사
+    - 보험사
+    - 핀테크
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+SECTOR_FINANCIALS_SECURITIES_INSURANCE:
+  inclusionCriteria:
+    - 증권
+    - 보험
+    - 증권사
+    - 보험사
+    - 금융투자
+  exclusionCriteria:
+    - 은행 대출
+    - 예대마진
+    - 카드사
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+SECTOR_AUTOS_MOBILITY_AUTOMAKERS_COMPONENTS:
+  inclusionCriteria:
+    - 완성차
+    - 자동차 부품
+    - 자동차 업체
+    - OEM
+    - 차량 판매
+  exclusionCriteria:
+    - 전기차 배터리
+    - 배터리 셀
+    - 조선
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 자동차 판매량
+      - 완성차 업체
+    supportingTermGroups:
+      - [완성차, 자동차 업체]
+      - [자동차 부품, 차량 판매]
+    excludedPhrases:
+      - 배터리 셀
+      - 조선
+
+SECTOR_AUTOS_MOBILITY_EV_BATTERY:
+  inclusionCriteria:
+    - 전기차
+    - 배터리
+    - EV
+    - 배터리 셀
+    - 충전 인프라
+  exclusionCriteria:
+    - 내연기관차
+    - 자동차 부품 일반
+    - 리튬 광산
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 전기차 판매
+      - 배터리 수주
+    supportingTermGroups:
+      - [전기차, EV]
+      - [배터리, 배터리 셀]
+    excludedPhrases:
+      - 내연기관차
+      - 자동차 부품 일반
+
+SECTOR_BIO_HEALTHCARE_PHARMA_BIOTECH:
+  inclusionCriteria:
+    - 제약
+    - 바이오
+    - 신약
+    - 임상
+    - 바이오시밀러
+  exclusionCriteria:
+    - 의료 서비스
+    - 병원
+    - 건강보험
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 임상 3상
+      - 신약 허가
+    supportingTermGroups:
+      - [제약, 신약]
+      - [바이오, 임상]
+    excludedPhrases:
+      - 병원
+      - 의료 서비스
+
+SECTOR_BIO_HEALTHCARE_MEDICAL_SERVICES:
+  inclusionCriteria:
+    - 의료 서비스
+    - 병원
+    - 의료기관
+    - 진료
+    - 건강보험
+  exclusionCriteria:
+    - 신약
+    - 임상시험
+    - 제약사
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+SECTOR_CONSUMER_CONTENT_RETAIL_ECOMMERCE:
+  inclusionCriteria:
+    - 유통
+    - 이커머스
+    - 온라인 쇼핑
+    - 소매
+    - 백화점
+  exclusionCriteria:
+    - 브랜드 광고
+    - 게임
+    - 제조업
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+SECTOR_CONSUMER_CONTENT_BRANDS_MEDIA_GAMING:
+  inclusionCriteria:
+    - 브랜드
+    - 미디어
+    - 게임
+    - 엔터테인먼트
+    - 콘텐츠
+  exclusionCriteria:
+    - 유통
+    - 이커머스
+    - 백화점
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+SECTOR_INDUSTRIALS_INFRA_SHIPBUILDING_DEFENSE:
+  inclusionCriteria:
+    - 조선
+    - 방산
+    - 군수
+    - 선박
+    - 방위산업
+  exclusionCriteria:
+    - 건설
+    - 해운 물류
+    - 항공
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 함정 수주
+      - 방산 수출
+    supportingTermGroups:
+      - [조선, 선박]
+      - [방산, 군수]
+    excludedPhrases:
+      - 건설
+      - 해운 물류
+
+SECTOR_INDUSTRIALS_INFRA_CONSTRUCTION_POWER:
+  inclusionCriteria:
+    - 건설
+    - 전력
+    - 전력망
+    - 인프라
+    - 발전소
+  exclusionCriteria:
+    - 조선
+    - 방산
+    - 운송 물류
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+SECTOR_INDUSTRIALS_INFRA_TRANSPORT_LOGISTICS:
+  inclusionCriteria:
+    - 운송
+    - 물류
+    - 해운
+    - 항공운송
+    - 택배
+  exclusionCriteria:
+    - 조선소
+    - 건설
+    - 전력망
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+SECTOR_ENERGY_MATERIALS_OIL_GAS:
+  inclusionCriteria:
+    - 석유
+    - 가스
+    - 원유
+    - LNG
+    - 정유
+  exclusionCriteria:
+    - 철강
+    - 화학
+    - 신재생에너지
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+SECTOR_ENERGY_MATERIALS_STEEL_CHEMICALS:
+  inclusionCriteria:
+    - 철강
+    - 화학
+    - 금속
+    - 석유화학
+    - 철강재
+  exclusionCriteria:
+    - 석유
+    - 천연가스
+    - 반도체 소재
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+CORPORATE_EVENT_PERFORMANCE_EARNINGS_GUIDANCE:
+  inclusionCriteria:
+    - 실적
+    - 전망
+    - 영업이익
+    - 매출
+    - 가이던스
+  exclusionCriteria:
+    - 수주
+    - 배당
+    - IPO
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 실적 발표
+      - 영업이익 전망
+    supportingTermGroups:
+      - [실적, 영업이익]
+      - [전망, 가이던스]
+    excludedPhrases:
+      - 수주
+      - 배당
+
+CORPORATE_EVENT_PERFORMANCE_ORDERS_CONTRACTS:
+  inclusionCriteria:
+    - 수주
+    - 계약
+    - 공급계약
+    - 수주잔고
+    - 납품계약
+  exclusionCriteria:
+    - 실적 발표
+    - 배당
+    - 인수합병
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 대규모 수주
+      - 공급계약 체결
+    supportingTermGroups:
+      - [수주, 수주잔고]
+      - [공급계약, 납품계약]
+    excludedPhrases:
+      - 실적 발표
+      - 배당
+
+CORPORATE_EVENT_CAPITAL_ACTION_MNA:
+  inclusionCriteria:
+    - 인수
+    - 합병
+    - M&A
+    - 기업결합
+    - 매각
+  exclusionCriteria:
+    - IPO
+    - 배당
+    - 자사주
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 인수합병 발표
+      - 공개매수
+    supportingTermGroups:
+      - [인수, 합병]
+      - [M&A, 기업결합]
+    excludedPhrases:
+      - IPO
+      - 배당
+
+CORPORATE_EVENT_CAPITAL_ACTION_IPO_CAPITAL_RAISE:
+  inclusionCriteria:
+    - IPO
+    - 기업공개
+    - 자금조달
+    - 유상증자
+    - 공모
+  exclusionCriteria:
+    - 인수합병
+    - 배당
+    - 회사채
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - IPO 상장
+      - 유상증자 발표
+    supportingTermGroups:
+      - [IPO, 기업공개]
+      - [유상증자, 자금조달]
+    excludedPhrases:
+      - 인수합병
+      - 배당
+
+CORPORATE_EVENT_CAPITAL_ACTION_DIVIDEND_BUYBACK:
+  inclusionCriteria:
+    - 배당
+    - 자사주
+    - 자사주 매입
+    - 주주환원
+    - 배당금
+  exclusionCriteria:
+    - IPO
+    - 인수합병
+    - 실적 전망
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 배당 확대
+      - 자사주 소각
+    supportingTermGroups:
+      - [배당, 배당금]
+      - [자사주, 자사주 매입]
+    excludedPhrases:
+      - IPO
+      - 인수합병
+
+CORPORATE_EVENT_GOVERNANCE_MANAGEMENT:
+  inclusionCriteria:
+    - 경영진
+    - CEO
+    - 대표이사
+    - 임원
+    - 사임
+  exclusionCriteria:
+    - 지배구조
+    - 배당
+    - 인수합병
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+MARKET_FLOW_INVESTOR_FOREIGN:
+  inclusionCriteria:
+    - 외국인 수급
+    - 외국인 매수
+    - 외국인 매도
+    - 외국인 투자자
+    - 외국인 순매수
+  exclusionCriteria:
+    - 기관 수급
+    - 개인 수급
+    - 공매도
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 외국인 순매수
+      - 외국인 순매도
+    supportingTermGroups:
+      - [외국인, 외국인 투자자]
+      - [외국인 수급, 순매수]
+    excludedPhrases:
+      - 기관
+      - 개인
+
+MARKET_FLOW_INVESTOR_INSTITUTIONAL:
+  inclusionCriteria:
+    - 기관 수급
+    - 기관 매수
+    - 기관 매도
+    - 연기금
+    - 기관 투자자
+  exclusionCriteria:
+    - 외국인 수급
+    - 개인 수급
+    - 공매도
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 기관 순매수
+      - 연기금 매수
+    supportingTermGroups:
+      - [기관, 기관 투자자]
+      - [기관 수급, 연기금]
+    excludedPhrases:
+      - 외국인
+      - 개인
+
+MARKET_FLOW_INVESTOR_RETAIL:
+  inclusionCriteria:
+    - 개인 수급
+    - 개인 투자자
+    - 개인 매수
+    - 개인 매도
+    - 개인 순매수
+  exclusionCriteria:
+    - 외국인 수급
+    - 기관 수급
+    - 공매도
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+MARKET_FLOW_POSITIONING_SHORT_SELLING:
+  inclusionCriteria:
+    - 공매도
+    - 대차잔고
+    - 숏커버링
+    - 공매도 잔고
+    - short selling
+  exclusionCriteria:
+    - 일반 매도
+    - 외국인 매도
+    - 기관 매도
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 공매도 금지
+      - 공매도 잔고
+    supportingTermGroups:
+      - [공매도, 대차잔고]
+      - [숏커버링, short selling]
+    excludedPhrases:
+      - 일반 매도
+      - 외국인 매도
+
+MARKET_FLOW_POSITIONING_ETF_REBALANCING:
+  inclusionCriteria:
+    - ETF
+    - ETF 리밸런싱
+    - 지수 편입
+    - 지수 편출
+    - 패시브 자금
+  exclusionCriteria:
+    - 개별 종목 매매
+    - 공매도
+    - 액티브 펀드
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+MARKET_FLOW_POSITIONING_VOLATILITY_SENTIMENT:
+  inclusionCriteria:
+    - 변동성
+    - 투자심리
+    - 공포지수
+    - VIX
+    - 시장 심리
+  exclusionCriteria:
+    - 주가 변동
+    - 기업 실적
+    - 환율 변동
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+ALTERNATIVE_ASSET_COMMODITIES_ENERGY_PRICES:
+  inclusionCriteria:
+    - 원자재 가격
+    - 에너지 가격
+    - 유가
+    - 천연가스 가격
+    - WTI
+  exclusionCriteria:
+    - 석유 기업 실적
+    - 전력 요금
+    - 신재생에너지
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+ALTERNATIVE_ASSET_COMMODITIES_METALS_AGRICULTURE:
+  inclusionCriteria:
+    - 금속
+    - 농산물
+    - 금 가격
+    - 구리 가격
+    - 곡물
+  exclusionCriteria:
+    - 철강 기업
+    - 화학 제품
+    - 반도체 금속
+  fallback:
+    enabled: false
+    minimumScore: 6
+    strongPhrases: []
+    supportingTermGroups: []
+    excludedPhrases: []
+
+ALTERNATIVE_ASSET_DIGITAL_CRYPTO:
+  inclusionCriteria:
+    - 가상자산
+    - 암호화폐
+    - 비트코인
+    - 이더리움
+    - 블록체인
+  exclusionCriteria:
+    - 디지털 플랫폼
+    - 게임 토큰
+    - 전자결제
+  fallback:
+    enabled: true
+    minimumScore: 6
+    strongPhrases:
+      - 비트코인 현물 ETF
+      - 가상자산 규제
+    supportingTermGroups:
+      - [가상자산, 암호화폐]
+      - [비트코인, 이더리움]
+    excludedPhrases:
+      - 디지털 플랫폼
+      - 게임 토큰
