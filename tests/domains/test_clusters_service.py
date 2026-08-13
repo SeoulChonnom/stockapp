@@ -242,3 +242,17 @@ async def test_cluster_service_keeps_representative_missing_as_not_found(
         await service.get_cluster_detail('51f0d9a0-9fc5-4f15-a4f9-62856f128683')
 
     assert exc_info.value.code == 'CLUSTER_REPRESENTATIVE_ARTICLE_NOT_FOUND'
+
+
+@pytest.mark.anyio
+async def test_cluster_service_rejects_missing_nonrepresentative_articles_before_summary_read(
+    cluster_repository,
+):
+    cluster_repository.processed_articles.pop(4003)
+    summary_repository = FakeAiSummaryRepository(None)
+    service = ClustersService(cluster_repository, summary_repository)
+
+    with pytest.raises(ValueError, match='4003'):
+        await service.get_cluster_detail('51f0d9a0-9fc5-4f15-a4f9-62856f128683')
+
+    assert summary_repository.calls == []

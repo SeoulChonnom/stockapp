@@ -34,10 +34,16 @@ class ClustersService:
                 'CLUSTER_REPRESENTATIVE_ARTICLE_NOT_FOUND',
                 '클러스터 대표 기사를 찾을 수 없습니다.',
             )
+        missing_article_ids = [
+            article_id for article_id in article_ids if article_id not in by_id
+        ]
+        if missing_article_ids:
+            raise ValueError(
+                f'cluster {cluster["id"]} references missing processed '
+                f'article ids: {missing_article_ids}'
+            )
         ordered_articles = [
-            by_id[row['processed_article_id']]
-            for row in cluster_articles
-            if row['processed_article_id'] in by_id
+            by_id[row['processed_article_id']] for row in cluster_articles
         ]
         ai_summary = None
         if self._ai_summary_repo is not None:

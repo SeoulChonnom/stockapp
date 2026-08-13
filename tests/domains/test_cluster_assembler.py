@@ -64,6 +64,30 @@ def _summary_record(*, paragraphs, metadata, status='SUCCESS', fallback_used=Fal
     )
 
 
+def _grounded_sections(
+    *, conflict_status='NONE', conflict_ids=None, conflict_note=None
+):
+    return [
+        {
+            'kind': 'background',
+            'title': '발생 배경',
+            'paragraphs': [
+                {
+                    'sentences': [
+                        {
+                            'text': '반도체 업종 강세가 국내 시장으로 이어졌습니다.',
+                            'sourceArticleIds': [4001],
+                            'conflictStatus': conflict_status,
+                            'conflictingSourceArticleIds': conflict_ids or [],
+                            'conflictNote': conflict_note,
+                        }
+                    ]
+                }
+            ],
+        }
+    ]
+
+
 def _structured_cluster_payload(sample_cluster_detail_payload):
     articles = [
         {
@@ -499,9 +523,14 @@ def test_cluster_builder_degrades_persisted_unknown_source_ids(
             }
         ],
         metadata={
-            'analysisStatus': 'READY',
-            'analysisIssues': [],
-            'conflictStatus': 'NONE',
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'INVALID_SOURCE_REFERENCE',
+                    'message': '저장된 메시지는 사용하지 않습니다.',
+                }
+            ],
+            'conflictStatus': 'NOT_CHECKED',
         },
     )
 
@@ -539,6 +568,203 @@ def test_cluster_builder_rejects_missing_processed_article_id(
             invalid_article,
             [invalid_article, *sample_processed_article_rows[1:]],
         )
+
+
+@pytest.mark.parametrize(
+    'metadata',
+    [
+        None,
+        {
+            'analysisStatus': 'READY',
+            'analysisIssues': 'not-a-list',
+            'conflictStatus': 'NONE',
+        },
+        {
+            'analysisStatus': 'BROKEN',
+            'analysisIssues': [],
+            'conflictStatus': 'NONE',
+        },
+        {
+            'analysisStatus': ['READY'],
+            'analysisIssues': [],
+            'conflictStatus': 'NONE',
+        },
+        {
+            'analysisStatus': 'READY',
+            'analysisIssues': [
+                {'code': 'UNKNOWN', 'message': 'provider secret'},
+            ],
+            'conflictStatus': 'NONE',
+        },
+        {
+            'analysisStatus': 'READY',
+            'analysisIssues': [],
+            'conflictStatus': 'UNKNOWN',
+        },
+        {
+            'analysisStatus': 'READY',
+            'analysisIssues': [],
+            'conflictStatus': {'status': 'NONE'},
+        },
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [],
+            'conflictStatus': 'NONE',
+        },
+        {
+            'analysisStatus': 'READY',
+            'analysisIssues': [
+                {
+                    'code': 'CONFLICT_CHECK_FAILED',
+                    'message': 'provider secret',
+                }
+            ],
+            'conflictStatus': 'NONE',
+        },
+    ],
+    ids=[
+        'metadata-missing',
+        'issues-wrong-type',
+        'unknown-status',
+        'wrong-status-type',
+        'unknown-issue-code',
+        'unknown-conflict-status',
+        'wrong-conflict-status-type',
+        'partial-without-issue',
+        'ready-with-degradation-issue',
+    ],
+)
+def test_cluster_builder_fails_closed_for_invalid_success_metadata(
+    metadata,
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        _summary_record(
+            paragraphs=_grounded_sections(),
+            metadata=metadata,
+        ),
+    )
+
+    assert payload['summary'] == {
+        'short': sample_cluster_row['summary_short'],
+        'long': sample_cluster_row['summary_long'],
+        'analysisStatus': 'UNAVAILABLE',
+        'analysisGeneratedAt': None,
+        'analysisIssues': [
+            {
+                'code': 'ANALYSIS_GENERATION_FAILED',
+                'message': '분석을 생성하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+        'sections': [],
+    }
+
+
+def test_cluster_builder_structural_failure_wins_over_persisted_metadata(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        _summary_record(
+            paragraphs=['legacy paragraph'],
+            metadata={
+                'analysisStatus': 'PARTIAL',
+                'analysisIssues': [
+                    {
+                        'code': 'INVALID_SOURCE_REFERENCE',
+                        'message': 'provider secret',
+                    }
+                ],
+                'conflictStatus': 'NOT_CHECKED',
+            },
+        ),
+    )
+
+    assert payload['summary']['analysisStatus'] == 'UNAVAILABLE'
+    assert payload['summary']['analysisIssues'] == [
+        {
+            'code': 'ANALYSIS_GENERATION_FAILED',
+            'message': '분석을 생성하지 못했습니다.',
+        }
+    ]
+    assert payload['summary']['conflictStatus'] == 'NOT_CHECKED'
+    assert payload['summary']['sections'] == []
+
+
+def test_cluster_builder_rejects_metadata_conflict_aggregate_mismatch(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        _summary_record(
+            paragraphs=_grounded_sections(),
+            metadata={
+                'analysisStatus': 'READY',
+                'analysisIssues': [],
+                'conflictStatus': 'FOUND',
+            },
+        ),
+    )
+
+    assert payload['summary']['analysisStatus'] == 'UNAVAILABLE'
+    assert payload['summary']['analysisIssues'] == [
+        {
+            'code': 'ANALYSIS_GENERATION_FAILED',
+            'message': '분석을 생성하지 못했습니다.',
+        }
+    ]
+
+
+def test_cluster_builder_merges_valid_causal_metadata_and_validator_issues(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        _summary_record(
+            paragraphs=_grounded_sections(conflict_status='NOT_CHECKED'),
+            metadata={
+                'analysisStatus': 'PARTIAL',
+                'analysisIssues': [
+                    {
+                        'code': 'INVALID_SOURCE_REFERENCE',
+                        'message': 'provider secret',
+                    },
+                    {
+                        'code': 'CONFLICT_CHECK_FAILED',
+                        'message': 'another provider secret',
+                    },
+                ],
+                'conflictStatus': 'NOT_CHECKED',
+            },
+        ),
+    )
+
+    assert payload['summary']['analysisStatus'] == 'PARTIAL'
+    assert payload['summary']['analysisIssues'] == [
+        {
+            'code': 'INVALID_SOURCE_REFERENCE',
+            'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+        },
+        {
+            'code': 'CONFLICT_CHECK_FAILED',
+            'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+        },
+    ]
+    assert payload['summary']['conflictStatus'] == 'NOT_CHECKED'
 
 
 @pytest.mark.parametrize(

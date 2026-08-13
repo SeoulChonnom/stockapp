@@ -18,6 +18,12 @@ from app.schemas.cluster import (
     ClusterSummaryResponse,
 )
 
+_DISPLAYABLE_ANALYSIS_STATUSES = frozenset({'READY', 'PARTIAL'})
+_CONFLICT_STATUSES = frozenset({'NOT_CHECKED', 'NONE', 'FOUND'})
+_CAUSAL_ANALYSIS_ISSUES = frozenset(
+    {'INVALID_SOURCE_REFERENCE', 'CONFLICT_CHECK_FAILED'}
+)
+
 
 def _as_iso(value: Any) -> str | None:
     if value is None:
@@ -151,30 +157,32 @@ def _build_persisted_analysis(
         {'sections': _summary_value(ai_summary, 'paragraphs_json')},
         valid_article_ids,
     )
-    metadata_status = metadata.get('analysisStatus')
-    metadata_issues = _issue_codes(metadata.get('analysisIssues'))
-    if metadata_status == 'UNAVAILABLE':
-        persisted = _unavailable_result_with_metadata(persisted, metadata_issues)
-    elif persisted['analysisStatus'] == 'UNAVAILABLE':
-        persisted_codes = [issue['code'] for issue in persisted['analysisIssues']]
-        persisted = build_unavailable_analysis(
-            *(metadata_issues or persisted_codes or ['ANALYSIS_GENERATION_FAILED']),
-        )
+
+    # A structural failure is authoritative.  Persisted metadata cannot turn a
+    # malformed section tree into a displayable response (or leak its message).
+    if _is_structural_analysis_failure(persisted):
+        persisted = build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
     else:
-        issue_codes = _unique_issue_codes(
-            [
-                *metadata_issues,
-                *[issue['code'] for issue in persisted['analysisIssues']],
-            ]
-        )
-        analysis_status = persisted['analysisStatus']
-        if metadata_status == 'PARTIAL' or issue_codes:
-            analysis_status = 'PARTIAL'
-        persisted = {
-            **persisted,
-            'analysisStatus': analysis_status,
-            'analysisIssues': _issues_for(issue_codes),
-        }
+        metadata_result = _validate_success_metadata(metadata, persisted)
+        if metadata_result is None:
+            persisted = build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
+        else:
+            metadata_status, metadata_issues = metadata_result
+            persisted_codes = [issue['code'] for issue in persisted['analysisIssues']]
+            issue_codes = _unique_issue_codes([*metadata_issues, *persisted_codes])
+            if persisted['analysisStatus'] == 'UNAVAILABLE':
+                persisted = build_unavailable_analysis(
+                    *(issue_codes or ['ANALYSIS_GENERATION_FAILED']),
+                )
+            else:
+                analysis_status = persisted['analysisStatus']
+                if metadata_status == 'PARTIAL' or issue_codes:
+                    analysis_status = 'PARTIAL'
+                persisted = {
+                    **persisted,
+                    'analysisStatus': analysis_status,
+                    'analysisIssues': _issues_for(issue_codes),
+                }
 
     generated_at = (
         _summary_value(ai_summary, 'generated_at')
@@ -203,17 +211,62 @@ def _as_mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
+def _is_structural_analysis_failure(persisted: Mapping[str, Any]) -> bool:
+    return persisted.get('analysisStatus') == 'UNAVAILABLE' and any(
+        issue.get('code') == 'ANALYSIS_GENERATION_FAILED'
+        for issue in persisted.get('analysisIssues', [])
+        if isinstance(issue, Mapping)
+    )
+
+
+def _validate_success_metadata(
+    metadata: Mapping[str, Any],
+    persisted: Mapping[str, Any],
+) -> tuple[str, list[str]] | None:
+    """Validate trusted metadata fields without trusting stored messages."""
+    if not isinstance(metadata, dict):
+        return None
+
+    required_fields = {'analysisStatus', 'analysisIssues', 'conflictStatus'}
+    if not required_fields <= metadata.keys():
+        return None
+
+    status = metadata['analysisStatus']
+    conflict_status = metadata['conflictStatus']
+    if (
+        not isinstance(status, str)
+        or not isinstance(conflict_status, str)
+        or status not in _DISPLAYABLE_ANALYSIS_STATUSES
+        or conflict_status not in _CONFLICT_STATUSES
+    ):
+        return None
+
+    raw_issues = metadata['analysisIssues']
+    if not isinstance(raw_issues, list):
+        return None
+    metadata_issues: list[str] = []
+    for issue in raw_issues:
+        if not isinstance(issue, Mapping):
+            return None
+        code = issue.get('code')
+        if not isinstance(code, str) or code not in ANALYSIS_ISSUE_MESSAGES:
+            return None
+        if code not in metadata_issues:
+            metadata_issues.append(code)
+
+    if status == 'READY' and metadata_issues:
+        return None
+    if status == 'PARTIAL' and (
+        not metadata_issues or not set(metadata_issues) <= _CAUSAL_ANALYSIS_ISSUES
+    ):
+        return None
+    if conflict_status != persisted.get('conflictStatus'):
+        return None
+    return status, metadata_issues
+
+
 def _unavailable_from_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     codes = _issue_codes(metadata.get('analysisIssues'))
-    return build_unavailable_analysis(*(codes or ['ANALYSIS_GENERATION_FAILED']))
-
-
-def _unavailable_result_with_metadata(
-    persisted: Mapping[str, Any],
-    metadata_issues: list[str],
-) -> dict[str, Any]:
-    persisted_codes = [issue['code'] for issue in persisted['analysisIssues']]
-    codes = _unique_issue_codes([*metadata_issues, *persisted_codes])
     return build_unavailable_analysis(*(codes or ['ANALYSIS_GENERATION_FAILED']))
 
 
