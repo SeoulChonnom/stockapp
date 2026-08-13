@@ -16,7 +16,7 @@ from app.core.ai_contracts import (
     ANALYSIS_ISSUE_MESSAGES,
     ANALYSIS_SECTION_KIND_ORDER,
     ANALYSIS_SECTION_TITLES,
-    aggregate_conflict_status,
+    validate_analysis_state_relationships,
 )
 from app.schemas.common import normalize_timestamp as _normalize_timestamp
 
@@ -146,6 +146,10 @@ class ClusterSummaryResponse(BaseModel):
         ):
             raise ValueError('analysis sections must use fixed titles')
 
+        issue_codes = [issue.code for issue in self.analysisIssues]
+        if len(issue_codes) != len(set(issue_codes)):
+            raise ValueError('analysis issue codes must be unique')
+
         if self.analysisStatus == 'UNAVAILABLE':
             if (
                 self.sections
@@ -155,6 +159,10 @@ class ClusterSummaryResponse(BaseModel):
                 raise ValueError(
                     'UNAVAILABLE requires empty sections, null generatedAt, '
                     'and NOT_CHECKED aggregate conflict status'
+                )
+            if 'CONFLICT_CHECK_FAILED' in issue_codes:
+                raise ValueError(
+                    'CONFLICT_CHECK_FAILED requires a retained NOT_CHECKED sentence'
                 )
             return self
 
@@ -171,13 +179,14 @@ class ClusterSummaryResponse(BaseModel):
             for paragraph in section.paragraphs
             for sentence in paragraph.sentences
         ]
-        aggregate = aggregate_conflict_status(
-            {'conflictStatus': sentence.conflictStatus} for sentence in sentences
+        state_error = validate_analysis_state_relationships(
+            status=self.analysisStatus,
+            issue_codes=issue_codes,
+            conflict_status=self.conflictStatus,
+            sentence_statuses=(sentence.conflictStatus for sentence in sentences),
         )
-        if self.conflictStatus == 'NOT_CHECKED' and self.analysisStatus == 'READY':
-            raise ValueError('READY analysis requires completed conflict checks')
-        if self.conflictStatus != aggregate:
-            raise ValueError('aggregate conflict status does not match sections')
+        if state_error is not None:
+            raise ValueError(state_error)
         return self
 
 

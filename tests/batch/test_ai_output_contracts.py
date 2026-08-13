@@ -255,6 +255,97 @@ def test_normalize_key_points_accepts_plain_complete_single_sentences(
     assert result['keyPoints'][0]['text'] == text
 
 
+@pytest.mark.parametrize(
+    'text',
+    [
+        '문장입니다.&NewLine;다음 문장입니다.',
+        '상승했습니다&period; 하락했습니다&period;',
+        '&#91;ref&#93;&colon; https://example.com 문장입니다.',
+        '&amp;lt;b&amp;gt;시장&amp;lt;/b&amp;gt; 문장입니다.',
+        '*강조* 문장입니다.',
+        '_강조_ 문장입니다.',
+        '__강조__ 문장입니다.',
+        '~~취소~~ 문장입니다.',
+        '<b>시장</b> 문장입니다.',
+        '<b>시장 문장입니다.',
+        '<br> 문장입니다.',
+        '<span class=x>시장 문장입니다.',
+        '&lt;b&gt;시장&lt;/b&gt; 문장입니다.',
+        '&lt;b&gt;시장 문장입니다.',
+        '&lt;br&gt; 문장입니다.',
+        '&lt;span class=x&gt;시장 문장입니다.',
+        'Foo.Bar. 증시는 상승했습니다.',
+        '첫 문장입니다」 둘째 문장입니다.',
+        '「상승했습니다.',
+    ],
+    ids=[
+        'encoded-newline',
+        'encoded-period',
+        'encoded-reference-definition',
+        'double-encoded-tag',
+        'single-emphasis',
+        'underscore-emphasis',
+        'double-underscore-emphasis',
+        'strike-emphasis',
+        'raw-paired-tag',
+        'raw-start-tag',
+        'raw-void-tag',
+        'raw-attribute-tag',
+        'encoded-paired-tag',
+        'encoded-start-tag',
+        'encoded-void-tag',
+        'encoded-attribute-tag',
+        'arbitrary-dotted-word',
+        'intermediate-unmatched-closer',
+        'unmatched-opener',
+    ],
+)
+def test_normalize_key_points_rejects_encoded_markup_and_unbalanced_text(
+    text: str,
+) -> None:
+    payload = _key_points()
+    payload[0]['text'] = text
+
+    assert normalize_key_points(payload) == {
+        'keyPoints': [],
+        'issue': {
+            'category': 'AI_SUMMARY',
+            'code': 'KEY_POINTS_GENERATION_FAILED',
+            'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    'text',
+    [
+        'AT&amp;T는 상승했습니다.',
+        '상승_하락_혼조로 마감했습니다.',
+        'A&lt;B&gt;C로 움직였습니다.',
+        '「상승」 흐름이 이어졌습니다.',
+        '「상승했습니다。」',
+        '상승했습니다。）',
+        '상승했습니다&period;',
+    ],
+    ids=[
+        'safe-entity',
+        'intraword-underscore',
+        'encoded-comparison',
+        'balanced-cjk-quote',
+        'balanced-terminal-cjk-quote',
+        'terminal-fullwidth-parenthesis',
+        'encoded-terminal-period',
+    ],
+)
+def test_normalize_key_points_accepts_decoded_plain_text_forms(text: str) -> None:
+    payload = _key_points()
+    payload[0]['text'] = text
+
+    result = normalize_key_points(payload)
+
+    assert result['keyPoints'][0]['text'] == text
+
+
 def test_aggregate_conflict_status_uses_found_then_not_checked_then_none() -> None:
     assert aggregate_conflict_status([]) == 'NOT_CHECKED'
     assert (

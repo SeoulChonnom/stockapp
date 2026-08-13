@@ -5,16 +5,15 @@ from __future__ import annotations
 import re
 from html import unescape
 
-_HTML_TAG_RE = re.compile(r'<\s*/?\s*[A-Za-z][^>]*>')
-_HTML_DECLARATION_RE = re.compile(r'<![^>]*>')
-_HTML_PROCESSING_INSTRUCTION_RE = re.compile(r'<\?[^>]*\?>')
+_ENTITY_DECODE_ROUNDS = 4
 _MARKDOWN_HEADING_RE = re.compile(r'(?m)^\s{0,3}#{1,6}(?:\s|$)')
 _MARKDOWN_LIST_RE = re.compile(r'(?m)^\s*(?:[-+*]|\d+[.)])\s+')
 _MARKDOWN_LINK_RE = re.compile(r'!?\[[^\]\r\n]+\]\([^\)\r\n]*\)')
 _MARKDOWN_REFERENCE_LINK_RE = re.compile(r'!?\[[^\]\r\n]+\]\[[^\]\r\n]*\]')
 _MARKDOWN_REFERENCE_DEFINITION_RE = re.compile(r'(?m)^\s*\[[^\]\r\n]+\]:\s*\S+')
 _MARKDOWN_EMPHASIS_RE = re.compile(
-    r'(?:\*\*|__|\*|_|~~)(?=\S)[^\r\n]+?(?<=\S)(?:\*\*|__|\*|_|~~)'
+    r'(?<!\w)(?P<delimiter>\*\*|__|~~|\*|_)(?=\S)'
+    r'[^\r\n]+?(?<=\S)(?P=delimiter)(?!\w)'
 )
 _MARKDOWN_CODE_RE = re.compile(r'`{1,3}')
 _MARKDOWN_QUOTE_RE = re.compile(r'(?m)^\s*>\s?')
@@ -42,24 +41,47 @@ _COMMON_ABBREVIATIONS = frozenset(
         'u.s.a.',
     }
 )
+_CJK_PAIR_CLOSERS = {
+    '「': '」',
+    '『': '』',
+    '《': '》',
+    '〈': '〉',
+    '【': '】',
+    '〔': '〕',
+    '（': '）',
+    '［': '］',
+    '〖': '〗',
+    '〘': '〙',
+    '〚': '〛',
+    '〝': '〞',
+    '“': '”',
+    '‘': '’',
+    '｢': '｣',
+}
+_CJK_PAIR_OPENERS = frozenset(_CJK_PAIR_CLOSERS)
+_CJK_PAIR_CLOSER_SET = frozenset(_CJK_PAIR_CLOSERS.values())
 
 
 def is_complete_plain_sentence(value: object) -> bool:
     """Return whether ``value`` is one nonblank, plain-text sentence.
 
-    The public B1 contract deliberately uses a conservative allow-list: text
-    must end in sentence punctuation and may not contain markup, line breaks,
-    or multiple sentence boundaries.  This function does not normalize text;
-    callers keep the original string after validation.
+    Validation uses a bounded, recursively decoded semantic view.  The input
+    itself is never normalized or returned, so entity spelling remains stable
+    on the public response while encoded syntax cannot bypass the contract.
     """
     if not isinstance(value, str):
         return False
-    text = value.strip()
-    if not text or any(character in _LINE_BREAKS for character in value):
+    semantic = _decode_semantic_view(value)
+    if any(character in _LINE_BREAKS for character in semantic):
+        return False
+    text = semantic.strip()
+    if not text:
         return False
     if _contains_html_markup(text):
         return False
     if _contains_markdown_markup(text):
+        return False
+    if not _has_balanced_cjk_pairs(text):
         return False
     if not any(character.isalnum() for character in text):
         return False
@@ -73,22 +95,91 @@ def is_complete_plain_sentence(value: object) -> bool:
     return _sentence_boundary_count(text) == 1
 
 
+def _decode_semantic_view(text: str) -> str:
+    decoded = text
+    for _ in range(_ENTITY_DECODE_ROUNDS):
+        next_decoded = unescape(decoded)
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
+    return decoded
+
+
 def _contains_html_markup(text: str) -> bool:
-    """Reject raw or entity-encoded HTML syntax, but not ordinary entities."""
-    decoded = unescape(text)
-    return (
-        any(
-            pattern.search(decoded)
-            for pattern in (
-                _HTML_TAG_RE,
-                _HTML_DECLARATION_RE,
-                _HTML_PROCESSING_INSTRUCTION_RE,
-            )
-        )
-        or '<!--' in decoded
-        or '-->' in decoded
-        or '<?' in decoded
-    )
+    """Reject HTML syntax while allowing a plain comparison such as ``A<B>C``."""
+    if '<!--' in text or '-->' in text or '<!' in text or '<?' in text:
+        return True
+
+    index = 0
+    while index < len(text):
+        opening = text.find('<', index)
+        if opening == -1:
+            return False
+        if opening + 1 >= len(text):
+            return True
+        tag_end = _find_unquoted_tag_end(text, opening + 1)
+        if tag_end is None:
+            if text[opening + 1].isdigit():
+                index = opening + 1
+                continue
+            return True
+        body = text[opening + 1 : tag_end]
+        if _is_safe_comparison(text, opening, tag_end, body):
+            index = tag_end + 1
+            continue
+        if _parse_tag_name(body) is not None:
+            return True
+        index = tag_end + 1
+    return False
+
+
+def _find_unquoted_tag_end(text: str, start: int) -> int | None:
+    quote: str | None = None
+    for index in range(start, len(text)):
+        character = text[index]
+        if quote is not None:
+            if character == quote:
+                quote = None
+        elif character in {'"', "'"}:
+            quote = character
+        elif character == '>':
+            return index
+    return None
+
+
+def _is_safe_comparison(text: str, opening: int, tag_end: int, body: str) -> bool:
+    content = body.strip()
+    if (
+        len(content) != 1
+        or not content.isascii()
+        or not content.isalpha()
+        or opening == 0
+        or tag_end + 1 >= len(text)
+    ):
+        return False
+    before = text[opening - 1]
+    after = text[tag_end + 1]
+    return before.isascii() and before.isalnum() and after.isascii() and after.isalnum()
+
+
+def _parse_tag_name(body: str) -> str | None:
+    content = body.strip()
+    if content.startswith('/'):
+        content = content[1:].lstrip()
+    if content.endswith('/'):
+        content = content[:-1].rstrip()
+    if not content or not (content[0].isascii() and content[0].isalpha()):
+        return None
+    index = 1
+    while index < len(content) and (
+        content[index].isascii()
+        and (content[index].isalnum() or content[index] in {':', '-', '_'})
+    ):
+        index += 1
+    remainder = content[index:]
+    if remainder and not remainder.isspace():
+        return content[:index]
+    return content[:index]
 
 
 def _contains_markdown_markup(text: str) -> bool:
@@ -105,6 +196,29 @@ def _contains_markdown_markup(text: str) -> bool:
             _MARKDOWN_QUOTE_RE,
         )
     )
+
+
+def _has_balanced_cjk_pairs(text: str) -> bool:
+    stack: list[str] = []
+    for index, character in enumerate(text):
+        if character in _CJK_PAIR_OPENERS:
+            stack.append(character)
+            continue
+        if character not in _CJK_PAIR_CLOSER_SET:
+            continue
+        if stack and _CJK_PAIR_CLOSERS[stack[-1]] == character:
+            stack.pop()
+            continue
+        if not stack and _is_terminal_unmatched_closer(text, index):
+            continue
+        return False
+    return not stack
+
+
+def _is_terminal_unmatched_closer(text: str, index: int) -> bool:
+    if any(character not in _CLOSING_PUNCTUATION for character in text[index:]):
+        return False
+    return True
 
 
 def _sentence_boundary_count(text: str) -> int:
@@ -168,19 +282,20 @@ def _run_is_abbreviation(text: str, start: int, end: int) -> bool:
         text[token_end].isalnum() or text[token_end] == '.'
     ):
         token_end += 1
-    token = text[token_start:token_end].lower()
-    if token in _COMMON_ABBREVIATIONS:
+    token = text[token_start:token_end]
+    if token.lower() in _COMMON_ABBREVIATIONS:
         return True
 
-    # Initialisms such as U.S. and U.S.A. have a letter followed by a period
-    # at least twice.  The shape is checked procedurally to avoid swallowing
-    # ordinary sentence punctuation or CJK text.
     components = token.split('.')
     return (
         token.endswith('.')
         and len(components) >= 3
         and all(
-            component.isascii() and component.isalpha() for component in components[:-1]
+            len(component) == 1
+            and component.isascii()
+            and component.isalpha()
+            and component.isupper()
+            for component in components[:-1]
         )
     )
 

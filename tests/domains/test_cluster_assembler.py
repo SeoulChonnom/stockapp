@@ -388,6 +388,172 @@ def test_analysis_issue_message_must_match_approved_code(
 
 
 @pytest.mark.parametrize(
+    'summary_updates',
+    [
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'ANALYSIS_GENERATION_FAILED',
+                    'message': '분석을 생성하지 못했습니다.',
+                }
+            ],
+        },
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'NO_GROUNDED_SENTENCES',
+                    'message': '근거를 확인할 수 있는 분석 문장이 없습니다.',
+                }
+            ],
+        },
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'CONFLICT_CHECK_FAILED',
+                    'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+                }
+            ],
+        },
+    ],
+    ids=['partial-terminal-generation', 'partial-terminal-empty', 'conflict-with-none'],
+)
+def test_cluster_summary_rejects_impossible_issue_and_conflict_relationships(
+    summary_updates,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary'].update(summary_updates)
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+def test_cluster_summary_rejects_duplicate_issue_codes(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary'].update(
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'INVALID_SOURCE_REFERENCE',
+                    'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+                },
+                {
+                    'code': 'INVALID_SOURCE_REFERENCE',
+                    'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+                },
+            ],
+        }
+    )
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize(
+    'issues',
+    [
+        [
+            {
+                'code': 'NO_GROUNDED_SENTENCES',
+                'message': '근거를 확인할 수 있는 분석 문장이 없습니다.',
+            },
+            {
+                'code': 'NO_GROUNDED_SENTENCES',
+                'message': '근거를 확인할 수 있는 분석 문장이 없습니다.',
+            },
+        ],
+        [
+            {
+                'code': 'CONFLICT_CHECK_FAILED',
+                'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+            }
+        ],
+    ],
+    ids=['duplicate-unavailable-issues', 'unavailable-conflict-issue'],
+)
+def test_unavailable_analysis_rejects_impossible_issue_codes(
+    issues,
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary'].update(
+        {
+            'analysisStatus': 'UNAVAILABLE',
+            'analysisGeneratedAt': None,
+            'analysisIssues': issues,
+            'conflictStatus': 'NOT_CHECKED',
+            'sections': [],
+        }
+    )
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+def test_cluster_summary_accepts_mixed_found_and_not_checked_partial(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary'].update(
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'CONFLICT_CHECK_FAILED',
+                    'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+                }
+            ],
+            'conflictStatus': 'FOUND',
+        }
+    )
+    found_sentence = payload['summary']['sections'][0]['paragraphs'][0]['sentences'][0]
+    found_sentence.update(
+        {
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [2002],
+            'conflictNote': '기사별 전망이 다르게 보도됐습니다.',
+        }
+    )
+    not_checked_sentence = payload['summary']['sections'][1]['paragraphs'][0][
+        'sentences'
+    ][0]
+    not_checked_sentence.update(
+        {
+            'conflictStatus': 'NOT_CHECKED',
+            'conflictingSourceArticleIds': [],
+            'conflictNote': None,
+        }
+    )
+
+    assemble_cluster_detail_response(payload)
+
+
+def test_cluster_summary_accepts_invalid_source_only_partial_with_none(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['summary'].update(
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'INVALID_SOURCE_REFERENCE',
+                    'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+                }
+            ],
+        }
+    )
+
+    assemble_cluster_detail_response(payload)
+
+
+@pytest.mark.parametrize(
     'source_ids',
     [[], [2001, 2001], [True], ['2001'], [2001.0]],
     ids=['empty', 'duplicate', 'bool', 'numeric-string', 'float'],
@@ -807,6 +973,60 @@ def test_cluster_builder_rejects_missing_processed_article_id(
             ],
             'conflictStatus': 'NONE',
         },
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'ANALYSIS_GENERATION_FAILED',
+                    'message': 'provider secret',
+                }
+            ],
+            'conflictStatus': 'NONE',
+        },
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'NO_GROUNDED_SENTENCES',
+                    'message': 'provider secret',
+                }
+            ],
+            'conflictStatus': 'NONE',
+        },
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'CONFLICT_CHECK_FAILED',
+                    'message': 'provider secret',
+                }
+            ],
+            'conflictStatus': 'NONE',
+        },
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'INVALID_SOURCE_REFERENCE',
+                    'message': 'provider secret',
+                },
+                {
+                    'code': 'INVALID_SOURCE_REFERENCE',
+                    'message': 'provider secret',
+                },
+            ],
+            'conflictStatus': 'NONE',
+        },
+        {
+            'analysisStatus': 'PARTIAL',
+            'analysisIssues': [
+                {
+                    'code': 'INVALID_SOURCE_REFERENCE',
+                    'message': 'provider secret',
+                }
+            ],
+            'conflictStatus': 'NOT_CHECKED',
+        },
     ],
     ids=[
         'metadata-missing',
@@ -818,6 +1038,11 @@ def test_cluster_builder_rejects_missing_processed_article_id(
         'wrong-conflict-status-type',
         'partial-without-issue',
         'ready-with-degradation-issue',
+        'partial-terminal-generation',
+        'partial-terminal-no-grounded',
+        'conflict-issue-with-none',
+        'duplicate-issue-codes',
+        'not-checked-without-conflict-issue',
     ],
 )
 def test_cluster_builder_fails_closed_for_invalid_success_metadata(
@@ -951,6 +1176,86 @@ def test_cluster_builder_merges_valid_causal_metadata_and_validator_issues(
         },
     ]
     assert payload['summary']['conflictStatus'] == 'NOT_CHECKED'
+
+
+def test_cluster_builder_accepts_valid_mixed_found_not_checked_partial(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    sections = _grounded_sections(
+        conflict_status='FOUND',
+        conflict_ids=[4002],
+        conflict_note='기사별 전망이 다르게 보도됐습니다.',
+    )
+    sections[0]['paragraphs'][0]['sentences'].append(
+        {
+            'text': '추가 근거의 충돌 확인이 완료되지 않았습니다.',
+            'sourceArticleIds': [4003],
+            'conflictStatus': 'NOT_CHECKED',
+            'conflictingSourceArticleIds': [],
+            'conflictNote': None,
+        }
+    )
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        _summary_record(
+            paragraphs=sections,
+            metadata={
+                'analysisStatus': 'PARTIAL',
+                'analysisIssues': [
+                    {
+                        'code': 'CONFLICT_CHECK_FAILED',
+                        'message': 'provider secret',
+                    }
+                ],
+                'conflictStatus': 'FOUND',
+            },
+        ),
+    )
+
+    assert payload['summary']['analysisStatus'] == 'PARTIAL'
+    assert payload['summary']['conflictStatus'] == 'FOUND'
+    assert payload['summary']['analysisIssues'] == [
+        {
+            'code': 'CONFLICT_CHECK_FAILED',
+            'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+        }
+    ]
+
+
+def test_cluster_builder_accepts_valid_invalid_source_only_partial(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        _summary_record(
+            paragraphs=_grounded_sections(),
+            metadata={
+                'analysisStatus': 'PARTIAL',
+                'analysisIssues': [
+                    {
+                        'code': 'INVALID_SOURCE_REFERENCE',
+                        'message': 'provider secret',
+                    }
+                ],
+                'conflictStatus': 'NONE',
+            },
+        ),
+    )
+
+    assert payload['summary']['analysisStatus'] == 'PARTIAL'
+    assert payload['summary']['conflictStatus'] == 'NONE'
+    assert payload['summary']['analysisIssues'] == [
+        {
+            'code': 'INVALID_SOURCE_REFERENCE',
+            'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+        }
+    ]
 
 
 @pytest.mark.parametrize(

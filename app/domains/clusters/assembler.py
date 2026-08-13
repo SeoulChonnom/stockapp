@@ -9,6 +9,7 @@ from app.batch.ai_output_contracts import (
     build_unavailable_analysis,
     validate_analysis_sections,
 )
+from app.core.ai_contracts import validate_analysis_state_relationships
 from app.core.timezone import isoformat_datetime
 from app.schemas.cluster import (
     ArticleGroupingIssueResponse,
@@ -20,9 +21,6 @@ from app.schemas.cluster import (
 
 _DISPLAYABLE_ANALYSIS_STATUSES = frozenset({'READY', 'PARTIAL'})
 _CONFLICT_STATUSES = frozenset({'NOT_CHECKED', 'NONE', 'FOUND'})
-_CAUSAL_ANALYSIS_ISSUES = frozenset(
-    {'INVALID_SOURCE_REFERENCE', 'CONFLICT_CHECK_FAILED'}
-)
 
 
 def _as_iso(value: Any) -> str | None:
@@ -251,18 +249,28 @@ def _validate_success_metadata(
         code = issue.get('code')
         if not isinstance(code, str) or code not in ANALYSIS_ISSUE_MESSAGES:
             return None
-        if code not in metadata_issues:
-            metadata_issues.append(code)
+        if code in metadata_issues:
+            return None
+        metadata_issues.append(code)
 
-    if status == 'READY' and metadata_issues:
-        return None
-    if status == 'PARTIAL' and (
-        not metadata_issues or not set(metadata_issues) <= _CAUSAL_ANALYSIS_ISSUES
-    ):
-        return None
-    if conflict_status != persisted.get('conflictStatus'):
+    state_error = validate_analysis_state_relationships(
+        status=status,
+        issue_codes=metadata_issues,
+        conflict_status=conflict_status,
+        sentence_statuses=_persisted_sentence_statuses(persisted),
+    )
+    if state_error is not None:
         return None
     return status, metadata_issues
+
+
+def _persisted_sentence_statuses(persisted: Mapping[str, Any]) -> list[str]:
+    return [
+        sentence['conflictStatus']
+        for section in persisted.get('sections', [])
+        for paragraph in section.get('paragraphs', [])
+        for sentence in paragraph.get('sentences', [])
+    ]
 
 
 def _unavailable_from_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
