@@ -13,6 +13,7 @@ from app.batch.ai_retry.orchestrator import (
     _generate_target,
     _retry_create_params,
 )
+from app.batch.ai_retry.page_builder import _build_page_issues
 from app.batch.ai_summary_targets import AiSummaryTarget
 from app.batch.exceptions import BatchLeaseLostError
 from app.batch.providers.llm_provider import BatchLlmProvider
@@ -617,7 +618,7 @@ async def test_cluster_detail_retry_persists_v2_grounded_shape_without_legacy(
 
 
 @pytest.mark.anyio
-async def test_missing_cluster_detail_retry_discards_legacy_paragraphs():
+async def test_missing_cluster_detail_retry_persists_fallback_without_page_issue():
     source = replace(
         _source_summary(),
         summary_type='CLUSTER_DETAIL_ANALYSIS',
@@ -650,8 +651,8 @@ async def test_missing_cluster_detail_retry_discards_legacy_paragraphs():
         payload=payload,
     )
 
-    assert persisted.status == 'FAILED'
-    assert persisted.fallback_used is False
+    assert persisted.status == 'FALLBACK'
+    assert persisted.fallback_used is True
     assert persisted.paragraphs_json == []
     assert persisted.metadata_json == {
         'analysisStatus': 'UNAVAILABLE',
@@ -665,6 +666,17 @@ async def test_missing_cluster_detail_retry_discards_legacy_paragraphs():
         'retry': {'sourceSummaryId': source.summary_id, 'attemptNo': 2},
     }
     assert '이 레거시 문단은 재사용하지 않습니다.' not in repr(persisted)
+
+    persisted_record = await FakeSummaryWriteRepository().upsert_retry_summary(
+        persisted
+    )
+    assert (
+        _build_page_issues(
+            {'metadata_json': {'issues': []}},
+            {selection.target.target_key: persisted_record},
+        )
+        == []
+    )
 
 
 @pytest.mark.anyio

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -25,7 +26,9 @@ class AiSummary(Base):
     cluster_id: Mapped[int | None] = mapped_column(Integer)
     title: Mapped[str | None] = mapped_column(Text)
     body: Mapped[str | None] = mapped_column(Text)
-    paragraphs_json: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    paragraphs_json: Mapped[list[str] | list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list
+    )
     model_name: Mapped[str | None] = mapped_column(Text)
     prompt_version: Mapped[str | None] = mapped_column(Text)
     status: Mapped[AiSummaryStatus] = mapped_column(

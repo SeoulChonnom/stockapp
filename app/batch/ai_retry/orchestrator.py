@@ -333,9 +333,13 @@ async def _generate_target(
     if cluster is None:
         paragraphs = selection.source_summary.paragraphs_json
         metadata_json = {'reason': 'retry_source_missing'}
+        status = AiSummaryStatus.FAILED.value
+        fallback_used = False
         if target.summary_type == 'CLUSTER_DETAIL_ANALYSIS':
             unavailable = build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
             paragraphs = []
+            status = AiSummaryStatus.FALLBACK.value
+            fallback_used = True
             metadata_json = {
                 'analysisStatus': unavailable['analysisStatus'],
                 'analysisIssues': unavailable['analysisIssues'],
@@ -345,8 +349,8 @@ async def _generate_target(
             'title': selection.source_summary.title,
             'body': selection.source_summary.body,
             'paragraphs': paragraphs,
-            'status': AiSummaryStatus.FAILED.value,
-            'fallback_used': False,
+            'status': status,
+            'fallback_used': fallback_used,
             'error_message': f'Cluster {target.cluster_id} was not found.',
             'metadata_json': metadata_json,
         }
