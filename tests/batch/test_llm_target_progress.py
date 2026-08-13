@@ -123,7 +123,7 @@ async def test_generate_summaries_restart_skips_successes_and_persists_final_fal
         detail_done.set()
         return _success_payload('detail')
 
-    monkeypatch.setattr(module, '_generate_global_headline', global_summary)
+    monkeypatch.setattr(module, '_generate_global_outputs', global_summary)
     monkeypatch.setattr(module, '_generate_market_summary', market_summary)
     monkeypatch.setattr(module, '_generate_cluster_card_summary', card_summary)
     monkeypatch.setattr(module, '_generate_cluster_detail_summary', detail_summary)

@@ -8,6 +8,7 @@ from uuid import UUID
 import pytest
 
 from app.batch.providers.llm_provider import BatchLlmProvider
+from tests.batch.gemini_mock import MockGeminiApiClient, gemini_json_response
 
 
 class RecordingClient:
@@ -126,3 +127,53 @@ async def test_cluster_prompt_rejects_non_finite_numbers(value):
             cluster={'title': 'Title'},
             articles=[{'value': value}],
         )
+
+
+@pytest.mark.anyio
+async def test_key_point_prompt_serializes_only_cluster_and_index_evidence():
+    key_points = [
+        {
+            'kind': 'direction',
+            'label': '시장 방향',
+            'text': '기술주 중심으로 상승했습니다.',
+            'direction': 'UP',
+        },
+        {
+            'kind': 'driver',
+            'label': '주요 원인',
+            'text': '반도체 실적 기대가 지수를 끌어올렸습니다.',
+        },
+        {
+            'kind': 'watch',
+            'label': '관전 포인트',
+            'text': '다음 물가 지표를 확인해야 합니다.',
+        },
+    ]
+    client = MockGeminiApiClient(
+        [(200, gemini_json_response({'keyPoints': key_points}))]
+    )
+    provider = BatchLlmProvider(client)
+    clusters = [{'title': '반도체 강세', 'summary': 'AI 수요 기대가 높아졌습니다.'}]
+    indices = [{'marketType': 'US', 'indexCode': '^IXIC', 'changePercent': '1.25'}]
+
+    result = await provider.summarize_key_points(
+        clusters=clusters,
+        indices=indices,
+    )
+
+    assert result == {'keyPoints': key_points}
+    serialized_request = client.request_payloads[0]
+    system_prompt = serialized_request['systemInstruction']['parts'][0]['text']
+    assert 'exactly three objects' in system_prompt
+    assert '"kind": "direction"' in system_prompt
+    assert '"label": "시장 방향"' in system_prompt
+    assert '"kind": "driver"' in system_prompt
+    assert '"label": "주요 원인"' in system_prompt
+    assert '"kind": "watch"' in system_prompt
+    assert '"label": "관전 포인트"' in system_prompt
+    assert '"UP", "DOWN", "MIXED", or "FLAT"' in system_prompt
+    user_prompt = serialized_request['contents'][0]['parts'][0]['text']
+    assert json.loads(user_prompt) == {
+        'clusters': clusters,
+        'indices': indices,
+    }

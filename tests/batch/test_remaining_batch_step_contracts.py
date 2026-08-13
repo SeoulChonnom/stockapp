@@ -51,6 +51,29 @@ def build_context() -> BatchExecutionContext:
     )
 
 
+def build_key_points() -> dict[str, list[dict[str, str]]]:
+    return {
+        'keyPoints': [
+            {
+                'kind': 'direction',
+                'label': '시장 방향',
+                'text': '주요 지수가 상승했습니다.',
+                'direction': 'UP',
+            },
+            {
+                'kind': 'driver',
+                'label': '주요 원인',
+                'text': '반도체 강세가 상승을 이끌었습니다.',
+            },
+            {
+                'kind': 'watch',
+                'label': '관전 포인트',
+                'text': '다음 물가 지표를 확인해야 합니다.',
+            },
+        ]
+    }
+
+
 @pytest.mark.anyio
 async def test_collect_news_step_skips_provider_when_rebuild_page_only(monkeypatch):
     collect_module = load_module('app.batch.steps.collect_news')
@@ -310,10 +333,10 @@ async def test_generate_ai_summaries_step_records_ai_summary_outputs(monkeypatch
         def is_configured(self):
             return False
 
-    original_global_headline = generate_module._generate_global_headline
+    original_global_outputs = generate_module._generate_global_outputs
 
     async def success_marked_fallback(*args, **kwargs):
-        result = await original_global_headline(*args, **kwargs)
+        result = await original_global_outputs(*args, **kwargs)
         return {**result, 'status': 'SUCCESS', 'fallback_used': True}
 
     fake_summary_repo = FakeSummaryRepo(RecordingAsyncSession())
@@ -324,7 +347,7 @@ async def test_generate_ai_summaries_step_records_ai_summary_outputs(monkeypatch
     )
     monkeypatch.setattr(generate_module, 'BatchLlmProvider', FakeLlmProvider)
     monkeypatch.setattr(
-        generate_module, '_generate_global_headline', success_marked_fallback
+        generate_module, '_generate_global_outputs', success_marked_fallback
     )
 
     repository = EventRepository(session=RecordingAsyncSession(), events=[])
@@ -346,6 +369,91 @@ async def test_generate_ai_summaries_step_records_ai_summary_outputs(monkeypatch
     )
     assert global_row.status == 'SUCCESS'
     assert global_row.fallback_used is True
+
+
+@pytest.mark.anyio
+async def test_persist_global_headline_records_key_point_partial_and_warning():
+    generate_module = load_module('app.batch.steps.generate_ai_summaries')
+
+    class RecordingSummaryRepo:
+        def __init__(self):
+            self.rows = []
+
+        async def insert_summary(self, params):
+            self.rows.append(params)
+
+    class RecordingProgress:
+        def __init__(self):
+            self.committed = []
+
+        async def commit_target(self, target_key, context):
+            self.committed.append((target_key, context.to_checkpoint()))
+
+    target_key = 'GLOBAL_HEADLINE'
+    summary_repo = RecordingSummaryRepo()
+    progress = RecordingProgress()
+    repository = RichEventRepository(
+        session=RecordingAsyncSession(),
+        events=[],
+    )
+    context = build_context()
+    key_point_issue = {
+        'category': 'AI_SUMMARY',
+        'code': 'KEY_POINTS_GENERATION_FAILED',
+        'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+    }
+
+    await generate_module._persist_summary_result(
+        target_key,
+        {
+            'title': '글로벌 증시 반등',
+            'body': '반도체가 강세였습니다.',
+            'status': 'SUCCESS',
+            'fallback_used': False,
+            'model_name': 'gemini-2.5-flash',
+            'metadata_json': {
+                'reason': 'llm',
+                'keyPoints': [],
+                'keyPointIssue': key_point_issue,
+            },
+        },
+        context=context,
+        repository=repository,
+        step_code='GENERATE_AI_SUMMARIES',
+        summary_repo=summary_repo,
+        summary_jobs_by_key={
+            target_key: {
+                'summary_type': 'GLOBAL_HEADLINE',
+                'market_type': None,
+                'cluster_id': None,
+                'target_key': target_key,
+                'generate': None,
+            }
+        },
+        progress=progress,
+        fallback_details=[],
+    )
+
+    assert len(summary_repo.rows) == 1
+    persisted = summary_repo.rows[0]
+    assert persisted.status == 'SUCCESS'
+    assert persisted.fallback_used is False
+    assert persisted.metadata_json['keyPoints'] == []
+    assert persisted.metadata_json['keyPointIssue'] == key_point_issue
+    assert context.ai_success_count == 1
+    assert context.ai_fallback_count == 0
+    assert context.fallback_count == 0
+    assert context.partial_reasons == [key_point_issue['message']]
+    assert context.partial_categories == {'KEY_POINTS_GENERATION_FAILED': 1}
+    warning_events = [
+        event
+        for event in repository.events
+        if event['level'] == 'WARN'
+        and event['message'] == 'AI key point generation failed.'
+    ]
+    assert len(warning_events) == 1
+    assert warning_events[0]['context_json'] == key_point_issue
+    assert progress.committed[0][0] == target_key
 
 
 @pytest.mark.anyio
@@ -468,6 +576,11 @@ async def test_generate_ai_summaries_bounds_llm_calls_and_persists_model_name():
             _ = kwargs
             return await self._record('global')
 
+        async def summarize_key_points(self, **kwargs):
+            _ = kwargs
+            await self._record('key-points')
+            return build_key_points()
+
         async def summarize_market(self, **kwargs):
             _ = kwargs
             return await self._record('market')
@@ -498,22 +611,16 @@ async def test_generate_ai_summaries_bounds_llm_calls_and_persists_model_name():
     assert updated_context.ai_success_count == 6
     assert updated_context.ai_fallback_count == 0
     assert updated_context.ai_failed_count == 0
-    assert [row.summary_type for row in summary_repo.rows] == [
-        'GLOBAL_HEADLINE',
-        'MARKET_SUMMARY',
-        'CLUSTER_CARD_SUMMARY',
-        'CLUSTER_DETAIL_ANALYSIS',
-        'CLUSTER_CARD_SUMMARY',
-        'CLUSTER_DETAIL_ANALYSIS',
-    ]
-    assert [row.cluster_id for row in summary_repo.rows] == [
-        None,
-        None,
-        7001,
-        7001,
-        7002,
-        7002,
-    ]
+    assert {
+        (row.summary_type, row.market_type, row.cluster_id) for row in summary_repo.rows
+    } == {
+        ('GLOBAL_HEADLINE', None, None),
+        ('MARKET_SUMMARY', 'US', None),
+        ('CLUSTER_CARD_SUMMARY', 'US', 7001),
+        ('CLUSTER_DETAIL_ANALYSIS', 'US', 7001),
+        ('CLUSTER_CARD_SUMMARY', 'US', 7002),
+        ('CLUSTER_DETAIL_ANALYSIS', 'US', 7002),
+    }
     assert {row.model_name for row in summary_repo.rows} == {'test-configured-model'}
 
 
@@ -582,6 +689,10 @@ async def test_generate_ai_summaries_normalizes_string_market_metadata():
         async def summarize_global_headline(self, **kwargs):
             _ = kwargs
             return {'title': 'Global headline', 'body': 'Global body'}
+
+        async def summarize_key_points(self, **kwargs):
+            _ = kwargs
+            return build_key_points()
 
         async def summarize_market(self, **kwargs):
             _ = kwargs
@@ -696,6 +807,13 @@ async def test_generate_ai_summaries_step_records_fallback_error_metadata(monkey
             return True
 
         async def summarize_global_headline(self, **kwargs):
+            _ = kwargs
+            raise TimeoutError(
+                '429 RESOURCE_EXHAUSTED secret-token RetryInfo '
+                'https://generativelanguage.googleapis.com'
+            )
+
+        async def summarize_key_points(self, **kwargs):
             _ = kwargs
             raise TimeoutError(
                 '429 RESOURCE_EXHAUSTED secret-token RetryInfo '

@@ -12,7 +12,7 @@ from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
 from app.batch.steps.ai_summary_generators import (
     _generate_cluster_card_summary,
     _generate_cluster_detail_summary,
-    _generate_global_headline,
+    _generate_global_outputs,
     _generate_market_summary,
 )
 from app.batch.steps.base import BatchStep, require_repository_session
@@ -245,7 +245,7 @@ async def _build_summary_jobs(
         cluster_id=None,
         generate=partial(
             bounded_generate,
-            _generate_global_headline,
+            _generate_global_outputs,
             llm_provider,
             clusters,
             indices,
@@ -366,6 +366,25 @@ async def _persist_summary_result(
             message='AI summary target generated with fallback response.',
             context_json=fallback_detail,
         )
+    metadata = payload.get('metadata_json')
+    key_point_issue = (
+        metadata.get('keyPointIssue') if isinstance(metadata, dict) else None
+    )
+    if isinstance(key_point_issue, dict):
+        issue_message = key_point_issue.get('message')
+        if isinstance(issue_message, str):
+            context.add_partial('KEY_POINTS_GENERATION_FAILED', issue_message)
+            await repository.add_event(
+                job_id=context.job_id,
+                step_code=step_code,
+                level=EventLevel.WARN.value,
+                message='AI key point generation failed.',
+                context_json={
+                    'category': 'AI_SUMMARY',
+                    'code': 'KEY_POINTS_GENERATION_FAILED',
+                    'message': issue_message,
+                },
+            )
     await progress.commit_target(target_key, context)
 
 

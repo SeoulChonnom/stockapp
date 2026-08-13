@@ -1,12 +1,47 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
+from app.batch.providers.llm_provider import BatchLlmProvider
 from app.batch.steps.generate_ai_summaries import (
     _generate_cluster_detail_summary,
+    _generate_global_outputs,
     _generate_market_summary,
 )
 from app.core.llm import LlmRetryableError, LlmRetryExhaustedError
+from tests.batch.gemini_mock import (
+    MockGeminiApiClient,
+    gemini_exhausted_response,
+    gemini_json_response,
+)
+
+HEADLINE = {'title': '기술주가 이끈 글로벌 증시 반등', 'body': '반도체가 강세였습니다.'}
+KEY_POINTS = [
+    {
+        'kind': 'direction',
+        'label': '시장 방향',
+        'text': '글로벌 증시는 상승했습니다.',
+        'direction': 'UP',
+    },
+    {
+        'kind': 'driver',
+        'label': '주요 원인',
+        'text': '반도체 실적 기대가 상승을 이끌었습니다.',
+    },
+    {
+        'kind': 'watch',
+        'label': '관전 포인트',
+        'text': '물가 지표와 금리 경로를 지켜봐야 합니다.',
+    },
+]
+CLUSTERS = [
+    {
+        'title': '반도체 강세',
+        'summary_short': 'AI 수요 기대가 지수를 끌어올렸습니다.',
+    }
+]
 
 
 class StringListLlmProvider:
@@ -139,3 +174,125 @@ async def test_market_summary_uses_fallback_after_durable_retries_exhausted():
         'AI provider request failed; fallback content was used.'
     )
     assert 'sanitized terminal error' not in repr(result)
+
+
+@pytest.mark.anyio
+async def test_global_outputs_preserve_headline_when_key_points_are_malformed():
+    client = MockGeminiApiClient(
+        [
+            (200, gemini_json_response(HEADLINE)),
+            (
+                200,
+                gemini_json_response({'keyPoints': [{'kind': 'direction'}]}),
+            ),
+        ]
+    )
+
+    result = await _generate_global_outputs(
+        BatchLlmProvider(client),
+        CLUSTERS,
+        [],
+    )
+
+    assert result['title'] == HEADLINE['title']
+    assert result['status'] == 'SUCCESS'
+    assert result['fallback_used'] is False
+    assert result['metadata_json']['keyPoints'] == []
+    assert result['metadata_json']['keyPointIssue'] == {
+        'category': 'AI_SUMMARY',
+        'code': 'KEY_POINTS_GENERATION_FAILED',
+        'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+    }
+
+
+@pytest.mark.anyio
+async def test_global_outputs_preserve_headline_when_key_point_provider_exhausts():
+    client = MockGeminiApiClient(
+        [
+            (200, gemini_json_response(HEADLINE)),
+            (429, gemini_exhausted_response()),
+        ]
+    )
+
+    result = await _generate_global_outputs(
+        BatchLlmProvider(client),
+        CLUSTERS,
+        [],
+    )
+
+    assert result['title'] == HEADLINE['title']
+    assert result['status'] == 'SUCCESS'
+    assert result['fallback_used'] is False
+    assert result['metadata_json']['keyPoints'] == []
+    assert result['metadata_json']['keyPointIssue']['code'] == (
+        'KEY_POINTS_GENERATION_FAILED'
+    )
+    assert 'secret-project-token' not in repr(result)
+    assert 'googleapis.com' not in repr(result)
+
+
+@pytest.mark.anyio
+async def test_global_outputs_preserve_key_points_when_headline_provider_exhausts():
+    client = MockGeminiApiClient(
+        [
+            (429, gemini_exhausted_response()),
+            (200, gemini_json_response({'keyPoints': KEY_POINTS})),
+        ]
+    )
+
+    result = await _generate_global_outputs(
+        BatchLlmProvider(client),
+        CLUSTERS,
+        [],
+    )
+
+    assert result['status'] == 'FALLBACK'
+    assert result['fallback_used'] is True
+    assert result['metadata_json']['keyPoints'] == KEY_POINTS
+    assert result['metadata_json']['keyPointIssue'] is None
+
+
+@pytest.mark.anyio
+async def test_global_outputs_store_headline_and_key_points_when_both_succeed():
+    client = MockGeminiApiClient(
+        [
+            (200, gemini_json_response(HEADLINE)),
+            (200, gemini_json_response({'keyPoints': KEY_POINTS})),
+        ]
+    )
+
+    result = await _generate_global_outputs(
+        BatchLlmProvider(client),
+        CLUSTERS,
+        [],
+    )
+
+    assert result == {
+        'title': HEADLINE['title'],
+        'body': HEADLINE['body'],
+        'status': 'SUCCESS',
+        'fallback_used': False,
+        'model_name': 'gemini-2.5-flash',
+        'metadata_json': {
+            'reason': 'llm',
+            'keyPoints': KEY_POINTS,
+            'keyPointIssue': None,
+        },
+    }
+
+
+@pytest.mark.anyio
+async def test_global_outputs_propagate_key_point_cancellation():
+    client = MockGeminiApiClient(
+        [
+            (200, gemini_json_response(HEADLINE)),
+            asyncio.CancelledError(),
+        ]
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await _generate_global_outputs(
+            BatchLlmProvider(client),
+            CLUSTERS,
+            [],
+        )

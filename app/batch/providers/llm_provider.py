@@ -9,7 +9,7 @@ from uuid import UUID
 
 from app.core.llm import GeminiJsonClient
 
-PROMPT_VERSION = 'v1'
+PROMPT_VERSION = 'v2'
 
 
 def _json_safe(value: Any, *, active_container_ids: set[int] | None = None) -> Any:
@@ -131,6 +131,35 @@ class BatchLlmProvider:
         system_prompt = (
             'You are a financial news editor. Return a JSON object with keys: '
             'title, body.'
+        )
+        user_prompt = _serialize_prompt(
+            {
+                'clusters': clusters,
+                'indices': indices,
+            }
+        )
+        return await self._client.invoke_json(
+            system_prompt=system_prompt, user_prompt=user_prompt
+        )
+
+    async def summarize_key_points(
+        self,
+        *,
+        clusters: list[dict[str, Any]],
+        indices: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        system_prompt = (
+            'You are a financial news editor. Return one JSON object whose '
+            'keyPoints field is an array containing exactly three objects in '
+            'this exact order and with no additional fields: '
+            '1. {"kind": "direction", "label": "시장 방향", "text": '
+            '"one complete plain-text sentence", "direction": one of '
+            '"UP", "DOWN", "MIXED", or "FLAT"}; '
+            '2. {"kind": "driver", "label": "주요 원인", "text": '
+            '"one complete plain-text sentence"}; '
+            '3. {"kind": "watch", "label": "관전 포인트", "text": '
+            '"one complete plain-text sentence"}. '
+            'Do not use HTML, Markdown, or line breaks in text.'
         )
         user_prompt = _serialize_prompt(
             {

@@ -4,6 +4,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from app.batch.ai_output_contracts import normalize_key_points
 from app.batch.logging import log_safe_exception
 from app.batch.providers.llm_provider import BatchLlmProvider
 from app.core.llm import LlmRetryableError
@@ -178,6 +179,74 @@ async def _generate_global_headline(
         build_success=build_success,
         log_message='Global headline provider request failed.',
     )
+
+
+async def _generate_key_points(
+    llm_provider: BatchLlmProvider, clusters: list[dict], indices: list
+) -> dict[str, object]:
+    if not llm_provider.is_configured():
+        normalized = normalize_key_points(None)
+        return {
+            'keyPoints': normalized['keyPoints'],
+            'issue': normalized.get('issue'),
+        }
+
+    try:
+        result = await llm_provider.summarize_key_points(
+            clusters=[
+                {'title': cluster['title'], 'summary': cluster['summary_short']}
+                for cluster in clusters
+            ],
+            indices=[
+                {
+                    'marketType': index.market_type,
+                    'indexCode': index.index_code,
+                    'changePercent': str(index.change_percent),
+                }
+                for index in indices
+            ],
+        )
+    except LlmRetryableError:
+        raise
+    except Exception as exc:
+        log_safe_exception(
+            LOGGER,
+            logging.WARNING,
+            'Key point provider request failed.',
+            exception=exc,
+        )
+        result = None
+
+    payload = result.get('keyPoints') if isinstance(result, dict) else None
+    normalized = normalize_key_points(payload)
+    return {
+        'keyPoints': normalized['keyPoints'],
+        'issue': normalized.get('issue'),
+    }
+
+
+async def _generate_global_outputs(
+    llm_provider: BatchLlmProvider, clusters: list[dict], indices: list
+) -> dict[str, Any]:
+    headline_result = await _generate_global_headline(
+        llm_provider,
+        clusters,
+        indices,
+    )
+    key_point_result = await _generate_key_points(
+        llm_provider,
+        clusters,
+        indices,
+    )
+    headline_metadata = headline_result.get('metadata_json') or {}
+    return {
+        **headline_result,
+        'metadata_json': {
+            **headline_metadata,
+            'keyPoints': key_point_result['keyPoints'],
+            'keyPointIssue': key_point_result['issue'],
+        },
+    }
 
 
 async def _generate_market_summary(
@@ -367,5 +436,7 @@ __all__ = [
     '_generate_cluster_card_summary',
     '_generate_cluster_detail_summary',
     '_generate_global_headline',
+    '_generate_global_outputs',
+    '_generate_key_points',
     '_generate_market_summary',
 ]

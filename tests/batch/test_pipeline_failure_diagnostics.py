@@ -473,6 +473,10 @@ async def test_summary_llm_errors_are_in_warning_event_and_partial_diagnostics(
             _ = kwargs
             raise TimeoutError(raw_provider_error)
 
+        async def summarize_key_points(self, **kwargs) -> dict:
+            _ = kwargs
+            raise TimeoutError(raw_provider_error)
+
         async def summarize_market(self, **kwargs) -> dict:
             _ = kwargs
             raise TimeoutError(raw_provider_error)
@@ -498,7 +502,11 @@ async def test_summary_llm_errors_are_in_warning_event_and_partial_diagnostics(
         'AI provider request failed; fallback content was used.' in reason
         for reason in context.partial_reasons
     )
-    warning = next(event for event in repository.events if event.get('level') == 'WARN')
+    warning = next(
+        event
+        for event in repository.events
+        if event.get('message') == 'AI summaries generated with fallback responses.'
+    )
     assert warning['context_json']['fallbackCount'] == 4
     assert warning['context_json']['fallbackDetails'][0]['error'] == {
         'code': 'AI_PROVIDER_REQUEST_FAILED',
