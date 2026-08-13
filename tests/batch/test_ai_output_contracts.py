@@ -1,3 +1,5 @@
+import pytest
+
 from app.batch.ai_output_contracts import (
     ANALYSIS_ISSUE_MESSAGES,
     aggregate_conflict_status,
@@ -114,6 +116,81 @@ def test_normalize_key_points_rejects_semantic_contract_errors_as_one_fallback()
         }
 
 
+@pytest.mark.parametrize(
+    'text',
+    [
+        '   ',
+        '첫 문장입니다. 둘째 문장입니다.',
+        '줄바꿈이 포함된 문장입니다.\n',
+        '캐리지 리턴이 포함된 문장입니다.\r',
+        '<b>HTML 태그가 포함된 문장입니다.</b>',
+        '# 제목 문장입니다.',
+        '- 목록 항목입니다.',
+        '1. 번호 목록 항목입니다.',
+        '[문서 링크](https://example.com)입니다.',
+        '**강조된 문장입니다.**',
+        '`인라인 코드`가 포함된 문장입니다.',
+        '문장에 마침표가 없습니다',
+    ],
+    ids=[
+        'blank',
+        'multiple-sentences',
+        'newline',
+        'carriage-return',
+        'html',
+        'heading',
+        'unordered-list',
+        'ordered-list',
+        'link',
+        'emphasis',
+        'code',
+        'incomplete',
+    ],
+)
+def test_normalize_key_points_rejects_non_plain_single_sentence_text(
+    text: object,
+) -> None:
+    payload = _key_points()
+    payload[0]['text'] = text
+
+    assert normalize_key_points(payload) == {
+        'keyPoints': [],
+        'issue': {
+            'category': 'AI_SUMMARY',
+            'code': 'KEY_POINTS_GENERATION_FAILED',
+            'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    'text',
+    [
+        '미국 증시는 상승했지만 한국 증시는 하락했습니다.',
+        '금리 인하 기대가 시장에 반영됐나요?',
+        '반도체 업종이 강세를 보였습니다!',
+        '실적 발표(예: 3.1조원)가 주가에 반영됐습니다.',
+        '시장 흐름이 엇갈렸습니다."',
+    ],
+    ids=[
+        'korean-period',
+        'question',
+        'exclamation',
+        'ordinary-punctuation',
+        'closing-quote',
+    ],
+)
+def test_normalize_key_points_accepts_plain_complete_single_sentences(
+    text: str,
+) -> None:
+    payload = _key_points()
+    payload[0]['text'] = text
+
+    result = normalize_key_points(payload)
+
+    assert result['keyPoints'][0]['text'] == text
+
+
 def test_aggregate_conflict_status_uses_found_then_not_checked_then_none() -> None:
     assert aggregate_conflict_status([]) == 'NOT_CHECKED'
     assert (
@@ -195,6 +272,48 @@ def test_validate_analysis_sections_returns_unavailable_for_top_or_nested_shape_
             'conflictStatus': 'NOT_CHECKED',
             'sections': [],
         }
+
+
+@pytest.mark.parametrize(
+    'text',
+    ['', '   ', '\n', '\r', None, 123, [], {}],
+    ids=[
+        'empty',
+        'whitespace',
+        'newline',
+        'carriage-return',
+        'null',
+        'number',
+        'list',
+        'object',
+    ],
+)
+def test_validate_analysis_sections_fails_closed_for_malformed_sentence_text(
+    text: object,
+) -> None:
+    malformed_sentence = _sentence(text=text)
+    payload = _analysis_payload(
+        sections=[
+            _section(
+                paragraphs=[
+                    _paragraph(sentences=[malformed_sentence]),
+                    _paragraph(sentences=[_sentence(text='유효한 형제 문장입니다.')]),
+                ]
+            )
+        ]
+    )
+
+    assert validate_analysis_sections(payload, {1024}) == {
+        'analysisStatus': 'UNAVAILABLE',
+        'analysisIssues': [
+            {
+                'code': 'ANALYSIS_GENERATION_FAILED',
+                'message': '분석을 생성하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+        'sections': [],
+    }
 
 
 def test_validate_analysis_sections_rejects_invalid_section_contract() -> None:

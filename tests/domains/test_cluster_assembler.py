@@ -225,8 +225,8 @@ def test_cluster_summary_rejects_unapproved_section_kind(
 
 @pytest.mark.parametrize(
     'source_ids',
-    [[], [2001, 2001]],
-    ids=['empty', 'duplicate'],
+    [[], [2001, 2001], [True], ['2001'], [2001.0]],
+    ids=['empty', 'duplicate', 'bool', 'numeric-string', 'float'],
 )
 def test_analysis_sentence_rejects_invalid_primary_source_cardinality(
     source_ids,
@@ -274,6 +274,21 @@ def test_analysis_sentence_rejects_invalid_primary_source_cardinality(
             'conflictingSourceArticleIds': [],
             'conflictNote': '완료되지 않았습니다.',
         },
+        {
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [True],
+            'conflictNote': '불린 ID입니다.',
+        },
+        {
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': ['2002'],
+            'conflictNote': '문자열 ID입니다.',
+        },
+        {
+            'conflictStatus': 'FOUND',
+            'conflictingSourceArticleIds': [2002.0],
+            'conflictNote': '실수 ID입니다.',
+        },
     ],
     ids=[
         'found-empty-ids',
@@ -282,6 +297,9 @@ def test_analysis_sentence_rejects_invalid_primary_source_cardinality(
         'found-blank-note',
         'none-with-ids',
         'not-checked-with-note',
+        'found-bool-id',
+        'found-string-id',
+        'found-float-id',
     ],
 )
 def test_analysis_sentence_rejects_invalid_conflict_cardinality(
@@ -367,7 +385,11 @@ def test_unavailable_analysis_requires_empty_truthful_state(
 
 
 @pytest.mark.parametrize('article_key', ['representativeArticle', 'articles'])
-@pytest.mark.parametrize('processed_article_id', ['missing', None])
+@pytest.mark.parametrize(
+    'processed_article_id',
+    ['missing', None, True, '2001', 2001.0],
+    ids=['missing', 'null', 'bool', 'numeric-string', 'float'],
+)
 def test_cluster_articles_require_integer_processed_article_id(
     article_key,
     processed_article_id,

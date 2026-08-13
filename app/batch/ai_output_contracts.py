@@ -6,6 +6,8 @@ from collections.abc import Iterable, Mapping, Set
 from types import MappingProxyType
 from typing import Any, Final
 
+from app.core.plain_text import is_complete_plain_sentence
+
 type KeyPoint = dict[str, str]
 type AnalysisResult = dict[str, Any]
 
@@ -109,6 +111,8 @@ def validate_analysis_sections(
         for paragraph in section['paragraphs']:
             normalized_sentences: list[dict[str, object]] = []
             for sentence in paragraph['sentences']:
+                if not _has_valid_sentence_text(sentence):
+                    return build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
                 normalized_sentence, issue_code = _normalize_analysis_sentence(
                     sentence,
                     valid_article_ids,
@@ -163,7 +167,7 @@ def _normalize_key_point(item: object, expected_kind: str) -> KeyPoint | None:
     if item.get('label') != KEY_POINT_LABELS[expected_kind]:
         return None
     text = item.get('text')
-    if not isinstance(text, str) or not text.strip():
+    if not is_complete_plain_sentence(text):
         return None
 
     normalized: KeyPoint = {
@@ -228,6 +232,11 @@ def _validate_section_structure(
     if kinds != sorted(kinds, key=ANALYSIS_SECTION_KIND_ORDER.index):
         return None
     return normalized_sections
+
+
+def _has_valid_sentence_text(sentence: Mapping[str, object]) -> bool:
+    text = sentence.get('text')
+    return isinstance(text, str) and bool(text.strip())
 
 
 def _normalize_analysis_sentence(

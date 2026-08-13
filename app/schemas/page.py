@@ -4,9 +4,23 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
+from app.core.plain_text import is_complete_plain_sentence
 from app.schemas.common import normalize_timestamp as _normalize_timestamp
+
+
+def _require_complete_plain_sentence(value: str) -> str:
+    if not is_complete_plain_sentence(value):
+        raise ValueError('text must be one complete plain-text sentence')
+    return value
 
 
 class RepresentativeArticleResponse(BaseModel):
@@ -55,6 +69,8 @@ class DirectionKeyPointResponse(BaseModel):
     text: str
     direction: Literal['UP', 'DOWN', 'MIXED', 'FLAT']
 
+    _validate_text = field_validator('text')(_require_complete_plain_sentence)
+
 
 class DriverKeyPointResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -62,6 +78,8 @@ class DriverKeyPointResponse(BaseModel):
     kind: Literal['driver']
     label: Literal['주요 원인']
     text: str
+
+    _validate_text = field_validator('text')(_require_complete_plain_sentence)
 
 
 class WatchKeyPointResponse(BaseModel):
@@ -71,6 +89,8 @@ class WatchKeyPointResponse(BaseModel):
     label: Literal['관전 포인트']
     text: str
 
+    _validate_text = field_validator('text')(_require_complete_plain_sentence)
+
 
 KeyPointResponse = Annotated[
     DirectionKeyPointResponse | DriverKeyPointResponse | WatchKeyPointResponse,
@@ -79,7 +99,7 @@ KeyPointResponse = Annotated[
 
 
 class ArticleLinkResponse(BaseModel):
-    processedArticleId: int
+    processedArticleId: StrictInt
     clusterId: str | None = None
     clusterTitle: str | None = None
     title: str

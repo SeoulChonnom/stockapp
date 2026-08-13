@@ -489,6 +489,10 @@ async def test_rebuild_preserves_persisted_key_points_without_live_generation():
     assert create_page['metadata_json']['keyPoints'] == KEY_POINTS
     assert create_page['metadata_json'] is not source_metadata
 
+    create_page['metadata_json']['keyPoints'][0]['text'] = '복사본만 변경된 문장입니다.'
+    assert source_metadata['keyPoints'][0]['text'] == KEY_POINTS[0]['text']
+    assert KEY_POINTS[0]['text'] == '주요 지수가 상승했습니다.'
+
 
 @pytest.mark.anyio
 async def test_queued_rebuild_uses_captured_source_page_id():

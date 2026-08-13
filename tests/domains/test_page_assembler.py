@@ -83,6 +83,44 @@ def test_daily_page_rejects_noncanonical_key_point_label(
         )
 
 
+@pytest.mark.parametrize(
+    'text',
+    [
+        '첫 문장입니다. 둘째 문장입니다.',
+        '줄바꿈이 포함된 문장입니다.\n',
+        '<b>HTML 태그가 포함된 문장입니다.</b>',
+        '# 제목 문장입니다.',
+        '- 목록 항목입니다.',
+        '[문서 링크](https://example.com)입니다.',
+        '**강조된 문장입니다.**',
+        '`인라인 코드`가 포함된 문장입니다.',
+        '문장에 마침표가 없습니다',
+    ],
+    ids=[
+        'multiple-sentences',
+        'newline',
+        'html',
+        'heading',
+        'list',
+        'link',
+        'emphasis',
+        'code',
+        'incomplete',
+    ],
+)
+def test_daily_page_rejects_non_plain_single_sentence_key_point_text(
+    text,
+    sample_daily_page_payload,
+):
+    key_points = deepcopy(KEY_POINTS)
+    key_points[0]['text'] = text
+
+    with pytest.raises(ValidationError):
+        assemble_daily_page_response(
+            {**sample_daily_page_payload, 'keyPoints': key_points}
+        )
+
+
 @pytest.mark.parametrize('index', [1, 2], ids=['driver', 'watch'])
 def test_daily_page_rejects_direction_on_non_direction_key_point(
     index,
@@ -159,7 +197,11 @@ def test_daily_page_article_grouping_fields_are_required(
         assemble_daily_page_response(payload)
 
 
-@pytest.mark.parametrize('processed_article_id', ['missing', None])
+@pytest.mark.parametrize(
+    'processed_article_id',
+    ['missing', None, True, '2001', 2001.0],
+    ids=['missing', 'null', 'bool', 'numeric-string', 'float'],
+)
 def test_daily_page_article_links_require_integer_processed_article_id(
     processed_article_id,
     sample_daily_page_payload,

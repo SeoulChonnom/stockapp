@@ -3,16 +3,16 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal, Self
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
 
 from app.schemas.common import normalize_timestamp as _normalize_timestamp
 
 
 class AnalysisSentenceResponse(BaseModel):
     text: str
-    sourceArticleIds: list[int]
+    sourceArticleIds: list[StrictInt]
     conflictStatus: Literal['NOT_CHECKED', 'NONE', 'FOUND']
-    conflictingSourceArticleIds: list[int]
+    conflictingSourceArticleIds: list[StrictInt]
     conflictNote: str | None
 
     @model_validator(mode='after')
@@ -132,7 +132,7 @@ class ArticleGroupingResponse(BaseModel):
 
 
 class ClusterArticleResponse(BaseModel):
-    processedArticleId: int
+    processedArticleId: StrictInt
     title: str
     publisherName: str | None = None
     publishedAt: datetime | str | None = None
