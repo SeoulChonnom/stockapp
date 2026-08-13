@@ -372,10 +372,12 @@ def test_fixture_has_per_theme_case_gates_and_human_expected_labels() -> None:
     assert isinstance(cases, list)
 
     by_theme: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    case_ids: list[str] = []
     for case in cases:
         assert isinstance(case, dict)
         code = case['theme_code']
         by_theme[code].append(case)
+        case_ids.append(case['id'])
         assert case['label'] in {'positive', 'boundary', 'negative'}
         assert case['expected_primary_leaf'] in (*APPROVED_FALLBACK_CODES, None)
         if case['expected_primary_leaf'] is not None:
@@ -396,6 +398,11 @@ def test_fixture_has_per_theme_case_gates_and_human_expected_labels() -> None:
         if case.get('representative_article_id') is not None:
             assert case['representative_article_id'] in article_ids
 
+    assert len(case_ids) == len(set(case_ids))
+    labels = Counter(case['label'] for case in cases)
+    assert labels['positive'] >= len(APPROVED_FALLBACK_CODES) * 10
+    assert labels['boundary'] >= len(APPROVED_FALLBACK_CODES) * 5
+    assert labels['negative'] >= len(APPROVED_FALLBACK_CODES) * 10
     assert set(by_theme) == set(APPROVED_FALLBACK_CODES)
     accepted_secondary_cases = {
         case['id']: tuple(case.get('accepted_secondary_leaves', []))
@@ -437,8 +444,6 @@ def test_fixture_evaluation_meets_each_theme_gate_and_is_repeatable() -> None:
             multi_assignment_cases.append(case['id'])
         if case['expected_primary_leaf'] is not None:
             assert first[0].theme_code == case['expected_primary_leaf']
-        if case['id'] == '13-negative-05':
-            assert first == []
         for assignment in first:
             assert assignment.theme_code in APPROVED_FALLBACK_CODES
             row = metrics[assignment.theme_code]
@@ -467,6 +472,9 @@ def test_fixture_evaluation_meets_each_theme_gate_and_is_repeatable() -> None:
             false_positive_rate,
         )
 
+    earnings_metrics = metrics['CORPORATE_EVENT_PERFORMANCE_EARNINGS_GUIDANCE']
+    assert earnings_metrics['false_positives'] == 1
+    assert earnings_metrics['negative_false_positives'] == 1
     assert len(multi_assignment_cases) >= 2
 
 
