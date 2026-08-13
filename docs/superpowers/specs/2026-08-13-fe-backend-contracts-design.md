@@ -101,7 +101,7 @@ UP | DOWN | MIXED | FLAT
 - 배열 순서는 `direction`, `driver`, `watch`로 고정한다.
 - `direction` 필드는 `kind=direction` 항목에서만 필수이고 다른 kind에는 금지한다.
 - label은 BE가 `시장 방향`, `주요 원인`, `관전 포인트`로 고정한다.
-- text는 HTML, Markdown, 줄바꿈이 없는 완결된 한 문장이다.
+- text는 공백이 아닌 완결된 한 문장이고 HTML, Markdown, 줄바꿈을 포함하지 않는다.
 - 일부 항목만 반환하지 않는다. 하나라도 검증에 실패하면 `keyPoints: []`이다.
 - 다른 페이지 영역이 `PARTIAL`이어도 key point 생성이 성공했다면 3개를 제공한다.
 - `globalHeadline`과 `keyPoints`의 성공 여부는 독립적이다.
@@ -245,6 +245,9 @@ ConflictStatus: NOT_CHECKED | NONE | FOUND
   title, 순서, 중복 kind)는 부분 복구하지 않는다. section, paragraph, sentence 원소가
   object가 아니거나 `paragraphs` 또는 `sentences`가 배열이 아닌 nested shape도 같은
   구조 실패다. 전체를 `UNAVAILABLE`로 만들고 `ANALYSIS_GENERATION_FAILED`를 기록한다.
+- sentence의 `text`가 공백이거나 문자열이 아니어도 해석할 수 없는 malformed sentence
+  content다. 유효한 형제 문장을 부분 복구하지 않고 전체를 `UNAVAILABLE`로 만들며
+  `ANALYSIS_GENERATION_FAILED`만 기록한다.
 - `analysisIssues`는 최초 발견 순서를 유지하며 같은 code를 중복 기록하지 않는다.
 - 입력부터 비어 있던 컨테이너를 생략하는 정상화만으로는 상태를 낮추지 않는다.
   잘못된 문장을 제거한 결과 컨테이너가 비었다면 문장 제거 규칙에 따라 상태를 낮춘다.
@@ -340,6 +343,8 @@ primary 근거 오류로 모든 문장이 제거된 경우에는 원인과 최�
 - 결과는 최신 `CLUSTER_DETAIL_ANALYSIS` 타입 `ai_summary.paragraphs_json`에 저장한다.
 - `analysisGeneratedAt`은 `ai_summary.generated_at`을 사용한다.
 - `news_cluster.updated_at`은 분석 생성 시각으로 사용하지 않는다.
+- `summary.short`와 `summary.long`은 `news_cluster`에 저장된 값을 보존한다. 분석
+  summary가 없을 때도 각 값은 해당 cluster 값이 `null`인 경우에만 `null`이다.
 
 ## 5. B3: 계층형 테마와 아카이브 검색
 

@@ -134,3 +134,184 @@ def test_openapi_limits_archive_status_to_public_page_statuses():
         'type': 'string',
         'enum': ['READY', 'PARTIAL'],
     }
+
+
+def _response_component(schema: dict, path: str, component_name: str) -> dict:
+    operation = schema['paths'][path]['get']
+    response_schema = operation['responses']['200']['content']['application/json'][
+        'schema'
+    ]
+    assert response_schema == {
+        '$ref': f'#/components/schemas/ApiSuccess_{component_name}_'
+    }
+    envelope = schema['components']['schemas'][f'ApiSuccess_{component_name}_']
+    assert envelope['properties']['data'] == {
+        '$ref': f'#/components/schemas/{component_name}'
+    }
+    return schema['components']['schemas'][component_name]
+
+
+def test_openapi_links_daily_read_responses_to_the_b1_contract() -> None:
+    schema = app_module.app.openapi()
+
+    for path in (
+        '/stock/api/pages/daily/latest',
+        '/stock/api/pages/daily',
+        '/stock/api/pages/{pageId}',
+    ):
+        _response_component(schema, path, 'DailyPageResponse')
+    daily = schema['components']['schemas']['DailyPageResponse']
+    assert daily['required'] == [
+        'pageId',
+        'businessDate',
+        'versionNo',
+        'pageTitle',
+        'status',
+        'generatedAt',
+        'issues',
+        'keyPoints',
+        'markets',
+        'metadata',
+        'navigation',
+        'versions',
+    ]
+
+    key_points = daily['properties']['keyPoints']['items']
+    assert key_points['discriminator'] == {
+        'propertyName': 'kind',
+        'mapping': {
+            'direction': '#/components/schemas/DirectionKeyPointResponse',
+            'driver': '#/components/schemas/DriverKeyPointResponse',
+            'watch': '#/components/schemas/WatchKeyPointResponse',
+        },
+    }
+    assert [item['$ref'] for item in key_points['oneOf']] == [
+        '#/components/schemas/DirectionKeyPointResponse',
+        '#/components/schemas/DriverKeyPointResponse',
+        '#/components/schemas/WatchKeyPointResponse',
+    ]
+    assert schema['components']['schemas']['DirectionKeyPointResponse']['properties'][
+        'direction'
+    ]['enum'] == ['UP', 'DOWN', 'MIXED', 'FLAT']
+    for name in (
+        'DirectionKeyPointResponse',
+        'DriverKeyPointResponse',
+        'WatchKeyPointResponse',
+    ):
+        assert schema['components']['schemas'][name]['additionalProperties'] is False
+    assert (
+        'direction'
+        not in schema['components']['schemas']['DriverKeyPointResponse']['properties']
+    )
+    assert (
+        'direction'
+        not in schema['components']['schemas']['WatchKeyPointResponse']['properties']
+    )
+
+    market = schema['components']['schemas']['MarketSectionResponse']
+    assert market['properties']['articleLinks']['items'] == {
+        '$ref': '#/components/schemas/ArticleLinkResponse'
+    }
+    article_link = schema['components']['schemas']['ArticleLinkResponse']
+    assert 'processedArticleId' in article_link['required']
+    assert article_link['properties']['processedArticleId'] == {
+        'type': 'integer',
+        'title': 'Processedarticleid',
+    }
+
+
+def test_openapi_links_cluster_read_response_to_the_b2_and_grouping_contracts() -> None:
+    schema = app_module.app.openapi()
+
+    cluster = _response_component(
+        schema,
+        '/stock/api/news/clusters/{clusterId}',
+        'ClusterDetailResponse',
+    )
+    assert cluster['required'] == [
+        'clusterId',
+        'businessDate',
+        'marketType',
+        'marketLabel',
+        'title',
+        'tags',
+        'summary',
+        'representativeArticle',
+        'articles',
+        'articleGrouping',
+        'lastUpdatedAt',
+        'articleCount',
+    ]
+    assert cluster['properties']['summary'] == {
+        '$ref': '#/components/schemas/ClusterSummaryResponse'
+    }
+    assert cluster['properties']['articleGrouping'] == {
+        '$ref': '#/components/schemas/ArticleGroupingResponse'
+    }
+
+    summary = schema['components']['schemas']['ClusterSummaryResponse']
+    assert summary['required'] == [
+        'analysisStatus',
+        'analysisGeneratedAt',
+        'analysisIssues',
+        'conflictStatus',
+        'sections',
+    ]
+    assert 'analysis' not in summary['properties']
+    assert summary['properties']['analysisStatus']['enum'] == [
+        'READY',
+        'PARTIAL',
+        'UNAVAILABLE',
+    ]
+    assert summary['properties']['conflictStatus']['enum'] == [
+        'NOT_CHECKED',
+        'NONE',
+        'FOUND',
+    ]
+    assert summary['properties']['sections']['items'] == {
+        '$ref': '#/components/schemas/AnalysisSectionResponse'
+    }
+
+    section = schema['components']['schemas']['AnalysisSectionResponse']
+    assert section['properties']['kind']['enum'] == [
+        'background',
+        'impact',
+        'related',
+        'outlook',
+    ]
+    assert section['properties']['paragraphs']['items'] == {
+        '$ref': '#/components/schemas/AnalysisParagraphResponse'
+    }
+    paragraph = schema['components']['schemas']['AnalysisParagraphResponse']
+    assert paragraph['properties']['sentences']['items'] == {
+        '$ref': '#/components/schemas/AnalysisSentenceResponse'
+    }
+    sentence = schema['components']['schemas']['AnalysisSentenceResponse']
+    assert sentence['properties']['sourceArticleIds']['items'] == {'type': 'integer'}
+    assert sentence['properties']['conflictingSourceArticleIds']['items'] == {
+        'type': 'integer'
+    }
+    assert sentence['properties']['conflictStatus']['enum'] == [
+        'NOT_CHECKED',
+        'NONE',
+        'FOUND',
+    ]
+
+    article = schema['components']['schemas']['ClusterArticleResponse']
+    assert 'processedArticleId' in article['required']
+    assert article['properties']['processedArticleId'] == {
+        'type': 'integer',
+        'title': 'Processedarticleid',
+    }
+
+    grouping = schema['components']['schemas']['ArticleGroupingResponse']
+    assert grouping['required'] == ['status', 'generatedAt', 'issue']
+    assert grouping['properties']['status']['enum'] == ['READY', 'UNAVAILABLE']
+    assert grouping['properties']['issue']['anyOf'][0] == {
+        '$ref': '#/components/schemas/ArticleGroupingIssueResponse'
+    }
+    grouping_issue = schema['components']['schemas']['ArticleGroupingIssueResponse']
+    assert grouping_issue['properties']['code']['const'] == 'SIMILARITY_GROUPING_FAILED'
+    assert grouping_issue['properties']['message']['const'] == (
+        '유사 기사 묶음을 생성하지 못했습니다.'
+    )

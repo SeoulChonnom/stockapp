@@ -99,7 +99,7 @@ git commit -m "feat: AI 응답 스키마 계약 정의"
 }
 ```
 
-2. Cover wrong length, wrong order, wrong fixed label, blank text, invalid direction, direction on driver/watch, non-object payload, and extra/missing kinds.
+2. Cover wrong length, wrong order, wrong fixed label, blank/incomplete or multi-sentence text, HTML, line breaks, Markdown heading/list/link/emphasis/code constructs, invalid direction, direction on driver/watch, non-object payload, and extra/missing kinds.
 3. Implement immutable constants for kind order and labels plus typed normalization helpers. Do not repair semantic errors by reordering or guessing; reject the entire key-point payload to `[]`.
 4. Add `aggregate_conflict_status(sentences)` with priority `FOUND > NOT_CHECKED > NONE` and tests for empty/mixed input.
 5. Define these immutable public issue code/message pairs and assert exact equality in tests:
@@ -274,6 +274,7 @@ git commit -m "feat: 페이지 스냅샷에 핵심 포인트 반영"
    - valid primary grounding plus malformed conflict evidence → sentence retained with conflict fields normalized to `NOT_CHECKED`, `[]`, `None`, `CONFLICT_CHECK_FAILED`, `PARTIAL`;
    - empty grounded output → `NO_GROUNDED_SENTENCES`, `UNAVAILABLE`;
    - provider failure or malformed top-level/section structure → `ANALYSIS_GENERATION_FAILED`, `UNAVAILABLE`; nested cases must include non-object section/paragraph/sentence items, non-array `paragraphs`, and non-array `sentences`, and must prove that valid siblings are not partially salvaged.
+   - blank or non-string sentence `text` is malformed sentence content and makes the entire analysis `UNAVAILABLE` with only `ANALYSIS_GENERATION_FAILED`; valid sibling sentences are not salvaged.
 4. Update `_generate_cluster_detail_summary` to call `validate_analysis_sections`. Persist only normalized, nonempty sections in `paragraphs`; persist `analysisStatus`, de-duplicated `analysisIssues`, and aggregate `conflictStatus` in `metadata_json`.
 5. Fallback must be explicit, not the legacy `news_cluster.analysis_paragraphs_json` string list:
 
@@ -315,12 +316,12 @@ git commit -m "feat: 근거 기반 클러스터 분석 생성"
 1. Add a repository test requiring `get_latest_cluster_summary` to select the latest row by `attempt_no DESC, generated_at DESC, id DESC`, irrespective of success/fallback. This ensures a later failed analysis is visible as `UNAVAILABLE` instead of silently serving stale success.
 2. Inject `AiSummaryRepository` into `ClustersService` through `get_clusters_service`; fetch the latest `CLUSTER_DETAIL_ANALYSIS` alongside cluster/articles.
 3. Build `valid_article_ids` from the same response's articles and revalidate persisted sections defensively. `analysisGeneratedAt` comes from `ai_summary.generated_at`, never `news_cluster.updated_at`.
-4. Assemble the exact summary contract. For a missing legacy summary, use:
+4. Assemble the exact summary contract. For a missing legacy summary, preserve `short` and `long` from the cluster row (each is `null` only when that cluster value is `null`) and use the following analysis fields:
 
 ```json
 {
-  "short": null,
-  "long": null,
+  "short": "클러스터에 저장된 short 요약",
+  "long": "클러스터에 저장된 long 요약",
   "analysisStatus": "UNAVAILABLE",
   "analysisGeneratedAt": null,
   "analysisIssues": [{"code":"ANALYSIS_GENERATION_FAILED","message":"분석을 생성하지 못했습니다."}],
