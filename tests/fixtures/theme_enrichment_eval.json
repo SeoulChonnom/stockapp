@@ -1,0 +1,607 @@
+{
+  "datasetVersion": "2026-08-13-curated-market-events-v1",
+  "provenanceNotice": "This is a manually curated evaluation fixture, not a dump of production database rows. Each title and excerpt is a short paraphrase of a publicly reported market event; no full article body is stored. Local article identifiers are stable for repeatable evaluation and each source/date note is provided for manual review.",
+  "sourcePolicy": "Source names and dates identify the public report used for curation. Wording is independently paraphrased for this repository.",
+  "clusters": [
+    {
+      "clusterId": "KR-01",
+      "marketType": "KR",
+      "eventDate": "2024-01-31",
+      "expectedPrimaryLeaf": "MACRO_ECONOMIC_DATA_INFLATION",
+      "acceptedSecondaryLeaves": ["MACRO_MONETARY_MARKETS_INTEREST_RATES_BONDS"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-01-A", "source": "Yonhap News", "publishedDate": "2024-01-31", "note": "Korea December consumer-price report, paraphrased."},
+        {"sourceArticleId": "KR-01-B", "source": "Statistics Korea release", "publishedDate": "2024-01-31", "note": "Official CPI release used as a corroborating source, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-01-A", "publisher": "Yonhap News", "title": "한국 1월 소비자물가지수 상승세가 둔화", "excerpt": "CPI 발표에서 물가상승률은 전달보다 낮아졌지만 생활물가 부담은 이어졌다."},
+        {"articleId": "KR-01-B", "publisher": "Statistics Korea", "title": "소비자물가와 근원물가 흐름을 함께 점검", "excerpt": "소비자물가 지표가 발표되며 시장은 물가와 인플레이션 경로를 다시 반영했다."}
+      ]
+    },
+    {
+      "clusterId": "KR-02",
+      "marketType": "KR",
+      "eventDate": "2024-02-01",
+      "expectedPrimaryLeaf": "MACRO_MONETARY_MARKETS_INTEREST_RATES_BONDS",
+      "acceptedSecondaryLeaves": ["MACRO_ECONOMIC_DATA_INFLATION"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-02-A", "source": "Bank of Korea", "publishedDate": "2024-02-01", "note": "Monetary policy decision, paraphrased."},
+        {"sourceArticleId": "KR-02-B", "source": "Maeil Business Newspaper", "publishedDate": "2024-02-01", "note": "Market reaction to the policy decision, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-02-A", "publisher": "Bank of Korea", "title": "한국은행 기준금리 결정 뒤 동결 기조 유지", "excerpt": "기준금리 결정은 물가 경로를 지켜보는 쪽에 무게를 두었고 국채 금리는 제한적으로 움직였다."},
+        {"articleId": "KR-02-B", "publisher": "Maeil Business Newspaper", "title": "국채 금리와 수익률곡선이 정책 신호를 반영", "excerpt": "채권 투자자들은 금리 인하 시점과 향후 기준금리 전망을 다시 계산했다."}
+      ]
+    },
+    {
+      "clusterId": "KR-03",
+      "marketType": "KR",
+      "eventDate": "2024-04-16",
+      "expectedPrimaryLeaf": "MACRO_MONETARY_MARKETS_FX",
+      "acceptedSecondaryLeaves": ["MACRO_POLICY_RISK_GEOPOLITICS_TRADE"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-03-A", "source": "Reuters", "publishedDate": "2024-04-16", "note": "Won-dollar market move, paraphrased."},
+        {"sourceArticleId": "KR-03-B", "source": "Yonhap News", "publishedDate": "2024-04-16", "note": "Foreign-exchange commentary, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-03-A", "publisher": "Reuters", "title": "원·달러 환율이 장중 급등 뒤 숨 고르기", "excerpt": "달러 강세와 위험회피로 외환시장이 흔들렸고 원화 변동성이 확대됐다."},
+        {"articleId": "KR-03-B", "publisher": "Yonhap News", "title": "외환보유액과 환율시장 대응을 주시", "excerpt": "원·달러 환율 흐름에 따라 당국의 외환시장 안정 조치 가능성이 거론됐다."}
+      ]
+    },
+    {
+      "clusterId": "KR-04",
+      "marketType": "KR",
+      "eventDate": "2024-02-01",
+      "expectedPrimaryLeaf": "SECTOR_SEMICONDUCTORS_MEMORY_HBM",
+      "acceptedSecondaryLeaves": ["CORPORATE_EVENT_PERFORMANCE_EARNINGS_GUIDANCE"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-04-A", "source": "SK hynix earnings release", "publishedDate": "2024-02-01", "note": "HBM roadmap and results, paraphrased."},
+        {"sourceArticleId": "KR-04-B", "source": "Korea Economic Daily", "publishedDate": "2024-02-01", "note": "Memory-chip demand coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-04-A", "publisher": "SK hynix", "title": "SK하이닉스 HBM3E 양산 계획을 앞당겨", "excerpt": "HBM3E 수요가 AI 서버에서 늘며 메모리 반도체 출하와 메모리 대역폭 투자가 커졌다."},
+        {"articleId": "KR-04-B", "publisher": "Korea Economic Daily", "title": "HBM4 개발과 DRAM 업황 회복 기대", "excerpt": "HBM4와 DRAM 가격 회복이 메모리 업종의 실적 전망을 지지할 재료로 제시됐다."}
+      ]
+    },
+    {
+      "clusterId": "KR-05",
+      "marketType": "KR",
+      "eventDate": "2024-05-16",
+      "expectedPrimaryLeaf": "SECTOR_SEMICONDUCTORS_FOUNDRY_SYSTEM",
+      "acceptedSecondaryLeaves": ["SECTOR_SEMICONDUCTORS_EQUIPMENT_MATERIALS"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-05-A", "source": "Samsung Electronics release", "publishedDate": "2024-05-16", "note": "Foundry process update, paraphrased."},
+        {"sourceArticleId": "KR-05-B", "source": "The Elec", "publishedDate": "2024-05-16", "note": "System-semiconductor capacity report, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-05-A", "publisher": "Samsung Electronics", "title": "삼성전자 선단공정 고객 확보와 파운드리 수주 확대", "excerpt": "선단공정 로드맵과 파운드리 수주가 시스템반도체 위탁생산 경쟁의 핵심으로 부각됐다."},
+        {"articleId": "KR-05-B", "publisher": "The Elec", "title": "비메모리 생산능력과 웨이퍼 가동률을 점검", "excerpt": "파운드리와 비메모리 수요가 회복되면 신규 웨이퍼 라인의 가동률 개선이 가능하다는 분석이다."}
+      ]
+    },
+    {
+      "clusterId": "KR-06",
+      "marketType": "KR",
+      "eventDate": "2024-03-07",
+      "expectedPrimaryLeaf": "SECTOR_SEMICONDUCTORS_EQUIPMENT_MATERIALS",
+      "acceptedSecondaryLeaves": ["SECTOR_SEMICONDUCTORS_FOUNDRY_SYSTEM"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-06-A", "source": "BusinessKorea", "publishedDate": "2024-03-07", "note": "EUV equipment order coverage, paraphrased."},
+        {"sourceArticleId": "KR-06-B", "source": "ASML public update", "publishedDate": "2024-03-07", "note": "Lithography demand context, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-06-A", "publisher": "BusinessKorea", "title": "국내 반도체 업체 EUV 장비 투자 재개", "excerpt": "EUV 장비와 극자외선 공정 투자가 선단 노드 증설의 병목을 풀 재료로 언급됐다."},
+        {"articleId": "KR-06-B", "publisher": "ASML", "title": "식각·증착과 포토레지스트 공급망 점검", "excerpt": "반도체 장비와 반도체 소재 업체들은 식각 및 증착 수요 증가를 전망했다."}
+      ]
+    },
+    {
+      "clusterId": "KR-07",
+      "marketType": "KR",
+      "eventDate": "2024-01-25",
+      "expectedPrimaryLeaf": "SECTOR_AUTOS_MOBILITY_AUTOMAKERS_COMPONENTS",
+      "acceptedSecondaryLeaves": ["SECTOR_AUTOS_MOBILITY_EV_BATTERY"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-07-A", "source": "Hyundai Motor release", "publishedDate": "2024-01-25", "note": "Automaker sales update, paraphrased."},
+        {"sourceArticleId": "KR-07-B", "source": "Korea Herald", "publishedDate": "2024-01-25", "note": "Vehicle-demand coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-07-A", "publisher": "Hyundai Motor", "title": "완성차 업체의 1월 자동차 판매량이 견조", "excerpt": "완성차와 자동차 부품 출하가 북미와 국내 시장에서 이어지며 차량 판매 계획을 뒷받침했다."},
+        {"articleId": "KR-07-B", "publisher": "Korea Herald", "title": "자동차 업체와 부품사의 공급망 대응", "excerpt": "자동차 판매량 회복이 부품 주문과 생산 일정에 미친 영향을 업계가 점검했다."}
+      ]
+    },
+    {
+      "clusterId": "KR-08",
+      "marketType": "KR",
+      "eventDate": "2024-04-08",
+      "expectedPrimaryLeaf": "SECTOR_AUTOS_MOBILITY_EV_BATTERY",
+      "acceptedSecondaryLeaves": ["SECTOR_AUTOS_MOBILITY_AUTOMAKERS_COMPONENTS"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-08-A", "source": "LG Energy Solution release", "publishedDate": "2024-04-08", "note": "Battery order announcement, paraphrased."},
+        {"sourceArticleId": "KR-08-B", "source": "Nikkei Asia", "publishedDate": "2024-04-08", "note": "EV demand and battery supply-chain coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-08-A", "publisher": "LG Energy Solution", "title": "배터리 수주와 전기차 판매 전망을 상향", "excerpt": "배터리 수주가 북미 전기차 생산계획과 맞물리며 배터리 셀 투자가 확대될 전망이다."},
+        {"articleId": "KR-08-B", "publisher": "Nikkei Asia", "title": "전기차와 EV 부품의 재고 조정", "excerpt": "전기차 판매 속도와 배터리 수요 조정이 소재 업체 실적에 미칠 영향이 주목됐다."}
+      ]
+    },
+    {
+      "clusterId": "KR-09",
+      "marketType": "KR",
+      "eventDate": "2024-02-22",
+      "expectedPrimaryLeaf": "SECTOR_BIO_HEALTHCARE_PHARMA_BIOTECH",
+      "acceptedSecondaryLeaves": ["CORPORATE_EVENT_PERFORMANCE_EARNINGS_GUIDANCE"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-09-A", "source": "Samsung Biologics release", "publishedDate": "2024-02-22", "note": "Biopharma pipeline update, paraphrased."},
+        {"sourceArticleId": "KR-09-B", "source": "Korea Biomedical Review", "publishedDate": "2024-02-22", "note": "Drug-approval coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-09-A", "publisher": "Samsung Biologics", "title": "바이오 기업 임상 3상 일정과 생산 계획 공개", "excerpt": "임상 3상 진전과 제약 위탁생산 수요가 신약 개발 파이프라인의 기대를 높였다."},
+        {"articleId": "KR-09-B", "publisher": "Korea Biomedical Review", "title": "신약 허가 심사와 바이오 투자 흐름", "excerpt": "신약 허가 일정과 임상 결과를 앞둔 바이오 기업의 위험 요인이 정리됐다."}
+      ]
+    },
+    {
+      "clusterId": "KR-10",
+      "marketType": "KR",
+      "eventDate": "2024-03-04",
+      "expectedPrimaryLeaf": "SECTOR_INDUSTRIALS_INFRA_SHIPBUILDING_DEFENSE",
+      "acceptedSecondaryLeaves": ["CORPORATE_EVENT_PERFORMANCE_ORDERS_CONTRACTS"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-10-A", "source": "Korea Shipbuilding release", "publishedDate": "2024-03-04", "note": "Naval-vessel order report, paraphrased."},
+        {"sourceArticleId": "KR-10-B", "source": "Defense News Korea", "publishedDate": "2024-03-04", "note": "Defense-export context, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-10-A", "publisher": "Korea Shipbuilding", "title": "조선사의 함정 수주와 방산 수출 협의 진전", "excerpt": "함정 수주가 늘고 조선·방산 생산 슬롯이 채워지면서 수주잔고 가시성이 높아졌다."},
+        {"articleId": "KR-10-B", "publisher": "Defense News Korea", "title": "방산 수출 계약과 군수 장비 공급망", "excerpt": "방산 수출 협상이 선박과 군수 장비 업체의 중장기 매출에 연결될지 주목된다."}
+      ]
+    },
+    {
+      "clusterId": "KR-11",
+      "marketType": "KR",
+      "eventDate": "2024-04-25",
+      "expectedPrimaryLeaf": "CORPORATE_EVENT_PERFORMANCE_EARNINGS_GUIDANCE",
+      "acceptedSecondaryLeaves": ["SECTOR_SEMICONDUCTORS_MEMORY_HBM"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-11-A", "source": "Samsung Electronics earnings release", "publishedDate": "2024-04-25", "note": "Quarterly results, paraphrased."},
+        {"sourceArticleId": "KR-11-B", "source": "Financial News Korea", "publishedDate": "2024-04-25", "note": "Earnings outlook reaction, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-11-A", "publisher": "Samsung Electronics", "title": "삼성전자 실적 발표에서 메모리 회복 확인", "excerpt": "실적 발표는 영업이익 개선과 메모리 수요 회복을 보여주며 다음 분기 전망을 끌어올렸다."},
+        {"articleId": "KR-11-B", "publisher": "Financial News Korea", "title": "영업이익 전망과 가이던스가 시장 기대를 웃돌아", "excerpt": "실적과 가이던스가 컨센서스에 미친 영향, 비용과 출하 전망이 함께 분석됐다."}
+      ]
+    },
+    {
+      "clusterId": "KR-12",
+      "marketType": "KR",
+      "eventDate": "2024-05-14",
+      "expectedPrimaryLeaf": "CORPORATE_EVENT_PERFORMANCE_ORDERS_CONTRACTS",
+      "acceptedSecondaryLeaves": ["SECTOR_INDUSTRIALS_INFRA_SHIPBUILDING_DEFENSE"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-12-A", "source": "HD Hyundai Heavy Industries release", "publishedDate": "2024-05-14", "note": "Shipbuilding supply contract, paraphrased."},
+        {"sourceArticleId": "KR-12-B", "source": "Chosun Ilbo", "publishedDate": "2024-05-14", "note": "Large-order coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-12-A", "publisher": "HD Hyundai Heavy Industries", "title": "조선업체 대규모 수주와 공급계약 체결", "excerpt": "대규모 수주가 수주잔고를 늘렸고 납품계약 일정이 생산계획에 반영됐다."},
+        {"articleId": "KR-12-B", "publisher": "Chosun Ilbo", "title": "공급계약 체결로 수주 가시성 개선", "excerpt": "공급계약과 납품계약 규모가 조선·기계 업체의 향후 매출을 지지할 것으로 평가됐다."}
+      ]
+    },
+    {
+      "clusterId": "KR-13",
+      "marketType": "KR",
+      "eventDate": "2024-06-18",
+      "expectedPrimaryLeaf": "CORPORATE_EVENT_CAPITAL_ACTION_MNA",
+      "acceptedSecondaryLeaves": ["CORPORATE_EVENT_CAPITAL_ACTION_IPO_CAPITAL_RAISE"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-13-A", "source": "Korea Fair Trade Commission notice", "publishedDate": "2024-06-18", "note": "Corporate merger review, paraphrased."},
+        {"sourceArticleId": "KR-13-B", "source": "Seoul Economic Daily", "publishedDate": "2024-06-18", "note": "Acquisition-market reaction, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-13-A", "publisher": "KFTC", "title": "국내 기업 인수합병 발표와 심사 일정", "excerpt": "인수합병 발표 뒤 기업결합 심사와 공개매수 조건이 거래 성사 여부를 가를 변수로 떠올랐다."},
+        {"articleId": "KR-13-B", "publisher": "Seoul Economic Daily", "title": "인수 대상 사업과 시너지 검토", "excerpt": "인수와 합병을 둘러싼 자금 조달 및 사업 시너지 기대가 주가에 반영됐다."}
+      ]
+    },
+    {
+      "clusterId": "KR-14",
+      "marketType": "KR",
+      "eventDate": "2024-03-28",
+      "expectedPrimaryLeaf": "CORPORATE_EVENT_CAPITAL_ACTION_IPO_CAPITAL_RAISE",
+      "acceptedSecondaryLeaves": ["CORPORATE_EVENT_CAPITAL_ACTION_DIVIDEND_BUYBACK"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-14-A", "source": "Korea Exchange notice", "publishedDate": "2024-03-28", "note": "New listing and capital-raising filing, paraphrased."},
+        {"sourceArticleId": "KR-14-B", "source": "Korea Economic Daily", "publishedDate": "2024-03-28", "note": "IPO subscription coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-14-A", "publisher": "Korea Exchange", "title": "성장기업 IPO 상장과 유상증자 발표", "excerpt": "IPO 상장 일정과 유상증자 발표가 기업공개 자금 조달 계획의 핵심으로 공시됐다."},
+        {"articleId": "KR-14-B", "publisher": "Korea Economic Daily", "title": "기업공개 공모 절차와 신규 자금 사용처", "excerpt": "IPO 수요예측 결과와 자금조달 조건이 신규 상장주의 밸류에이션을 좌우했다."}
+      ]
+    },
+    {
+      "clusterId": "KR-15",
+      "marketType": "KR",
+      "eventDate": "2024-02-26",
+      "expectedPrimaryLeaf": "CORPORATE_EVENT_CAPITAL_ACTION_DIVIDEND_BUYBACK",
+      "acceptedSecondaryLeaves": ["MARKET_FLOW_INVESTOR_FOREIGN"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-15-A", "source": "Korea Exchange filing", "publishedDate": "2024-02-26", "note": "Shareholder-return announcement, paraphrased."},
+        {"sourceArticleId": "KR-15-B", "source": "Korea Herald", "publishedDate": "2024-02-26", "note": "Dividend-policy coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-15-A", "publisher": "Korea Exchange", "title": "기업의 배당 확대와 자사주 소각 계획", "excerpt": "배당 확대와 자사주 소각이 주주환원 정책의 중심으로 발표됐다."},
+        {"articleId": "KR-15-B", "publisher": "Korea Herald", "title": "배당금 정책과 자사주 매입 효과", "excerpt": "배당금 증가와 자사주 매입이 현금흐름 및 외국인 투자자의 평가에 미칠 영향이 논의됐다."}
+      ]
+    },
+    {
+      "clusterId": "KR-16",
+      "marketType": "KR",
+      "eventDate": "2024-05-02",
+      "expectedPrimaryLeaf": "MARKET_FLOW_INVESTOR_FOREIGN",
+      "acceptedSecondaryLeaves": ["MARKET_FLOW_INVESTOR_INSTITUTIONAL"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-16-A", "source": "Korea Exchange daily flow", "publishedDate": "2024-05-02", "note": "Foreign investor flow table, paraphrased."},
+        {"sourceArticleId": "KR-16-B", "source": "Yonhap Infomax", "publishedDate": "2024-05-02", "note": "Market-flow commentary, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-16-A", "publisher": "Korea Exchange", "title": "외국인 순매수가 대형주 지수를 견인", "excerpt": "외국인 투자자의 외국인 수급이 반도체와 금융 대형주에 집중되며 순매수 규모가 커졌다."},
+        {"articleId": "KR-16-B", "publisher": "Yonhap Infomax", "title": "외국인 매매와 기관 흐름의 엇갈림", "excerpt": "외국인 순매수 전환이 기관 수급과 달리 지수 방향을 지지했다."}
+      ]
+    },
+    {
+      "clusterId": "KR-17",
+      "marketType": "KR",
+      "eventDate": "2024-03-15",
+      "expectedPrimaryLeaf": "MARKET_FLOW_POSITIONING_SHORT_SELLING",
+      "acceptedSecondaryLeaves": ["MARKET_FLOW_POSITIONING_VOLATILITY_SENTIMENT"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-17-A", "source": "Financial Services Commission", "publishedDate": "2024-03-15", "note": "Short-sale policy discussion, paraphrased."},
+        {"sourceArticleId": "KR-17-B", "source": "Korea Exchange", "publishedDate": "2024-03-15", "note": "Borrow-balance statistics, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-17-A", "publisher": "Financial Services Commission", "title": "공매도 금지 연장과 제도 개선 논의", "excerpt": "공매도 금지 기간과 대차잔고 관리 방안이 시장 공정성 논의의 중심이 됐다."},
+        {"articleId": "KR-17-B", "publisher": "Korea Exchange", "title": "공매도 잔고와 숏커버링 흐름 점검", "excerpt": "공매도 잔고 변화와 숏커버링이 개별 종목 변동성에 미친 영향이 집계됐다."}
+      ]
+    },
+    {
+      "clusterId": "KR-18",
+      "marketType": "KR",
+      "eventDate": "2024-01-11",
+      "expectedPrimaryLeaf": "ALTERNATIVE_ASSET_DIGITAL_CRYPTO",
+      "acceptedSecondaryLeaves": ["MARKET_FLOW_POSITIONING_VOLATILITY_SENTIMENT"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-18-A", "source": "U.S. SEC public order", "publishedDate": "2024-01-10", "note": "Spot bitcoin ETF approval event, paraphrased."},
+        {"sourceArticleId": "KR-18-B", "source": "CoinDesk Korea", "publishedDate": "2024-01-11", "note": "Domestic crypto-market reaction, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-18-A", "publisher": "U.S. SEC", "title": "비트코인 현물 ETF 승인 뒤 거래량 확대", "excerpt": "비트코인 현물 ETF 승인으로 가상자산 시장의 제도권 접근성이 높아졌다."},
+        {"articleId": "KR-18-B", "publisher": "CoinDesk Korea", "title": "가상자산 규제 기대와 비트코인 가격 변동", "excerpt": "가상자산 규제와 비트코인·이더리움 흐름이 위험선호 심리를 흔들었다."}
+      ]
+    },
+    {
+      "clusterId": "KR-19",
+      "marketType": "KR",
+      "eventDate": "2024-03-29",
+      "expectedPrimaryLeaf": "MACRO_ECONOMIC_DATA_EMPLOYMENT_GROWTH",
+      "acceptedSecondaryLeaves": ["MACRO_ECONOMIC_DATA_INFLATION"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-19-A", "source": "Statistics Korea", "publishedDate": "2024-03-29", "note": "Employment indicator release, paraphrased."},
+        {"sourceArticleId": "KR-19-B", "source": "Yonhap News", "publishedDate": "2024-03-29", "note": "Growth and jobs coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-19-A", "publisher": "Statistics Korea", "title": "고용지표와 실업률이 경기 흐름을 가늠", "excerpt": "고용과 실업률 지표가 소비 회복 및 경기성장 기대에 영향을 줬다."},
+        {"articleId": "KR-19-B", "publisher": "Yonhap News", "title": "경제성장 경로와 비농업 고용의 시사점", "excerpt": "비농업 고용과 GDP 성장률 전망을 두고 시장의 경기 판단이 조정됐다."}
+      ]
+    },
+    {
+      "clusterId": "KR-20",
+      "marketType": "KR",
+      "eventDate": "2024-06-03",
+      "expectedPrimaryLeaf": "MARKET_FLOW_INVESTOR_INSTITUTIONAL",
+      "acceptedSecondaryLeaves": ["MARKET_FLOW_INVESTOR_FOREIGN"],
+      "sourceProvenance": [
+        {"sourceArticleId": "KR-20-A", "source": "Korea Exchange daily flow", "publishedDate": "2024-06-03", "note": "Institutional flow table, paraphrased."},
+        {"sourceArticleId": "KR-20-B", "source": "Yonhap Infomax", "publishedDate": "2024-06-03", "note": "Pension-fund buying coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "KR-20-A", "publisher": "Korea Exchange", "title": "기관 순매수가 시장 방어주로 유입", "excerpt": "기관 투자자와 기관 수급이 대형주에 유입되며 지수 하락을 제한했다."},
+        {"articleId": "KR-20-B", "publisher": "Yonhap Infomax", "title": "연기금 매수와 외국인 매매를 비교", "excerpt": "연기금 매수 규모가 커진 가운데 외국인 흐름과 업종별 수급이 엇갈렸다."}
+      ]
+    },
+    {
+      "clusterId": "US-01",
+      "marketType": "US",
+      "eventDate": "2024-01-11",
+      "expectedPrimaryLeaf": "MACRO_ECONOMIC_DATA_INFLATION",
+      "acceptedSecondaryLeaves": ["MACRO_MONETARY_MARKETS_INTEREST_RATES_BONDS"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-01-A", "source": "U.S. Bureau of Labor Statistics", "publishedDate": "2024-01-11", "note": "December U.S. CPI report, paraphrased."},
+        {"sourceArticleId": "US-01-B", "source": "Associated Press", "publishedDate": "2024-01-11", "note": "Inflation-market reaction, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-01-A", "publisher": "U.S. BLS", "title": "U.S. consumer prices rose modestly in December", "excerpt": "The CPI release showed persistent inflation in services while the monthly pace eased."},
+        {"articleId": "US-01-B", "publisher": "Associated Press", "title": "Inflation data leaves rate-cut timing uncertain", "excerpt": "Investors reassessed the inflation path and consumer-price pressure after the report."}
+      ]
+    },
+    {
+      "clusterId": "US-02",
+      "marketType": "US",
+      "eventDate": "2024-01-31",
+      "expectedPrimaryLeaf": "MACRO_MONETARY_MARKETS_INTEREST_RATES_BONDS",
+      "acceptedSecondaryLeaves": ["MACRO_ECONOMIC_DATA_INFLATION"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-02-A", "source": "Federal Reserve statement", "publishedDate": "2024-01-31", "note": "FOMC decision, paraphrased."},
+        {"sourceArticleId": "US-02-B", "source": "Reuters", "publishedDate": "2024-01-31", "note": "Treasury-market reaction, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-02-A", "publisher": "Federal Reserve", "title": "Fed keeps policy rate steady and awaits more evidence", "excerpt": "The rate decision kept the target range unchanged as officials watched inflation and growth."},
+        {"articleId": "US-02-B", "publisher": "Reuters", "title": "Treasury yields move after the Fed signal", "excerpt": "Bond investors adjusted the yield curve and expectations for the timing of rate cuts."}
+      ]
+    },
+    {
+      "clusterId": "US-03",
+      "marketType": "US",
+      "eventDate": "2024-04-16",
+      "expectedPrimaryLeaf": "MACRO_MONETARY_MARKETS_FX",
+      "acceptedSecondaryLeaves": ["MACRO_POLICY_RISK_GEOPOLITICS_TRADE"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-03-A", "source": "Reuters", "publishedDate": "2024-04-16", "note": "Dollar and foreign-exchange market move, paraphrased."},
+        {"sourceArticleId": "US-03-B", "source": "Wall Street Journal", "publishedDate": "2024-04-16", "note": "Currency-market commentary, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-03-A", "publisher": "Reuters", "title": "Dollar strength pushes currency markets to a fresh test", "excerpt": "The foreign-exchange market reacted to higher U.S. yields as the dollar gained against major currencies."},
+        {"articleId": "US-03-B", "publisher": "Wall Street Journal", "title": "Foreign reserves and the dollar shape policy choices", "excerpt": "Currency volatility and the dollar outlook kept the foreign-exchange market in focus."}
+      ]
+    },
+    {
+      "clusterId": "US-04",
+      "marketType": "US",
+      "eventDate": "2024-02-01",
+      "expectedPrimaryLeaf": "SECTOR_SEMICONDUCTORS_MEMORY_HBM",
+      "acceptedSecondaryLeaves": ["CORPORATE_EVENT_PERFORMANCE_EARNINGS_GUIDANCE"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-04-A", "source": "Micron earnings release", "publishedDate": "2024-02-01", "note": "Memory and HBM demand update, paraphrased."},
+        {"sourceArticleId": "US-04-B", "source": "Bloomberg", "publishedDate": "2024-02-01", "note": "AI-memory market coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-04-A", "publisher": "Micron", "title": "Micron points to HBM3E demand from AI servers", "excerpt": "HBM3E orders and memory bandwidth needs supported a recovery in memory semiconductors."},
+        {"articleId": "US-04-B", "publisher": "Bloomberg", "title": "HBM4 roadmap lifts the DRAM outlook", "excerpt": "HBM4 investment and DRAM pricing were cited as drivers for the memory-chip cycle."}
+      ]
+    },
+    {
+      "clusterId": "US-05",
+      "marketType": "US",
+      "eventDate": "2024-05-14",
+      "expectedPrimaryLeaf": "SECTOR_SEMICONDUCTORS_FOUNDRY_SYSTEM",
+      "acceptedSecondaryLeaves": ["SECTOR_SEMICONDUCTORS_EQUIPMENT_MATERIALS"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-05-A", "source": "Intel foundry release", "publishedDate": "2024-05-14", "note": "Foundry roadmap and customer update, paraphrased."},
+        {"sourceArticleId": "US-05-B", "source": "The Wall Street Journal", "publishedDate": "2024-05-14", "note": "U.S. semiconductor manufacturing coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-05-A", "publisher": "Intel", "title": "Intel foundry wins a leading-edge customer program", "excerpt": "The foundry order and leading-edge process roadmap sharpened competition for system semiconductors."},
+        {"articleId": "US-05-B", "publisher": "The Wall Street Journal", "title": "Wafer capacity plans target non-memory demand", "excerpt": "Foundry utilization and wafer capacity were central to the outlook for non-memory chips."}
+      ]
+    },
+    {
+      "clusterId": "US-06",
+      "marketType": "US",
+      "eventDate": "2024-03-07",
+      "expectedPrimaryLeaf": "SECTOR_SEMICONDUCTORS_EQUIPMENT_MATERIALS",
+      "acceptedSecondaryLeaves": ["SECTOR_SEMICONDUCTORS_FOUNDRY_SYSTEM"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-06-A", "source": "ASML public update", "publishedDate": "2024-03-07", "note": "EUV-tool demand, paraphrased."},
+        {"sourceArticleId": "US-06-B", "source": "Semiconductor Engineering", "publishedDate": "2024-03-07", "note": "Etch and deposition supply chain coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-06-A", "publisher": "ASML", "title": "EUV equipment demand remains tied to advanced nodes", "excerpt": "EUV equipment and extreme-ultraviolet capacity were linked to new leading-edge fabs."},
+        {"articleId": "US-06-B", "publisher": "Semiconductor Engineering", "title": "Etch, deposition and photoresist suppliers prepare", "excerpt": "Semiconductor equipment and materials demand improved across etch and deposition tools."}
+      ]
+    },
+    {
+      "clusterId": "US-07",
+      "marketType": "US",
+      "eventDate": "2024-01-03",
+      "expectedPrimaryLeaf": "SECTOR_AUTOS_MOBILITY_AUTOMAKERS_COMPONENTS",
+      "acceptedSecondaryLeaves": ["SECTOR_AUTOS_MOBILITY_EV_BATTERY"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-07-A", "source": "Ford sales release", "publishedDate": "2024-01-03", "note": "Monthly vehicle sales update, paraphrased."},
+        {"sourceArticleId": "US-07-B", "source": "CNBC", "publishedDate": "2024-01-03", "note": "Automaker and supplier coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-07-A", "publisher": "Ford", "title": "U.S. automaker reports stronger vehicle sales", "excerpt": "Automaker deliveries and vehicle sales supported a steadier outlook for component suppliers."},
+        {"articleId": "US-07-B", "publisher": "CNBC", "title": "Auto parts demand follows the sales mix", "excerpt": "Car sales and auto-parts orders varied by model as automakers managed inventories."}
+      ]
+    },
+    {
+      "clusterId": "US-08",
+      "marketType": "US",
+      "eventDate": "2024-04-23",
+      "expectedPrimaryLeaf": "SECTOR_AUTOS_MOBILITY_EV_BATTERY",
+      "acceptedSecondaryLeaves": ["SECTOR_AUTOS_MOBILITY_AUTOMAKERS_COMPONENTS"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-08-A", "source": "Tesla shareholder filing", "publishedDate": "2024-04-23", "note": "EV delivery and product update, paraphrased."},
+        {"sourceArticleId": "US-08-B", "source": "Reuters", "publishedDate": "2024-04-23", "note": "Battery and EV demand coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-08-A", "publisher": "Tesla", "title": "EV sales strategy shifts as battery demand changes", "excerpt": "Electric-vehicle sales plans and battery-cell sourcing were revised for the next production cycle."},
+        {"articleId": "US-08-B", "publisher": "Reuters", "title": "Battery orders and charging buildout remain in focus", "excerpt": "Battery orders, EV demand and cell utilization shaped the outlook for the electric-mobility chain."}
+      ]
+    },
+    {
+      "clusterId": "US-09",
+      "marketType": "US",
+      "eventDate": "2024-02-06",
+      "expectedPrimaryLeaf": "SECTOR_BIO_HEALTHCARE_PHARMA_BIOTECH",
+      "acceptedSecondaryLeaves": ["CORPORATE_EVENT_PERFORMANCE_EARNINGS_GUIDANCE"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-09-A", "source": "FDA public notice", "publishedDate": "2024-02-06", "note": "Drug-review event, paraphrased."},
+        {"sourceArticleId": "US-09-B", "source": "STAT News", "publishedDate": "2024-02-06", "note": "Biotech pipeline coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-09-A", "publisher": "U.S. FDA", "title": "FDA review advances a late-stage drug candidate", "excerpt": "The clinical-trial and drug-approval timetable became the main catalyst for the biotech group."},
+        {"articleId": "US-09-B", "publisher": "STAT News", "title": "Pharma pipeline data reset biotech expectations", "excerpt": "A phase 3 readout and new-drug review shaped the sector outlook and investment risk."}
+      ]
+    },
+    {
+      "clusterId": "US-10",
+      "marketType": "US",
+      "eventDate": "2024-03-12",
+      "expectedPrimaryLeaf": "SECTOR_INDUSTRIALS_INFRA_SHIPBUILDING_DEFENSE",
+      "acceptedSecondaryLeaves": ["CORPORATE_EVENT_PERFORMANCE_ORDERS_CONTRACTS"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-10-A", "source": "U.S. Department of Defense", "publishedDate": "2024-03-12", "note": "Defense procurement award, paraphrased."},
+        {"sourceArticleId": "US-10-B", "source": "Defense News", "publishedDate": "2024-03-12", "note": "Ship and defense export coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-10-A", "publisher": "U.S. Department of Defense", "title": "Defense award includes naval vessel production", "excerpt": "A defense-export award and shipbuilding program expanded the order pipeline for contractors."},
+        {"articleId": "US-10-B", "publisher": "Defense News", "title": "Shipbuilding and military-equipment backlog grows", "excerpt": "Naval orders and defense demand supported the industrial backlog and capacity outlook."}
+      ]
+    },
+    {
+      "clusterId": "US-11",
+      "marketType": "US",
+      "eventDate": "2024-04-25",
+      "expectedPrimaryLeaf": "CORPORATE_EVENT_PERFORMANCE_EARNINGS_GUIDANCE",
+      "acceptedSecondaryLeaves": ["SECTOR_SEMICONDUCTORS_MEMORY_HBM"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-11-A", "source": "Microsoft earnings release", "publishedDate": "2024-04-25", "note": "Quarterly results, paraphrased."},
+        {"sourceArticleId": "US-11-B", "source": "CNBC", "publishedDate": "2024-04-25", "note": "Guidance and earnings reaction, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-11-A", "publisher": "Microsoft", "title": "Quarterly earnings beat comes with firm cloud guidance", "excerpt": "The earnings release showed operating-profit growth and a positive outlook for the next quarter."},
+        {"articleId": "US-11-B", "publisher": "CNBC", "title": "Earnings guidance keeps investors focused on AI spending", "excerpt": "Earnings and forward guidance were weighed against capital spending and demand expectations."}
+      ]
+    },
+    {
+      "clusterId": "US-12",
+      "marketType": "US",
+      "eventDate": "2024-05-20",
+      "expectedPrimaryLeaf": "CORPORATE_EVENT_PERFORMANCE_ORDERS_CONTRACTS",
+      "acceptedSecondaryLeaves": ["SECTOR_INDUSTRIALS_INFRA_SHIPBUILDING_DEFENSE"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-12-A", "source": "Boeing contract filing", "publishedDate": "2024-05-20", "note": "Aircraft supply contract, paraphrased."},
+        {"sourceArticleId": "US-12-B", "source": "Reuters", "publishedDate": "2024-05-20", "note": "Large-order coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-12-A", "publisher": "Boeing", "title": "Aircraft maker announces a large supply contract", "excerpt": "A large order and supply contract added to the backlog, with delivery terms extending over several years."},
+        {"articleId": "US-12-B", "publisher": "Reuters", "title": "Contract signing improves the order pipeline", "excerpt": "The supply agreement and delivery contract were read as evidence of firmer commercial demand."}
+      ]
+    },
+    {
+      "clusterId": "US-13",
+      "marketType": "US",
+      "eventDate": "2024-02-14",
+      "expectedPrimaryLeaf": "CORPORATE_EVENT_CAPITAL_ACTION_MNA",
+      "acceptedSecondaryLeaves": ["CORPORATE_EVENT_CAPITAL_ACTION_IPO_CAPITAL_RAISE"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-13-A", "source": "U.S. SEC merger filing", "publishedDate": "2024-02-14", "note": "Acquisition filing, paraphrased."},
+        {"sourceArticleId": "US-13-B", "source": "Financial Times", "publishedDate": "2024-02-14", "note": "M&A market coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-13-A", "publisher": "U.S. SEC", "title": "Technology company announces acquisition agreement", "excerpt": "The merger announcement outlined consideration, approval steps and the target business combination."},
+        {"articleId": "US-13-B", "publisher": "Financial Times", "title": "M&A activity returns in a selected software niche", "excerpt": "An acquisition and potential corporate combination prompted investors to review synergy assumptions."}
+      ]
+    },
+    {
+      "clusterId": "US-14",
+      "marketType": "US",
+      "eventDate": "2024-06-06",
+      "expectedPrimaryLeaf": "CORPORATE_EVENT_CAPITAL_ACTION_IPO_CAPITAL_RAISE",
+      "acceptedSecondaryLeaves": ["CORPORATE_EVENT_CAPITAL_ACTION_DIVIDEND_BUYBACK"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-14-A", "source": "U.S. SEC registration filing", "publishedDate": "2024-06-06", "note": "IPO registration, paraphrased."},
+        {"sourceArticleId": "US-14-B", "source": "Bloomberg", "publishedDate": "2024-06-06", "note": "New-listing and capital-raising coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-14-A", "publisher": "U.S. SEC", "title": "Growth company files for an IPO listing", "excerpt": "The IPO registration outlined a planned public offering and the intended use of new capital."},
+        {"articleId": "US-14-B", "publisher": "Bloomberg", "title": "Capital raise tests appetite for new listings", "excerpt": "The initial-public-offering process and financing terms became the focus of market discussion."}
+      ]
+    },
+    {
+      "clusterId": "US-15",
+      "marketType": "US",
+      "eventDate": "2024-02-20",
+      "expectedPrimaryLeaf": "CORPORATE_EVENT_CAPITAL_ACTION_DIVIDEND_BUYBACK",
+      "acceptedSecondaryLeaves": ["MARKET_FLOW_INVESTOR_FOREIGN"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-15-A", "source": "Apple filing", "publishedDate": "2024-02-20", "note": "Shareholder-return policy context, paraphrased."},
+        {"sourceArticleId": "US-15-B", "source": "Barron's", "publishedDate": "2024-02-20", "note": "Dividend and repurchase coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-15-A", "publisher": "Apple", "title": "Company weighs a larger dividend and share repurchase", "excerpt": "A dividend increase and share buyback were discussed as part of the capital-return policy."},
+        {"articleId": "US-15-B", "publisher": "Barron's", "title": "Buyback authorization keeps shareholder returns central", "excerpt": "Dividend payments and repurchase capacity were evaluated against cash flow and valuation."}
+      ]
+    },
+    {
+      "clusterId": "US-16",
+      "marketType": "US",
+      "eventDate": "2024-05-03",
+      "expectedPrimaryLeaf": "MARKET_FLOW_INVESTOR_FOREIGN",
+      "acceptedSecondaryLeaves": ["MARKET_FLOW_INVESTOR_INSTITUTIONAL"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-16-A", "source": "NYSE daily flow data", "publishedDate": "2024-05-03", "note": "Foreign investor flow proxy, paraphrased."},
+        {"sourceArticleId": "US-16-B", "source": "Bloomberg", "publishedDate": "2024-05-03", "note": "Cross-border equity-flow coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-16-A", "publisher": "NYSE", "title": "Foreign investors return to large-cap U.S. equities", "excerpt": "Foreign investor flows turned positive as overseas funds added exposure to large technology stocks."},
+        {"articleId": "US-16-B", "publisher": "Bloomberg", "title": "Cross-border buying supports market breadth", "excerpt": "Foreign flows and overseas investor positioning helped offset cautious domestic trading."}
+      ]
+    },
+    {
+      "clusterId": "US-17",
+      "marketType": "US",
+      "eventDate": "2024-03-15",
+      "expectedPrimaryLeaf": "MARKET_FLOW_POSITIONING_SHORT_SELLING",
+      "acceptedSecondaryLeaves": ["MARKET_FLOW_POSITIONING_VOLATILITY_SENTIMENT"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-17-A", "source": "FINRA short-interest report", "publishedDate": "2024-03-15", "note": "Short-interest statistics, paraphrased."},
+        {"sourceArticleId": "US-17-B", "source": "MarketWatch", "publishedDate": "2024-03-15", "note": "Short-covering reaction, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-17-A", "publisher": "FINRA", "title": "Short interest rises in selected technology names", "excerpt": "Short-selling balances and borrow costs rose for a group of volatile technology stocks."},
+        {"articleId": "US-17-B", "publisher": "MarketWatch", "title": "Short covering amplifies a sharp market move", "excerpt": "Short selling and short-covering activity changed intraday positioning and volatility."}
+      ]
+    },
+    {
+      "clusterId": "US-18",
+      "marketType": "US",
+      "eventDate": "2024-01-10",
+      "expectedPrimaryLeaf": "ALTERNATIVE_ASSET_DIGITAL_CRYPTO",
+      "acceptedSecondaryLeaves": ["MARKET_FLOW_POSITIONING_VOLATILITY_SENTIMENT"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-18-A", "source": "U.S. SEC order", "publishedDate": "2024-01-10", "note": "Spot bitcoin ETF order, paraphrased."},
+        {"sourceArticleId": "US-18-B", "source": "Reuters", "publishedDate": "2024-01-10", "note": "Digital-asset market reaction, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-18-A", "publisher": "U.S. SEC", "title": "Spot bitcoin ETF approval opens a new access route", "excerpt": "The bitcoin spot ETF decision made regulated access to digital assets available through listed products."},
+        {"articleId": "US-18-B", "publisher": "Reuters", "title": "Crypto regulation and bitcoin flows reshape sentiment", "excerpt": "Digital-asset regulation, bitcoin and ethereum flows drove a volatile market response."}
+      ]
+    },
+    {
+      "clusterId": "US-19",
+      "marketType": "US",
+      "eventDate": "2024-03-08",
+      "expectedPrimaryLeaf": "MACRO_ECONOMIC_DATA_EMPLOYMENT_GROWTH",
+      "acceptedSecondaryLeaves": ["MACRO_ECONOMIC_DATA_INFLATION"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-19-A", "source": "U.S. Bureau of Labor Statistics", "publishedDate": "2024-03-08", "note": "Nonfarm payrolls report, paraphrased."},
+        {"sourceArticleId": "US-19-B", "source": "Reuters", "publishedDate": "2024-03-08", "note": "Growth and labor-market reaction, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-19-A", "publisher": "U.S. BLS", "title": "Nonfarm payrolls expand while unemployment edges higher", "excerpt": "The employment report showed resilient hiring and a modest change in the unemployment rate."},
+        {"articleId": "US-19-B", "publisher": "Reuters", "title": "GDP growth expectations absorb the jobs signal", "excerpt": "Nonfarm employment and GDP growth forecasts shaped the market's view of economic expansion."}
+      ]
+    },
+    {
+      "clusterId": "US-20",
+      "marketType": "US",
+      "eventDate": "2024-06-07",
+      "expectedPrimaryLeaf": "MARKET_FLOW_INVESTOR_INSTITUTIONAL",
+      "acceptedSecondaryLeaves": ["MARKET_FLOW_INVESTOR_FOREIGN"],
+      "sourceProvenance": [
+        {"sourceArticleId": "US-20-A", "source": "CFTC commitment data", "publishedDate": "2024-06-07", "note": "Institutional futures positioning, paraphrased."},
+        {"sourceArticleId": "US-20-B", "source": "Financial Times", "publishedDate": "2024-06-07", "note": "Pension and asset-manager flow coverage, paraphrased."}
+      ],
+      "articles": [
+        {"articleId": "US-20-A", "publisher": "CFTC", "title": "Institutional buying increases in index futures", "excerpt": "Institutional investors and pension-fund positioning shifted toward index futures as risk appetite improved."},
+        {"articleId": "US-20-B", "publisher": "Financial Times", "title": "Asset managers add to equities while foreign flows vary", "excerpt": "Institutional flows and foreign investor activity diverged across sectors and market-cap groups."}
+      ]
+    }
+  ]
+}
