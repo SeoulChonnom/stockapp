@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest  # pyright: ignore[reportMissingImports]
 
 from app.core.llm import LlmRetryableError
+from tests.batch.theme_test_support import StrictThemeRepository, active_theme_tree_rows
 from tests.support import BUSINESS_DATE, RecordingAsyncSession, load_module
 
 build_clusters_module = load_module('app.batch.steps.build_clusters')
@@ -22,6 +25,7 @@ CLUSTER_ENRICHMENT_FALLBACK = load_module(
 THEME_CLASSIFICATION = build_clusters_module.THEME_CLASSIFICATION
 THEME_CLASSIFICATION_MISSING = build_clusters_module.THEME_CLASSIFICATION_MISSING
 CANONICAL_LEAF_CODES = load_module('app.batch.theme_rules').CANONICAL_LEAF_CODES
+CANONICAL_PARENT_CODES = load_module('app.batch.theme_rules').CANONICAL_PARENT_CODES
 
 
 @dataclass
@@ -79,18 +83,32 @@ class FakeProcessedRepo:
 
 class FakeThemeRepository:
     def __init__(self, session):
-        _ = session
+        self.session = session
 
     async def list_active_tree_rows(self):
+        codes = (*sorted(CANONICAL_PARENT_CODES), *CANONICAL_LEAF_CODES)
         return [
-            SimpleNamespace(code=code, parent_code=None)
-            for code in CANONICAL_LEAF_CODES
+            SimpleNamespace(
+                code=code,
+                parent_code=_nearest_parent(code),
+                is_active=True,
+            )
+            for code in codes
         ]
+
+
+def _nearest_parent(code):
+    candidates = [
+        parent
+        for parent in CANONICAL_PARENT_CODES
+        if parent != code and code.startswith(f'{parent}_')
+    ]
+    return max(candidates, key=len) if candidates else None
 
 
 class FakeClusterRepo:
     def __init__(self, session):
-        _ = session
+        self.session = session
         self.calls = []
         self.theme_calls = []
 
@@ -228,6 +246,16 @@ def test_theme_parser_preserves_valid_order_deduplicates_and_caps_at_three():
     assert parsed == [valid_codes[1], valid_codes[0], valid_codes[2]]
 
 
+def test_build_clusters_does_not_bypass_theme_contract_by_repository_shape():
+    run_source = inspect.getsource(BuildClustersStep.run)
+    persist_source = inspect.getsource(
+        build_clusters_module._persist_cluster_enrichment
+    )
+
+    assert "hasattr(cluster_repo, 'replace_cluster_themes')" not in run_source
+    assert "hasattr(cluster_repo, 'replace_cluster_themes')" not in persist_source
+
+
 @pytest.mark.anyio
 async def test_build_clusters_persists_llm_themes_as_persistence_assignments():
     article = _processed_article(
@@ -322,6 +350,257 @@ async def test_theme_catalog_mismatch_fails_before_cluster_processing():
 
     with pytest.raises(ValueError, match='missing rule codes'):
         await step.run(repository, context)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ('rows', 'error_match'),
+    [
+        (
+            active_theme_tree_rows(
+                inactive_codes={CANONICAL_LEAF_CODES[0]},
+            ),
+            '(missing|unknown/extra) rule codes',
+        ),
+        (
+            [
+                row
+                for row in active_theme_tree_rows()
+                if not (
+                    isinstance(row.code, str)
+                    and row.code.startswith('SECTOR_SEMICONDUCTORS_')
+                    and row.code not in CANONICAL_PARENT_CODES
+                )
+            ],
+            'parent theme cannot have classification rules',
+        ),
+    ],
+)
+async def test_theme_catalog_tree_mismatch_fails_before_processing(rows, error_match):
+    processed_calls = 0
+
+    class TrackingProcessedRepo(ListProcessedRepo):
+        async def list_by_business_date(self, *args, **kwargs):
+            nonlocal processed_calls
+            processed_calls += 1
+            return await super().list_by_business_date(*args, **kwargs)
+
+    class InvalidThemeRepository(StrictThemeRepository):
+        def __init__(self, session):
+            super().__init__(session, rows=rows)
+
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+    repository = FakeBatchRepository(session=RecordingAsyncSession(), events=[])
+    step = BuildClustersStep(
+        processed_repo_factory=lambda _session: TrackingProcessedRepo([]),
+        cluster_repo_factory=lambda session: FakeClusterRepo(session),
+        theme_repository_factory=InvalidThemeRepository,
+        llm_provider_factory=lambda: RecordingLlmProvider(configured=True),
+        settings=SimpleNamespace(
+            batch_max_clusters_per_market=12,
+            batch_clustering_processed_article_limit=5000,
+        ),
+    )
+
+    with pytest.raises(ValueError, match=error_match):
+        await step.run(repository, context)
+    assert processed_calls == 0
+
+
+@pytest.mark.anyio
+async def test_theme_repository_read_failure_is_fatal_before_processing():
+    processed_calls = 0
+
+    class TrackingProcessedRepo(ListProcessedRepo):
+        async def list_by_business_date(self, *args, **kwargs):
+            nonlocal processed_calls
+            processed_calls += 1
+            return await super().list_by_business_date(*args, **kwargs)
+
+    class FailingThemeRepository(StrictThemeRepository):
+        def __init__(self, session):
+            super().__init__(session, read_error=RuntimeError('theme read failed'))
+
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+    repository = FakeBatchRepository(session=RecordingAsyncSession(), events=[])
+    step = BuildClustersStep(
+        processed_repo_factory=lambda _session: TrackingProcessedRepo([]),
+        cluster_repo_factory=lambda session: FakeClusterRepo(session),
+        theme_repository_factory=FailingThemeRepository,
+        llm_provider_factory=lambda: RecordingLlmProvider(configured=True),
+        settings=SimpleNamespace(
+            batch_max_clusters_per_market=12,
+            batch_clustering_processed_article_limit=5000,
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match='theme read failed'):
+        await step.run(repository, context)
+    assert processed_calls == 0
+
+
+@pytest.mark.anyio
+async def test_cluster_theme_write_failure_propagates_without_checkpoint_commit():
+    class CheckpointRepository:
+        def __init__(self):
+            self.session = object()
+            self.checkpoint_calls = 0
+            self.commit_calls = 0
+            self.events = []
+
+        async def get_job_by_id(self, _job_id):
+            return SimpleNamespace(
+                checkpoint_json={},
+                lease_token=UUID('00000000-0000-0000-0000-000000000123'),
+            )
+
+        async def save_checkpoint(self, **_kwargs):
+            self.checkpoint_calls += 1
+            return True
+
+        async def commit(self):
+            self.commit_calls += 1
+
+        async def add_event(self, **kwargs):
+            self.events.append(kwargs)
+
+    class FailingClusterRepo(FakeClusterRepo):
+        async def replace_cluster_themes(self, _cluster_id, _assignments):
+            raise RuntimeError('theme write failed')
+
+    repository = CheckpointRepository()
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+    article = _processed_article(
+        9003,
+        market_type='US',
+        title='single cluster title',
+        published_at=datetime(2026, 3, 17, tzinfo=UTC),
+    )
+    cluster_repository = FailingClusterRepo(repository.session)
+    step = BuildClustersStep(
+        processed_repo_factory=lambda _session: ListProcessedRepo([article]),
+        cluster_repo_factory=lambda session: cluster_repository,
+        theme_repository_factory=StrictThemeRepository,
+        llm_provider_factory=lambda: RecordingLlmProvider(configured=True),
+        settings=SimpleNamespace(
+            batch_max_clusters_per_market=12,
+            batch_clustering_processed_article_limit=5000,
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match='theme write failed'):
+        await step.run(repository, context)
+    assert len(cluster_repository.calls) == 1
+    assert repository.checkpoint_calls == 0
+    assert repository.commit_calls == 0
+
+
+@pytest.mark.anyio
+async def test_cluster_and_theme_writes_share_session_and_commit_order():
+    operations: list[str] = []
+
+    class OrderedRepository:
+        def __init__(self):
+            self.session = object()
+            self.events = []
+
+        async def get_job_by_id(self, _job_id):
+            return SimpleNamespace(
+                checkpoint_json={},
+                lease_token=UUID('00000000-0000-0000-0000-000000000123'),
+            )
+
+        async def add_event(self, **kwargs):
+            operations.append('event')
+            self.events.append(kwargs)
+
+        async def save_checkpoint(self, **_kwargs):
+            operations.append('checkpoint')
+            return True
+
+        async def commit(self):
+            operations.append('commit')
+
+    class OrderedClusterRepo(FakeClusterRepo):
+        def __init__(self, session):
+            super().__init__(session)
+            self.factory_session = session
+
+        async def create_cluster_bundle(self, params, article_ids):
+            operations.append('upsert')
+            return await super().create_cluster_bundle(params, article_ids)
+
+        async def replace_cluster_themes(self, cluster_id, assignments):
+            operations.append('replace_themes')
+            await super().replace_cluster_themes(cluster_id, assignments)
+
+    repository = OrderedRepository()
+    factory_sessions: dict[str, object] = {}
+    theme_read_sessions: list[object] = []
+    cluster_repository = OrderedClusterRepo(repository.session)
+    article = _processed_article(
+        9004,
+        market_type='US',
+        title='single cluster title',
+        published_at=datetime(2026, 3, 17, tzinfo=UTC),
+    )
+
+    def cluster_factory(session):
+        factory_sessions['cluster'] = session
+        return cluster_repository
+
+    def theme_factory(session):
+        factory_sessions['theme'] = session
+        return StrictThemeRepository(session, read_calls=theme_read_sessions)
+
+    step = BuildClustersStep(
+        processed_repo_factory=lambda session: ListProcessedRepo([article]),
+        cluster_repo_factory=cluster_factory,
+        theme_repository_factory=theme_factory,
+        llm_provider_factory=lambda: RecordingLlmProvider(configured=True),
+        settings=SimpleNamespace(
+            batch_max_clusters_per_market=12,
+            batch_clustering_processed_article_limit=5000,
+        ),
+    )
+
+    await step.run(
+        repository,
+        BatchExecutionContext(
+            job_id=1001,
+            business_date=BUSINESS_DATE,
+            force_run=False,
+            rebuild_page_only=False,
+        ),
+    )
+
+    assert factory_sessions['cluster'] is repository.session
+    assert factory_sessions['theme'] is repository.session
+    assert theme_read_sessions == [repository.session]
+    upsert_index = operations.index('upsert')
+    replace_index = operations.index('replace_themes')
+    event_index = next(
+        index
+        for index in range(replace_index + 1, len(operations))
+        if operations[index] == 'event'
+    )
+    assert upsert_index < replace_index < event_index
+    assert event_index < operations.index('checkpoint') < operations.index('commit')
 
 
 @pytest.mark.anyio
@@ -454,7 +733,34 @@ async def test_build_clusters_records_llm_fallback_error_context(monkeypatch):
 @pytest.mark.anyio
 async def test_build_clusters_propagates_retryable_llm_error(monkeypatch):
     session = RecordingAsyncSession()
-    fake_repository = FakeBatchRepository(session=session, events=[])
+
+    class DurableRetryRepository(FakeBatchRepository):
+        def __init__(self, session):
+            super().__init__(session=session, events=[])
+            self.checkpoint_calls = 0
+            self.commit_calls = 0
+
+        async def get_job_by_id(self, _job_id):
+            return SimpleNamespace(
+                checkpoint_json={},
+                lease_token=UUID('00000000-0000-0000-0000-000000000123'),
+            )
+
+        async def save_checkpoint(self, **_kwargs):
+            self.checkpoint_calls += 1
+            return True
+
+        async def commit(self):
+            self.commit_calls += 1
+
+    cluster_repositories = []
+
+    class TrackingClusterRepo(FakeClusterRepo):
+        def __init__(self, session):
+            super().__init__(session)
+            cluster_repositories.append(self)
+
+    fake_repository = DurableRetryRepository(session)
     context = BatchExecutionContext(
         job_id=1001,
         business_date=BUSINESS_DATE,
@@ -475,7 +781,7 @@ async def test_build_clusters_propagates_retryable_llm_error(monkeypatch):
         build_clusters_module, 'NewsArticleProcessedRepository', FakeProcessedRepo
     )
     monkeypatch.setattr(
-        build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
+        build_clusters_module, 'NewsClusterWriteRepository', TrackingClusterRepo
     )
     monkeypatch.setattr(
         build_clusters_module,
@@ -487,6 +793,11 @@ async def test_build_clusters_propagates_retryable_llm_error(monkeypatch):
     with pytest.raises(LlmRetryableError):
         await BuildClustersStep().run(fake_repository, context)
     assert all('secret-token' not in reason for reason in context.partial_reasons)
+    assert len(cluster_repositories) == 1
+    assert cluster_repositories[0].calls == []
+    assert cluster_repositories[0].theme_calls == []
+    assert fake_repository.checkpoint_calls == 0
+    assert fake_repository.commit_calls == 0
 
 
 @pytest.mark.anyio

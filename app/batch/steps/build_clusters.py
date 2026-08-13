@@ -84,11 +84,9 @@ class BuildClustersStep(BatchStep):
         processed_repo = self._processed_repo_factory(session)
         cluster_repo = self._cluster_repo_factory(session)
         llm_provider = self._llm_provider_factory()
-        theme_catalog: ThemeRuleCatalog | None = None
-        if hasattr(cluster_repo, 'replace_cluster_themes'):
-            theme_catalog = await _load_theme_catalog(
-                self._theme_repository_factory(session)
-            )
+        theme_catalog: ThemeRuleCatalog = await _load_theme_catalog(
+            self._theme_repository_factory(session)
+        )
         progress = await DurableTargetProgress.load(
             repository,
             job_id=context.job_id,
@@ -340,28 +338,27 @@ async def _persist_cluster_enrichment(
     theme_assignments = _to_theme_assignment_create_params(
         enrichment.get('theme_assignments', [])
     )
-    if hasattr(cluster_repo, 'replace_cluster_themes'):
-        await cluster_repo.replace_cluster_themes(
-            cluster.cluster_id,
-            theme_assignments,
+    await cluster_repo.replace_cluster_themes(
+        cluster.cluster_id,
+        theme_assignments,
+    )
+    if enrichment.get('theme_fallback_used') and not theme_assignments:
+        context.add_partial(
+            THEME_CLASSIFICATION,
+            THEME_CLASSIFICATION_MISSING,
         )
-        if enrichment.get('theme_fallback_used') and not theme_assignments:
-            context.add_partial(
-                THEME_CLASSIFICATION,
-                THEME_CLASSIFICATION_MISSING,
-            )
-            await repository.add_event(
-                job_id=context.job_id,
-                step_code=step_code,
-                level=EventLevel.WARN.value,
-                message='Cluster theme classification produced no assignment.',
-                context_json={
-                    'marketType': market_type,
-                    'clusterRank': cluster_rank,
-                    'clusterId': cluster.cluster_id,
-                    'reason': THEME_CLASSIFICATION_MISSING,
-                },
-            )
+        await repository.add_event(
+            job_id=context.job_id,
+            step_code=step_code,
+            level=EventLevel.WARN.value,
+            message='Cluster theme classification produced no assignment.',
+            context_json={
+                'marketType': market_type,
+                'clusterRank': cluster_rank,
+                'clusterId': cluster.cluster_id,
+                'reason': THEME_CLASSIFICATION_MISSING,
+            },
+        )
     context.cluster_count += 1
     await repository.add_event(
         job_id=context.job_id,
@@ -393,13 +390,12 @@ async def _load_theme_catalog(theme_repository: Any) -> ThemeRuleCatalog:
         for row in active_rows
         if isinstance(_theme_row_value(row, 'parent_code'), str)
     }
-    leaf_codes = tuple(
-        _theme_row_value(row, 'code')
-        for row in active_rows
-        if isinstance(_theme_row_value(row, 'code'), str)
-        and _theme_row_value(row, 'code') not in parent_codes
-    )
-    return load_theme_rules(leaf_codes)
+    leaf_codes: list[str] = []
+    for row in active_rows:
+        code = _theme_row_value(row, 'code')
+        if isinstance(code, str) and code not in parent_codes:
+            leaf_codes.append(code)
+    return load_theme_rules(tuple(leaf_codes))
 
 
 def _theme_row_value(row: object, field_name: str) -> object:

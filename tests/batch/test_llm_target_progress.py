@@ -13,6 +13,7 @@ from app.batch.steps.generate_ai_summaries import GenerateAiSummariesStep
 from app.batch.steps.target_progress import TargetCall, run_target_calls
 from app.core.llm import LlmRetryableError
 from app.db.repositories.projections import NewsArticleProcessedRecord
+from tests.batch.theme_test_support import StrictThemeRepository
 
 BUSINESS_DATE = date(2026, 7, 30)
 LEASE_TOKEN = UUID('00000000-0000-0000-0000-000000000123')
@@ -237,10 +238,15 @@ async def test_build_clusters_restart_skips_persisted_enrichment_and_awaits_canc
     repository = DurableRepository()
     cluster_repo = ClusterWriteRepository()
     provider = RetryingClusterProvider()
+    theme_factory_sessions: list[object] = []
+    theme_read_sessions: list[object] = []
     step = BuildClustersStep(
         processed_repo_factory=lambda _session: ProcessedRepository(articles),
         cluster_repo_factory=lambda _session: cluster_repo,
         llm_provider_factory=lambda: provider,
+        theme_repository_factory=lambda session: StrictThemeRepository(
+            session, calls=theme_factory_sessions, read_calls=theme_read_sessions
+        ),
         settings=SimpleNamespace(
             batch_max_clusters_per_market=12,
             batch_clustering_processed_article_limit=5000,
@@ -252,6 +258,8 @@ async def test_build_clusters_restart_skips_persisted_enrichment_and_awaits_canc
 
     assert provider.cancelled.is_set()
     assert set(cluster_repo.rows) == {1}
+    assert repository.checkpoint['targetProgress']['BUILD_CLUSTERS'] == ['US:1']
+    assert cluster_repo.theme_replace_calls == [1]
 
     resumed_context = await step.run(
         repository,
@@ -260,6 +268,16 @@ async def test_build_clusters_restart_skips_persisted_enrichment_and_awaits_canc
 
     assert provider.calls == {4001: 1, 4002: 2, 4003: 2}
     assert set(cluster_repo.rows) == {1, 2, 3}
+    assert cluster_repo.theme_replace_calls == [1, 2, 3]
+    assert all(
+        len(cluster_repo.theme_rows[cluster_id]) == 1
+        and cluster_repo.theme_rows[cluster_id][0].rank == 1
+        and cluster_repo.theme_rows[cluster_id][0].classification_method == 'LLM'
+        for cluster_id in (1, 2, 3)
+    )
+    assert theme_factory_sessions == [repository.session, repository.session]
+    assert theme_read_sessions == [repository.session, repository.session]
+    assert repository.commit_count == 3
     assert resumed_context.cluster_count == 3
 
 
@@ -277,6 +295,12 @@ class ProcessedRepository:
 class ClusterWriteRepository:
     def __init__(self) -> None:
         self.rows: dict[int, object] = {}
+        self.theme_rows: dict[int, list[object]] = {
+            1: [SimpleNamespace(theme_code='old-1', rank=1)],
+            2: [SimpleNamespace(theme_code='old-2', rank=1)],
+            3: [SimpleNamespace(theme_code='old-3', rank=1)],
+        }
+        self.theme_replace_calls: list[int] = []
 
     async def list_cluster_ids_for_business_date(self, *_args, min_rank=None):
         return [
@@ -293,6 +317,10 @@ class ClusterWriteRepository:
         row = SimpleNamespace(cluster_id=params.cluster_rank)
         self.rows[params.cluster_rank] = row
         return row
+
+    async def replace_cluster_themes(self, cluster_id, assignments):
+        self.theme_replace_calls.append(cluster_id)
+        self.theme_rows[cluster_id] = list(assignments)
 
 
 class RetryingClusterProvider:
@@ -326,6 +354,7 @@ class RetryingClusterProvider:
             'tags': [],
             'analysis_paragraphs': [],
             'representative_article_index': 0,
+            'themeCodes': ['SECTOR_SEMICONDUCTORS_MEMORY_HBM'],
         }
 
 
