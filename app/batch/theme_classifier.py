@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import unicodedata
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
 from app.batch.theme_rules import (
     CANONICAL_PARENT_CODES,
@@ -14,8 +14,8 @@ from app.batch.theme_rules import (
     load_theme_rules,
 )
 
+ArticleId = int | str
 ClassificationMethod = Literal['KEYWORD_FALLBACK']
-CatalogInput = ThemeRuleCatalog | Mapping[str, ThemeRule] | Iterable[ThemeRule]
 
 
 def normalize_text(value: str | None) -> str:
@@ -28,123 +28,80 @@ def normalize_text(value: str | None) -> str:
     return ' '.join(unicodedata.normalize('NFC', value).casefold().split())
 
 
-# One pure implementation is shared by matching and future snapshot/search
-# document builders.  The aliases keep that contract discoverable to callers.
-normalize_for_matching = normalize_text
-normalize_search_text = normalize_text
-normalize_evidence = normalize_text
+def _validate_optional_text(value: object, field_name: str) -> None:
+    if value is not None and not isinstance(value, str):
+        raise TypeError(f'{field_name} must be a string or None')
 
 
-def _text_tuple(value: object) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if isinstance(value, str):
-        return (value,)
-    if isinstance(value, Iterable):
-        return tuple(item for item in value if isinstance(item, str))
-    return ()
+def _validate_article_id(value: object, field_name: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise TypeError(f'{field_name} must be a non-boolean integer or string')
+    if isinstance(value, str) and not value.strip():
+        raise ValueError(f'{field_name} must not be blank')
 
 
-def _first(mapping: Mapping[str, Any], keys: Sequence[str]) -> object:
-    for key in keys:
-        if key in mapping:
-            return mapping[key]
-    return None
+@dataclass(frozen=True, slots=True)
+class ArticleEvidence:
+    """Evidence for one source article, retained under a stable identity."""
 
+    article_id: ArticleId
+    title: str | None = None
+    source_summary: str | None = None
+    article_body_excerpt: str | None = None
 
-def _optional_text(value: object) -> str | None:
-    return value if isinstance(value, str) else None
+    def __post_init__(self) -> None:
+        _validate_article_id(self.article_id, 'article_id')
+        _validate_optional_text(self.title, 'title')
+        _validate_optional_text(self.source_summary, 'source_summary')
+        _validate_optional_text(self.article_body_excerpt, 'article_body_excerpt')
 
 
 @dataclass(frozen=True, slots=True)
 class ThemeEvidence:
-    """Allowed cluster/article evidence consumed by the fallback.
+    """Allowed cluster title and structured article evidence.
 
-    Article titles, summaries, and excerpts align by index.  If the
-    representative title is present in ``article_titles``, it is counted as
-    the representative title rather than as a general article title.
+    ``representative_article_id`` identifies one item in ``articles``.  The
+    same article is scored as the representative title and never again as a
+    general article title, even when titles differ or are duplicated elsewhere.
     """
 
     cluster_title: str | None = None
-    representative_title: str | None = None
-    article_titles: tuple[str, ...] = ()
-    source_summaries: tuple[str, ...] = ()
-    source_excerpts: tuple[str, ...] = ()
+    representative_article_id: ArticleId | None = None
+    articles: tuple[ArticleEvidence, ...] = ()
 
     def __post_init__(self) -> None:
-        for field_name in ('article_titles', 'source_summaries', 'source_excerpts'):
-            object.__setattr__(self, field_name, _text_tuple(getattr(self, field_name)))
+        _validate_optional_text(self.cluster_title, 'cluster_title')
+        if self.representative_article_id is not None:
+            _validate_article_id(
+                self.representative_article_id, 'representative_article_id'
+            )
+        if isinstance(self.articles, (str, bytes)) or not isinstance(
+            self.articles, Iterable
+        ):
+            raise TypeError('articles must be an iterable of ArticleEvidence')
+        articles = tuple(self.articles)
+        if any(not isinstance(article, ArticleEvidence) for article in articles):
+            raise TypeError('articles must contain ArticleEvidence values')
+        ids = tuple(article.article_id for article in articles)
+        if len(ids) != len(set(ids)):
+            raise ValueError('article_id values must be unique within evidence')
+        if self.representative_article_id is not None and (
+            self.representative_article_id not in ids
+        ):
+            raise ValueError('representative_article_id must identify an article')
+        object.__setattr__(self, 'articles', articles)
 
-    @classmethod
-    def from_mapping(cls, value: Mapping[str, Any]) -> ThemeEvidence:
-        """Build evidence from supported snake_case or camelCase fields.
+    @property
+    def representative_article(self) -> ArticleEvidence | None:
+        """Return the representative article identified by the evidence."""
 
-        LLM analysis, tags, and other metadata are intentionally not read.
-        """
-
-        return cls(
-            cluster_title=_optional_text(
-                _first(value, ('cluster_title', 'clusterTitle', 'title'))
-            ),
-            representative_title=_optional_text(
-                _first(
-                    value,
-                    (
-                        'representative_title',
-                        'representativeTitle',
-                        'representative_article_title',
-                        'representativeArticleTitle',
-                    ),
-                )
-            ),
-            article_titles=_text_tuple(
-                _first(value, ('article_titles', 'articleTitles', 'all_article_titles'))
-            ),
-            source_summaries=_text_tuple(
-                _first(
-                    value,
-                    (
-                        'source_summaries',
-                        'sourceSummaries',
-                        'article_summaries',
-                        'articleSummaries',
-                        'source_summary',
-                        'sourceSummary',
-                        'summary',
-                    ),
-                )
-            ),
-            source_excerpts=_text_tuple(
-                _first(
-                    value,
-                    (
-                        'source_excerpts',
-                        'sourceExcerpts',
-                        'article_excerpts',
-                        'articleExcerpts',
-                        'article_body_excerpts',
-                        'articleBodyExcerpts',
-                        'article_body_excerpt',
-                        'articleBodyExcerpt',
-                        'source_excerpt',
-                        'sourceExcerpt',
-                        'excerpt',
-                    ),
-                )
-            ),
+        if self.representative_article_id is None:
+            return None
+        return next(
+            article
+            for article in self.articles
+            if article.article_id == self.representative_article_id
         )
-
-    @property
-    def summaries(self) -> tuple[str, ...]:
-        """Return source summaries through a short read-only alias."""
-
-        return self.source_summaries
-
-    @property
-    def excerpts(self) -> tuple[str, ...]:
-        """Return source excerpts through a short read-only alias."""
-
-        return self.source_excerpts
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,62 +130,6 @@ class ThemeAssignment:
     classification_method: ClassificationMethod = 'KEYWORD_FALLBACK'
 
 
-@dataclass(frozen=True, slots=True)
-class _ArticleEvidence:
-    title: str
-    summary: str
-    excerpt: str
-
-
-def _coerce_evidence(
-    evidence: ThemeEvidence | Mapping[str, Any] | str | None,
-) -> ThemeEvidence:
-    if isinstance(evidence, ThemeEvidence):
-        return evidence
-    if isinstance(evidence, Mapping):
-        return ThemeEvidence.from_mapping(evidence)
-    if isinstance(evidence, str):
-        return ThemeEvidence(cluster_title=evidence)
-    if evidence is None:
-        return ThemeEvidence()
-    raise TypeError('evidence must be ThemeEvidence, a mapping, a string, or None')
-
-
-def _article_records(evidence: ThemeEvidence) -> tuple[_ArticleEvidence, ...]:
-    count = max(
-        len(evidence.article_titles),
-        len(evidence.source_summaries),
-        len(evidence.source_excerpts),
-    )
-    return tuple(
-        _ArticleEvidence(
-            evidence.article_titles[index]
-            if index < len(evidence.article_titles)
-            else '',
-            evidence.source_summaries[index]
-            if index < len(evidence.source_summaries)
-            else '',
-            evidence.source_excerpts[index]
-            if index < len(evidence.source_excerpts)
-            else '',
-        )
-        for index in range(count)
-    )
-
-
-def _rule_values(
-    rule: ThemeRule,
-) -> tuple[bool, int, tuple[str, ...], tuple[tuple[str, ...], ...], tuple[str, ...]]:
-    fallback = rule.fallback
-    return (
-        fallback.enabled,
-        fallback.minimum_score,
-        fallback.strong_phrases,
-        fallback.supporting_term_groups,
-        fallback.excluded_phrases,
-    )
-
-
 def _normalise_terms(values: Iterable[str]) -> tuple[str, ...]:
     result: list[str] = []
     for value in values:
@@ -242,54 +143,56 @@ def _matches(text: str, phrases: Iterable[str]) -> bool:
     return bool(text) and any(phrase in text for phrase in phrases)
 
 
-def score_theme_rule(
-    rule: ThemeRule,
-    evidence: ThemeEvidence | Mapping[str, Any] | str | None,
-) -> ThemeScore:
-    """Score one rule using the approved field weights and qualification gate."""
+def _article_key(article_id: ArticleId) -> str:
+    return f'{type(article_id).__name__}:{article_id}'
 
-    evidence = _coerce_evidence(evidence)
-    enabled, minimum, raw_strong, raw_groups, raw_excluded = _rule_values(rule)
-    strong = _normalise_terms(raw_strong)
-    supporting = _normalise_terms(term for group in raw_groups for term in group)
-    excluded_phrases = _normalise_terms(raw_excluded)
+
+def score_theme_rule(rule: ThemeRule, evidence: ThemeEvidence) -> ThemeScore:
+    """Score one frozen rule using the approved weights and qualification gate."""
+
+    if not isinstance(evidence, ThemeEvidence):
+        raise TypeError('evidence must be ThemeEvidence')
+    fallback = rule.fallback
+    strong = _normalise_terms(fallback.strong_phrases)
+    supporting = _normalise_terms(
+        term for group in fallback.supporting_term_groups for term in group
+    )
+    excluded_phrases = _normalise_terms(fallback.excluded_phrases)
     positive = (*strong, *supporting)
 
     cluster_title = normalize_text(evidence.cluster_title)
-    representative_title = normalize_text(evidence.representative_title)
-    records = tuple(
-        _ArticleEvidence(
+    representative = evidence.representative_article
+    representative_title = normalize_text(
+        representative.title if representative else None
+    )
+    normalized_articles = tuple(
+        (
+            article,
             normalize_text(article.title),
-            normalize_text(article.summary),
-            normalize_text(article.excerpt),
+            normalize_text(article.source_summary),
+            normalize_text(article.article_body_excerpt),
         )
-        for article in _article_records(evidence)
+        for article in evidence.articles
     )
     cluster_match = _matches(cluster_title, positive)
     representative_match = _matches(representative_title, positive)
     general_count = 0
     summary_count = 0
     distinct_count = 0
-    representative_consumed = False
     evidence_keys: list[str] = []
-    for index, article in enumerate(records):
-        title_match = _matches(article.title, positive)
-        summary_match = _matches(article.summary, positive)
-        excerpt_match = _matches(article.excerpt, positive)
+    for article, title, summary, excerpt in normalized_articles:
+        title_match = _matches(title, positive)
+        summary_match = _matches(summary, positive)
+        excerpt_match = _matches(excerpt, positive)
+        article_key = _article_key(article.article_id)
         if title_match:
-            if (
-                not representative_consumed
-                and representative_title
-                and article.title == representative_title
-            ):
-                representative_consumed = True
-            else:
+            if article.article_id != evidence.representative_article_id:
                 general_count += 1
-            evidence_keys.append(f'article_title:{index}')
+            evidence_keys.append(f'article_title:{article_key}')
         if summary_match:
-            evidence_keys.append(f'article_summary:{index}')
+            evidence_keys.append(f'article_summary:{article_key}')
         if excerpt_match:
-            evidence_keys.append(f'article_excerpt:{index}')
+            evidence_keys.append(f'article_excerpt:{article_key}')
         if summary_match or excerpt_match:
             summary_count += 1
         if title_match or summary_match or excerpt_match:
@@ -305,14 +208,14 @@ def score_theme_rule(
         representative_title,
         *(
             text
-            for article in records
-            for text in (article.title, article.summary, article.excerpt)
+            for _, title, summary, excerpt in normalized_articles
+            for text in (title, summary, excerpt)
         ),
     )
     strong_match = any(_matches(text, strong) for text in all_texts)
     strong_in_title = any(
         _matches(text, strong)
-        for text in (cluster_title, representative_title, *(a.title for a in records))
+        for text in (cluster_title, *(title for _, title, _, _ in normalized_articles))
     )
     vetoed = any(_matches(text, excluded_phrases) for text in all_texts)
     score = (
@@ -323,130 +226,45 @@ def score_theme_rule(
         + (2 if strong_match else 0)
     )
     qualified = (
-        enabled
+        fallback.enabled
         and not vetoed
-        and score >= minimum
+        and score >= fallback.minimum_score
         and (strong_in_title or distinct_count >= 2)
     )
     return ThemeScore(
-        score,
-        distinct_count,
-        cluster_match,
-        representative_match,
-        general_count,
-        summary_count,
-        strong_match,
-        strong_in_title,
-        vetoed,
-        qualified,
-        tuple(evidence_keys),
+        score=score,
+        distinct_evidence_count=distinct_count,
+        cluster_title_match=cluster_match,
+        representative_title_match=representative_match,
+        general_article_match_count=general_count,
+        summary_match_count=summary_count,
+        strong_phrase_match=strong_match,
+        strong_phrase_in_title=strong_in_title,
+        excluded=vetoed,
+        qualified=qualified,
+        evidence_keys=tuple(evidence_keys),
     )
-
-
-def _catalog_rules(catalog: CatalogInput) -> tuple[ThemeRule, ...]:
-    if isinstance(catalog, ThemeRuleCatalog):
-        return catalog.rules
-    if isinstance(catalog, Mapping):
-        return tuple(catalog.values())
-    return tuple(catalog)
 
 
 def _sibling_parent(code: str) -> str | None:
     parents = [
         parent for parent in CANONICAL_PARENT_CODES if code.startswith(f'{parent}_')
     ]
-    return (
-        max(parents, key=len)
-        if parents
-        else (code.rsplit('_', 1)[0] if '_' in code else None)
-    )
+    return max(parents, key=len) if parents else None
 
 
 def classify_theme_fallback(
-    evidence: ThemeEvidence | Mapping[str, Any] | str | None = None,
-    catalog: CatalogInput | None = None,
-    *,
-    cluster_title: str | None = None,
-    representative_title: str | None = None,
-    article_titles: Iterable[str] | str | None = None,
-    source_summaries: Iterable[str] | str | None = None,
-    source_excerpts: Iterable[str] | str | None = None,
-    article_summaries: Iterable[str] | str | None = None,
-    article_excerpts: Iterable[str] | str | None = None,
-    source_summary: str | None = None,
-    source_excerpt: str | None = None,
-    summary: str | None = None,
-    excerpt: str | None = None,
-    rules: CatalogInput | None = None,
+    evidence: ThemeEvidence,
+    catalog: ThemeRuleCatalog | None = None,
 ) -> list[ThemeAssignment]:
     """Return at most three ranked, high-confidence fallback assignments."""
 
-    if catalog is not None and rules is not None:
-        raise TypeError('provide catalog or rules, not both')
-    if source_summaries is None:
-        source_summaries = next(
-            (
-                value
-                for value in (
-                    article_summaries,
-                    source_summary,
-                    summary,
-                )
-                if value is not None
-            ),
-            None,
-        )
-    if source_excerpts is None:
-        source_excerpts = next(
-            (
-                value
-                for value in (
-                    article_excerpts,
-                    source_excerpt,
-                    excerpt,
-                )
-                if value is not None
-            ),
-            None,
-        )
-    if any(
-        value is not None
-        for value in (
-            cluster_title,
-            representative_title,
-            article_titles,
-            source_summaries,
-            source_excerpts,
-        )
-    ):
-        base = _coerce_evidence(evidence)
-        evidence = ThemeEvidence(
-            cluster_title if cluster_title is not None else base.cluster_title,
-            representative_title
-            if representative_title is not None
-            else base.representative_title,
-            _text_tuple(article_titles)
-            if article_titles is not None
-            else base.article_titles,
-            _text_tuple(source_summaries)
-            if source_summaries is not None
-            else base.source_summaries,
-            _text_tuple(source_excerpts)
-            if source_excerpts is not None
-            else base.source_excerpts,
-        )
-
-    selected_catalog = (
-        rules
-        if rules is not None
-        else catalog
-        if catalog is not None
-        else load_theme_rules()
-    )
-    normalized_evidence = _coerce_evidence(evidence)
+    if not isinstance(evidence, ThemeEvidence):
+        raise TypeError('evidence must be ThemeEvidence')
+    selected_catalog = catalog if catalog is not None else load_theme_rules()
     candidates: list[tuple[int, ThemeRule, ThemeScore]] = []
-    for index, rule in enumerate(_catalog_rules(selected_catalog)):
-        score = score_theme_rule(rule, normalized_evidence)
+    for index, rule in enumerate(selected_catalog.rules):
+        score = score_theme_rule(rule, evidence)
         if score.qualified:
             candidates.append((index, rule, score))
     candidates.sort(
@@ -472,43 +290,19 @@ def classify_theme_fallback(
         if len(selected) == 3:
             break
     return [
-        ThemeAssignment(rule.code, rank)
+        ThemeAssignment(theme_code=rule.code, rank=rank)
         for rank, (_, rule, _) in enumerate(selected, start=1)
     ]
 
 
-def classify_themes(
-    evidence: ThemeEvidence | Mapping[str, Any] | str | None = None,
-    *,
-    catalog: CatalogInput | None = None,
-    **fields: Any,
-) -> list[ThemeAssignment]:
-    """Plural-name wrapper for batch callers."""
-
-    return classify_theme_fallback(evidence, catalog, **fields)
-
-
-classify = classify_theme_fallback
-classify_cluster = classify_theme_fallback
-classify_fallback = classify_theme_fallback
-score_rule = score_theme_rule
-score_fallback = score_theme_rule
-
 __all__ = [
+    'ArticleEvidence',
+    'ArticleId',
     'ClassificationMethod',
     'ThemeAssignment',
     'ThemeEvidence',
     'ThemeScore',
-    'classify',
-    'classify_cluster',
-    'classify_fallback',
     'classify_theme_fallback',
-    'classify_themes',
-    'normalize_evidence',
-    'normalize_for_matching',
-    'normalize_search_text',
     'normalize_text',
-    'score_fallback',
-    'score_rule',
     'score_theme_rule',
 ]

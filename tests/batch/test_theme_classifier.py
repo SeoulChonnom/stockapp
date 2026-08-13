@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
 from collections import Counter, defaultdict
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from app.batch.theme_classifier import (
+    ArticleEvidence,
     ThemeAssignment,
     ThemeEvidence,
     classify_theme_fallback,
@@ -28,18 +35,53 @@ FIXTURE_PATH = Path(__file__).parents[1] / 'fixtures' / 'theme_fallback_cases.ya
 def _evidence(
     *,
     cluster_title: str | None = None,
-    representative_title: str | None = None,
-    article_titles: tuple[str, ...] = (),
-    source_summaries: tuple[str, ...] = (),
-    source_excerpts: tuple[str, ...] = (),
+    representative_article_id: str | int | None = None,
+    articles: tuple[ArticleEvidence, ...] = (),
 ) -> ThemeEvidence:
     return ThemeEvidence(
         cluster_title=cluster_title,
-        representative_title=representative_title,
-        article_titles=article_titles,
-        source_summaries=source_summaries,
-        source_excerpts=source_excerpts,
+        representative_article_id=representative_article_id,
+        articles=articles,
     )
+
+
+def _article(
+    article_id: str | int,
+    title: str | None = None,
+    summary: str | None = None,
+    excerpt: str | None = None,
+) -> ArticleEvidence:
+    return ArticleEvidence(
+        article_id=article_id,
+        title=title,
+        source_summary=summary,
+        article_body_excerpt=excerpt,
+    )
+
+
+def _fixture_evidence(case: dict[str, Any]) -> ThemeEvidence:
+    return ThemeEvidence(
+        cluster_title=case.get('cluster_title'),
+        representative_article_id=case.get('representative_article_id'),
+        articles=tuple(
+            ArticleEvidence(
+                article_id=article['article_id'],
+                title=article.get('title'),
+                source_summary=article.get('source_summary'),
+                article_body_excerpt=article.get('article_body_excerpt'),
+            )
+            for article in case['articles']
+        ),
+    )
+
+
+def _serialize_assignments(assignments: list[ThemeAssignment]) -> bytes:
+    return json.dumps(
+        [asdict(assignment) for assignment in assignments],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+    ).encode('utf-8')
 
 
 def _single_rule_catalog(
@@ -68,13 +110,62 @@ def test_normalize_text_is_nfc_casefolded_and_whitespace_collapsed() -> None:
     assert normalize_text('  Cafe\u0301\t  HBM4\n') == 'café hbm4'
 
 
+def test_representative_identity_excludes_only_that_article_from_general_score() -> (
+    None
+):
+    catalog = _single_rule_catalog()
+    score = score_theme_rule(
+        catalog.rules[0],
+        _evidence(
+            representative_article_id='rep',
+            articles=(
+                _article('rep', '자동차 판매량'),
+                _article('a', '자동차 판매량 다른 표기'),
+                _article('b', '자동차 판매량 다른 표기'),
+            ),
+        ),
+    )
+
+    assert score.general_article_match_count == 2
+    assert score.distinct_evidence_count == 3
+    assert score.score == 10
+
+
+def test_nullable_article_fields_preserve_identity_and_validate_types() -> None:
+    evidence = _evidence(
+        articles=(
+            _article('a', title=None, summary=''),
+            _article('b', title='자동차'),
+        )
+    )
+    assert [article.article_id for article in evidence.articles] == ['a', 'b']
+    score = score_theme_rule(_single_rule_catalog().rules[0], evidence)
+    assert score.general_article_match_count == 1
+    assert score.distinct_evidence_count == 1
+
+    with pytest.raises(TypeError, match='title'):
+        _article('bad', title=123)  # type: ignore[arg-type]
+
+
+def test_score_evidence_keys_use_stable_article_identity() -> None:
+    score = score_theme_rule(
+        _single_rule_catalog().rules[0],
+        _evidence(articles=(_article(42, '자동차'),)),
+    )
+
+    assert score.evidence_keys == ('article_title:int:42',)
+
+
 def test_cluster_title_match_contributes_five_points() -> None:
     catalog = _single_rule_catalog()
     score = score_theme_rule(
         catalog.rules[0],
         _evidence(
             cluster_title='자동차 판매 뉴스',
-            article_titles=('자동차 판매 동향', '자동차 판매 전망'),
+            articles=(
+                _article('a', '자동차 판매 동향'),
+                _article('b', '자동차 판매 전망'),
+            ),
         ),
     )
 
@@ -87,8 +178,12 @@ def test_representative_title_match_contributes_four_points() -> None:
     score = score_theme_rule(
         catalog.rules[0],
         _evidence(
-            representative_title='자동차 판매 뉴스',
-            article_titles=('자동차 판매 동향', '자동차 판매 전망'),
+            representative_article_id='rep',
+            articles=(
+                _article('rep', '자동차 판매 뉴스'),
+                _article('a', '자동차 판매 동향'),
+                _article('b', '자동차 판매 전망'),
+            ),
         ),
     )
 
@@ -101,7 +196,11 @@ def test_general_article_title_points_are_three_each_and_capped_at_six() -> None
     score = score_theme_rule(
         catalog.rules[0],
         _evidence(
-            article_titles=('자동차 부품 수요', '자동차 부품 공급', '자동차 부품 수출'),
+            articles=(
+                _article('a', '자동차 부품 수요'),
+                _article('b', '자동차 부품 공급'),
+                _article('c', '자동차 부품 수출'),
+            ),
         ),
     )
 
@@ -114,11 +213,11 @@ def test_summary_and_excerpt_points_are_one_each_and_capped_at_three() -> None:
     score = score_theme_rule(
         catalog.rules[0],
         _evidence(
-            source_summaries=(
-                '자동차 판매 요약',
-                '자동차 판매 요약2',
-                '자동차 판매 요약3',
-                '자동차 판매 요약4',
+            articles=(
+                _article('a', summary='자동차 판매 요약'),
+                _article('b', summary='자동차 판매 요약2'),
+                _article('c', summary='자동차 판매 요약3'),
+                _article('d', summary='자동차 판매 요약4'),
             ),
         ),
     )
@@ -131,7 +230,10 @@ def test_strong_phrase_bonus_adds_two_points_and_qualifies_title_evidence() -> N
     catalog = _single_rule_catalog()
     score = score_theme_rule(
         catalog.rules[0],
-        _evidence(representative_title='강한 자동차 문구 발표'),
+        _evidence(
+            representative_article_id='rep',
+            articles=(_article('rep', '강한 자동차 문구 발표'),),
+        ),
     )
 
     assert score.strong_phrase_match is True
@@ -143,7 +245,10 @@ def test_strong_phrase_bonus_adds_two_points_and_qualifies_title_evidence() -> N
 def test_any_excluded_phrase_vetoes_an_otherwise_strong_candidate() -> None:
     catalog = _single_rule_catalog()
     assignments = classify_theme_fallback(
-        _evidence(representative_title='강한 자동차 문구와 배터리 셀'),
+        _evidence(
+            representative_article_id='rep',
+            articles=(_article('rep', '강한 자동차 문구와 배터리 셀'),),
+        ),
         catalog,
     )
 
@@ -153,7 +258,7 @@ def test_any_excluded_phrase_vetoes_an_otherwise_strong_candidate() -> None:
 def test_low_score_or_single_weak_article_does_not_assign() -> None:
     catalog = _single_rule_catalog()
     assignments = classify_theme_fallback(
-        _evidence(article_titles=('자동차 부품 단신',)),
+        _evidence(articles=(_article('a', '자동차 부품 단신'),)),
         catalog,
     )
 
@@ -162,37 +267,54 @@ def test_low_score_or_single_weak_article_does_not_assign() -> None:
 
 def test_llm_analysis_and_tags_are_not_fallback_evidence() -> None:
     catalog = _single_rule_catalog()
-    assignments = classify_theme_fallback(
-        {
-            'cluster_title': '관련 뉴스',
-            'analysis': '강한 자동차 문구',
-            'tags': ['자동차'],
-        },
-        catalog,
-    )
+    assignments = classify_theme_fallback(_evidence(cluster_title='관련 뉴스'), catalog)
 
     assert assignments == []
 
 
 def test_assignments_are_ranked_contiguously_and_limited_to_three() -> None:
-    rules = load_theme_rules(CANONICAL_LEAF_CODES)
+    rules = ThemeRuleCatalog(
+        tuple(
+            ThemeRule(
+                code=code,
+                inclusion_criteria=(),
+                exclusion_criteria=(),
+                fallback=FallbackRule(
+                    enabled=True,
+                    minimum_score=6,
+                    strong_phrases=strong,
+                    supporting_term_groups=support,
+                    excluded_phrases=(),
+                ),
+            )
+            for code, strong, support in (
+                ('ALPHA', ('alpha strong',), ()),
+                ('BETA', ('beta strong',), ()),
+                ('GAMMA', (), (('gamma',),)),
+                ('DELTA', (), (('delta',),)),
+            )
+        )
+    )
     evidence = _evidence(
-        cluster_title='자동차 판매와 전기차 판매 및 배터리 수주',
-        representative_title='자동차 판매와 전기차 배터리 수주',
-        article_titles=(
-            '자동차 판매량 증가',
-            '전기차 판매 확대',
-            '배터리 수주 호조',
-            '완성차 업체 실적',
+        cluster_title='alpha strong',
+        representative_article_id='rep',
+        articles=(
+            _article('rep', 'beta strong'),
+            _article('gamma-a', 'gamma'),
+            _article('gamma-b', 'gamma'),
+            _article('delta-a', 'delta'),
+            _article('delta-b', 'delta'),
         ),
     )
 
     assignments = classify_theme_fallback(evidence, rules)
 
-    assert len(assignments) <= 3
-    assert [assignment.rank for assignment in assignments] == list(
-        range(1, len(assignments) + 1)
-    )
+    assert [assignment.theme_code for assignment in assignments] == [
+        'ALPHA',
+        'GAMMA',
+        'DELTA',
+    ]
+    assert [assignment.rank for assignment in assignments] == [1, 2, 3]
     assert all(
         assignment.classification_method == 'KEYWORD_FALLBACK'
         for assignment in assignments
@@ -232,7 +354,11 @@ def test_sibling_themes_with_identical_evidence_are_deduplicated() -> None:
     )
 
     assignments = classify_theme_fallback(
-        _evidence(cluster_title='자동차 산업 강세'),
+        _evidence(
+            cluster_title='자동차 산업 강세',
+            representative_article_id='rep',
+            articles=(_article('rep', '자동차 산업 강세'),),
+        ),
         rules,
     )
 
@@ -250,7 +376,18 @@ def test_fixture_has_per_theme_case_gates_and_human_expected_labels() -> None:
         assert isinstance(case, dict)
         code = case['theme_code']
         by_theme[code].append(case)
+        assert case['label'] in {'positive', 'boundary', 'negative'}
         assert case['expected_primary_leaf'] in (*APPROVED_FALLBACK_CODES, None)
+        if case['expected_primary_leaf'] is not None:
+            assert case['expected_primary_leaf'] == code
+        if case['label'] == 'positive':
+            assert case['expected_primary_leaf'] == code
+        if case['label'] == 'negative':
+            assert case['expected_primary_leaf'] is None
+        article_ids = [article['article_id'] for article in case['articles']]
+        assert len(article_ids) == len(set(article_ids))
+        if case.get('representative_article_id') is not None:
+            assert case['representative_article_id'] in article_ids
 
     assert set(by_theme) == set(APPROVED_FALLBACK_CODES)
     for code in APPROVED_FALLBACK_CODES:
@@ -268,23 +405,28 @@ def test_fixture_evaluation_meets_each_theme_gate_and_is_repeatable() -> None:
     for case in cases:
         by_theme[case['theme_code']].append(case)
 
+    multi_assignment_cases: list[str] = []
     for code in APPROVED_FALLBACK_CODES:
         expected_cases = [
             case for case in by_theme[code] if case['expected_primary_leaf'] is not None
         ]
         negative_cases = [
-            case for case in by_theme[code] if case['expected_primary_leaf'] is None
+            case for case in by_theme[code] if case['label'] == 'negative'
         ]
         true_positives = 0
         false_positives = 0
         for case in by_theme[code]:
-            first = classify_theme_fallback(case, rules)
-            second = classify_theme_fallback(case, rules)
+            first = classify_theme_fallback(_fixture_evidence(case), rules)
+            second = classify_theme_fallback(_fixture_evidence(case), rules)
             assert first == second
-            assert repr(first).encode('utf-8') == repr(second).encode('utf-8')
+            assert _serialize_assignments(first) == _serialize_assignments(second)
+            if len(first) > 1:
+                multi_assignment_cases.append(case['id'])
+            target_present = any(assignment.theme_code == code for assignment in first)
             if case['expected_primary_leaf'] == code:
-                true_positives += bool(first and first[0].theme_code == code)
-            elif first and first[0].theme_code == code:
+                true_positives += target_present
+                assert first[0].theme_code == code
+            elif case['label'] == 'negative' and target_present:
                 false_positives += 1
 
         precision = true_positives / max(true_positives + false_positives, 1)
@@ -294,10 +436,49 @@ def test_fixture_evaluation_meets_each_theme_gate_and_is_repeatable() -> None:
         assert recall >= 0.70, code
         assert false_positive_rate <= 0.05, code
 
+    assert len(multi_assignment_cases) >= 2
+
+
+def test_assignment_bytes_are_stable_across_hash_seeds() -> None:
+    script = """
+import json
+from dataclasses import asdict
+from app.batch.theme_classifier import ArticleEvidence, ThemeEvidence, classify_theme_fallback
+from app.batch.theme_rules import CANONICAL_LEAF_CODES, load_theme_rules
+
+rules = load_theme_rules(CANONICAL_LEAF_CODES)
+evidence = ThemeEvidence(
+    cluster_title='자동차 판매와 전기차 판매',
+    articles=(
+        ArticleEvidence(1, '자동차 판매량 증가'),
+        ArticleEvidence(2, '전기차 판매 확대'),
+        ArticleEvidence(3, '배터리 수주 호조'),
+    ),
+)
+print(json.dumps([asdict(item) for item in classify_theme_fallback(evidence, rules)], ensure_ascii=False, sort_keys=True, separators=(',', ':')))
+"""
+    outputs = []
+    for hash_seed in ('1', '987654'):
+        environment = os.environ | {'PYTHONHASHSEED': hash_seed}
+        result = subprocess.run(
+            [sys.executable, '-c', script],
+            check=True,
+            capture_output=True,
+            cwd=Path(__file__).parents[2],
+            env=environment,
+            text=True,
+        )
+        outputs.append(result.stdout.encode('utf-8'))
+
+    assert outputs[0] == outputs[1]
+
 
 def test_assignment_shape_is_stable_for_serialization() -> None:
     assignments = classify_theme_fallback(
-        _evidence(representative_title='강한 자동차 문구'),
+        _evidence(
+            representative_article_id='rep',
+            articles=(_article('rep', '강한 자동차 문구'),),
+        ),
         _single_rule_catalog(),
     )
 
