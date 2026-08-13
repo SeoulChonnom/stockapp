@@ -65,12 +65,7 @@ class AiRetryPageBuilder:
         source_links = await source_repo.get_page_article_links(source_market_ids)
         effective = resolve_effective_summaries(summaries)
         issues = _build_page_issues(source_page, effective)
-        all_targets_recovered = counts.success_count == counts.target_count
-        page_status = (
-            PageStatus.READY.value
-            if all_targets_recovered and not issues
-            else PageStatus.PARTIAL.value
-        )
+        page_status = PageStatus.READY.value if not issues else PageStatus.PARTIAL.value
         partial_message = _partial_message(issues)
         metadata = deepcopy(source_page.get('metadata_json') or {})
         global_summary = effective.get(AiSummaryType.GLOBAL_HEADLINE.value)
@@ -268,6 +263,8 @@ def _build_page_issues(
         key_point_issue = _key_point_issue(target_key, summary)
         if key_point_issue is not None:
             issues.append(key_point_issue)
+        if summary.summary_type == AiSummaryType.CLUSTER_DETAIL_ANALYSIS.value:
+            continue
         if is_successful_summary(summary):
             continue
         issues.append(

@@ -497,7 +497,7 @@ async def test_summary_llm_errors_are_in_warning_event_and_partial_diagnostics(
         llm_provider_factory=FailingLlmProvider,
     ).run(repository, build_context())
 
-    assert context.fallback_count == 4
+    assert context.fallback_count == 3
     assert any(
         'AI provider request failed; fallback content was used.' in reason
         for reason in context.partial_reasons

@@ -269,16 +269,15 @@ def _normalize_analysis_sentence(
             },
             'CONFLICT_CHECK_FAILED',
         )
-    return (
-        {
-            'text': text,
-            'sourceArticleIds': list(source_article_ids),
-            'conflictStatus': conflict_status,
-            'conflictingSourceArticleIds': list(conflicting_ids),
-            'conflictNote': conflict_note,
-        },
-        None,
-    )
+    normalized_sentence = {
+        'text': text,
+        'sourceArticleIds': list(source_article_ids),
+        'conflictStatus': conflict_status,
+        'conflictingSourceArticleIds': list(conflicting_ids),
+        'conflictNote': conflict_note,
+    }
+    issue_code = 'CONFLICT_CHECK_FAILED' if conflict_status == 'NOT_CHECKED' else None
+    return normalized_sentence, issue_code
 
 
 def _valid_article_id_list(

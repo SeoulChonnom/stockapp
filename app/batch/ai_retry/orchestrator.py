@@ -6,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.batch.ai_output_contracts import build_unavailable_analysis
 from app.batch.ai_retry.models import (
     AiRetryPageResult,
     AiRetryRunResult,
@@ -330,14 +331,24 @@ async def _generate_target(
 
     cluster = next((row for row in clusters if row['id'] == target.cluster_id), None)
     if cluster is None:
+        paragraphs = selection.source_summary.paragraphs_json
+        metadata_json = {'reason': 'retry_source_missing'}
+        if target.summary_type == 'CLUSTER_DETAIL_ANALYSIS':
+            unavailable = build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
+            paragraphs = []
+            metadata_json = {
+                'analysisStatus': unavailable['analysisStatus'],
+                'analysisIssues': unavailable['analysisIssues'],
+                'conflictStatus': unavailable['conflictStatus'],
+            }
         return {
             'title': selection.source_summary.title,
             'body': selection.source_summary.body,
-            'paragraphs': selection.source_summary.paragraphs_json,
+            'paragraphs': paragraphs,
             'status': AiSummaryStatus.FAILED.value,
             'fallback_used': False,
             'error_message': f'Cluster {target.cluster_id} was not found.',
-            'metadata_json': {'reason': 'retry_source_missing'},
+            'metadata_json': metadata_json,
         }
     memberships = await cluster_repo.get_cluster_articles(cluster['id'])
     articles = await cluster_repo.get_processed_articles(

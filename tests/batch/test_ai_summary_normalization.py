@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -47,6 +48,28 @@ CLUSTERS = [
         'summary_short': 'AI 수요 기대가 지수를 끌어올렸습니다.',
     }
 ]
+CLUSTER_DETAIL_CLUSTER = {
+    'title': '반도체주 조정',
+    'summary_short': '반도체주가 하락했습니다.',
+    'summary_long': '외국인 매도와 업황 우려가 함께 반영됐습니다.',
+    'analysis_paragraphs_json': ['이 레거시 문단은 사용하지 않습니다.'],
+}
+CLUSTER_DETAIL_ARTICLES = [
+    {
+        'id': 1024,
+        'canonical_title': '반도체주 약세',
+        'source_summary': '외국인 매도가 이어졌습니다.',
+        'article_body_excerpt': '반도체 업종이 하락했습니다.',
+        'origin_link': 'https://example.com/1024',
+    },
+    {
+        'id': 1042,
+        'canonical_title': '기관은 반도체주 매수',
+        'source_summary': '기관은 일부 대형주를 순매수했습니다.',
+        'article_body_excerpt': '수급 주체별 방향이 엇갈렸습니다.',
+        'origin_link': 'https://example.com/1042',
+    },
+]
 
 
 class StringListLlmProvider:
@@ -62,13 +85,6 @@ class StringListLlmProvider:
             'background': '단일 배경',
             'key_themes': '단일 테마',
             'outlook': '시장 전망',
-        }
-
-    async def summarize_cluster_detail(self, **_kwargs) -> dict:
-        return {
-            'title': '클러스터 상세',
-            'body': ['상세 본문 1', '상세 본문 2'],
-            'paragraphs': '단일 문단',
         }
 
 
@@ -94,24 +110,466 @@ async def test_market_summary_normalizes_string_list_fields():
     assert result['metadata_json']['keyThemes'] == ['단일 테마']
 
 
-@pytest.mark.anyio
-async def test_cluster_detail_normalizes_string_paragraphs():
+def _analysis_sentence(**overrides: object) -> dict[str, object]:
+    sentence: dict[str, object] = {
+        'text': '미국 반도체주 약세가 국내 시장으로 이어졌습니다.',
+        'sourceArticleIds': [1024],
+        'conflictStatus': 'NONE',
+        'conflictingSourceArticleIds': [],
+        'conflictNote': None,
+    }
+    sentence.update(overrides)
+    return sentence
+
+
+def _analysis_payload(*sentences: dict[str, object]) -> dict[str, object]:
+    return {
+        'sections': [
+            {
+                'kind': 'impact',
+                'title': '시장 영향',
+                'paragraphs': [{'sentences': list(sentences)}],
+            }
+        ]
+    }
+
+
+async def _generate_cluster_detail_with_gemini(
+    monkeypatch,
+    response: object,
+) -> tuple[dict, object]:
+    harness = build_mock_gemini_harness(monkeypatch, [response])
     result = await _generate_cluster_detail_summary(
-        StringListLlmProvider(),
+        BatchLlmProvider(harness.client),
         'KR',
-        {
-            'title': '클러스터',
-            'summary_short': '짧은 요약',
-            'summary_long': '긴 요약',
-            'analysis_paragraphs_json': ['기존 문단'],
+        CLUSTER_DETAIL_CLUSTER,
+        CLUSTER_DETAIL_ARTICLES,
+    )
+    return result, harness
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_persists_fully_grounded_sections_ready(monkeypatch):
+    provider_payload = _analysis_payload(
+        _analysis_sentence(),
+        _analysis_sentence(
+            text='기사별 외국인 수급 방향은 다르게 보도됐습니다.',
+            sourceArticleIds=[1024],
+            conflictStatus='FOUND',
+            conflictingSourceArticleIds=[1042],
+            conflictNote='기사별 외국인 순매매 방향이 다르게 보도됐습니다.',
+        ),
+    )
+
+    result, harness = await _generate_cluster_detail_with_gemini(
+        monkeypatch,
+        gemini_ai_message(provider_payload),
+    )
+
+    assert result == {
+        'title': '반도체주 조정',
+        'body': '외국인 매도와 업황 우려가 함께 반영됐습니다.',
+        'paragraphs': provider_payload['sections'],
+        'status': 'SUCCESS',
+        'fallback_used': False,
+        'model_name': 'gemini-2.5-flash',
+        'metadata_json': {
+            'analysisStatus': 'READY',
+            'analysisIssues': [],
+            'conflictStatus': 'FOUND',
         },
-        [],
+    }
+    user_payload = json.loads(harness.model.messages[0][1][1])
+    assert user_payload['articles'] == [
+        {
+            'processedArticleId': 1024,
+            'title': '반도체주 약세',
+            'summary': '외국인 매도가 이어졌습니다.',
+            'excerpt': '반도체 업종이 하락했습니다.',
+        },
+        {
+            'processedArticleId': 1042,
+            'title': '기관은 반도체주 매수',
+            'summary': '기관은 일부 대형주를 순매수했습니다.',
+            'excerpt': '수급 주체별 방향이 엇갈렸습니다.',
+        },
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'invalid_source_ids',
+    [
+        pytest.param([9999], id='unknown'),
+        pytest.param([], id='empty'),
+        pytest.param([1024, 1024], id='duplicate'),
+    ],
+)
+async def test_cluster_detail_prunes_invalid_primary_sentence_only(
+    monkeypatch,
+    invalid_source_ids,
+):
+    result, _ = await _generate_cluster_detail_with_gemini(
+        monkeypatch,
+        gemini_ai_message(
+            _analysis_payload(
+                _analysis_sentence(sourceArticleIds=invalid_source_ids),
+                _analysis_sentence(text='유효한 근거 문장은 남습니다.'),
+            )
+        ),
     )
 
     assert result['status'] == 'SUCCESS'
     assert result['fallback_used'] is False
-    assert result['body'] == '상세 본문 1\n\n상세 본문 2'
-    assert result['paragraphs'] == ['단일 문단']
+    assert result['paragraphs'] == [
+        {
+            'kind': 'impact',
+            'title': '시장 영향',
+            'paragraphs': [
+                {
+                    'sentences': [
+                        {
+                            'text': '유효한 근거 문장은 남습니다.',
+                            'sourceArticleIds': [1024],
+                            'conflictStatus': 'NONE',
+                            'conflictingSourceArticleIds': [],
+                            'conflictNote': None,
+                        }
+                    ]
+                }
+            ],
+        }
+    ]
+    assert result['metadata_json'] == {
+        'analysisStatus': 'PARTIAL',
+        'analysisIssues': [
+            {
+                'code': 'INVALID_SOURCE_REFERENCE',
+                'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NONE',
+    }
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_all_invalid_primary_sentences_are_unavailable(
+    monkeypatch,
+):
+    result, _ = await _generate_cluster_detail_with_gemini(
+        monkeypatch,
+        gemini_ai_message(
+            _analysis_payload(
+                _analysis_sentence(sourceArticleIds=[9999]),
+                _analysis_sentence(sourceArticleIds=[]),
+                _analysis_sentence(sourceArticleIds=[1024, 1024]),
+            )
+        ),
+    )
+
+    assert result['paragraphs'] == []
+    assert result['status'] == 'FALLBACK'
+    assert result['fallback_used'] is True
+    assert result['metadata_json'] == {
+        'analysisStatus': 'UNAVAILABLE',
+        'analysisIssues': [
+            {
+                'code': 'INVALID_SOURCE_REFERENCE',
+                'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+            },
+            {
+                'code': 'NO_GROUNDED_SENTENCES',
+                'message': '근거를 확인할 수 있는 분석 문장이 없습니다.',
+            },
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+    }
+    assert repr(result).count('INVALID_SOURCE_REFERENCE') == 1
+    assert repr(result).count('NO_GROUNDED_SENTENCES') == 1
+    assert '이 레거시 문단은 사용하지 않습니다.' not in repr(result)
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_degrades_only_malformed_conflict_evidence(monkeypatch):
+    result, _ = await _generate_cluster_detail_with_gemini(
+        monkeypatch,
+        gemini_ai_message(
+            _analysis_payload(
+                _analysis_sentence(
+                    text='근거가 있는 분석 문장은 유지됩니다.',
+                    conflictStatus='FOUND',
+                    conflictingSourceArticleIds=[1024],
+                    conflictNote='primary 근거와 중복됩니다.',
+                )
+            )
+        ),
+    )
+
+    assert result['status'] == 'SUCCESS'
+    assert result['fallback_used'] is False
+    assert result['metadata_json'] == {
+        'analysisStatus': 'PARTIAL',
+        'analysisIssues': [
+            {
+                'code': 'CONFLICT_CHECK_FAILED',
+                'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+    }
+    assert result['paragraphs'][0]['paragraphs'][0]['sentences'] == [
+        {
+            'text': '근거가 있는 분석 문장은 유지됩니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': 'NOT_CHECKED',
+            'conflictingSourceArticleIds': [],
+            'conflictNote': None,
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_retains_not_checked_sentence_as_partial(monkeypatch):
+    result, _ = await _generate_cluster_detail_with_gemini(
+        monkeypatch,
+        gemini_ai_message(
+            _analysis_payload(
+                _analysis_sentence(
+                    text='충돌 여부는 확인하지 못했지만 근거 문장은 유지됩니다.',
+                    conflictStatus='NOT_CHECKED',
+                )
+            )
+        ),
+    )
+
+    assert result['status'] == 'SUCCESS'
+    assert result['fallback_used'] is False
+    assert result['metadata_json'] == {
+        'analysisStatus': 'PARTIAL',
+        'analysisIssues': [
+            {
+                'code': 'CONFLICT_CHECK_FAILED',
+                'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+    }
+    assert result['paragraphs'][0]['paragraphs'][0]['sentences'] == [
+        {
+            'text': '충돌 여부는 확인하지 못했지만 근거 문장은 유지됩니다.',
+            'sourceArticleIds': [1024],
+            'conflictStatus': 'NOT_CHECKED',
+            'conflictingSourceArticleIds': [],
+            'conflictNote': None,
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_empty_sections_are_unavailable(monkeypatch):
+    result, _ = await _generate_cluster_detail_with_gemini(
+        monkeypatch,
+        gemini_ai_message({'sections': []}),
+    )
+
+    assert result['paragraphs'] == []
+    assert result['status'] == 'FALLBACK'
+    assert result['fallback_used'] is True
+    assert result['metadata_json'] == {
+        'analysisStatus': 'UNAVAILABLE',
+        'analysisIssues': [
+            {
+                'code': 'NO_GROUNDED_SENTENCES',
+                'message': '근거를 확인할 수 있는 분석 문장이 없습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'malformed_payload',
+    [
+        pytest.param({'sections': {}}, id='non-array-sections'),
+        pytest.param(
+            {
+                'sections': [
+                    {
+                        'kind': 'impact',
+                        'title': '시장 영향',
+                        'paragraphs': [
+                            {'sentences': [_analysis_sentence(text='유효한 형제')]}
+                        ],
+                    },
+                    None,
+                ]
+            },
+            id='non-object-section-with-valid-sibling',
+        ),
+        pytest.param(
+            {
+                'sections': [
+                    {
+                        'kind': 'impact',
+                        'title': '시장 영향',
+                        'paragraphs': {},
+                    }
+                ]
+            },
+            id='non-array-paragraphs',
+        ),
+        pytest.param(
+            {
+                'sections': [
+                    {
+                        'kind': 'impact',
+                        'title': '시장 영향',
+                        'paragraphs': [
+                            {'sentences': [_analysis_sentence(text='유효한 형제')]},
+                            None,
+                        ],
+                    }
+                ]
+            },
+            id='non-object-paragraph-with-valid-sibling',
+        ),
+        pytest.param(
+            {
+                'sections': [
+                    {
+                        'kind': 'impact',
+                        'title': '시장 영향',
+                        'paragraphs': [{'sentences': {}}],
+                    }
+                ]
+            },
+            id='non-array-sentences',
+        ),
+        pytest.param(
+            {
+                'sections': [
+                    {
+                        'kind': 'impact',
+                        'title': '시장 영향',
+                        'paragraphs': [
+                            {
+                                'sentences': [
+                                    _analysis_sentence(text='유효한 형제'),
+                                    None,
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            },
+            id='non-object-sentence-with-valid-sibling',
+        ),
+    ],
+)
+async def test_cluster_detail_malformed_structure_discards_valid_siblings(
+    monkeypatch,
+    malformed_payload,
+):
+    result, _ = await _generate_cluster_detail_with_gemini(
+        monkeypatch,
+        gemini_ai_message(malformed_payload),
+    )
+
+    assert result['paragraphs'] == []
+    assert result['status'] == 'FALLBACK'
+    assert result['fallback_used'] is True
+    assert result['metadata_json'] == {
+        'analysisStatus': 'UNAVAILABLE',
+        'analysisIssues': [
+            {
+                'code': 'ANALYSIS_GENERATION_FAILED',
+                'message': '분석을 생성하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+    }
+    assert '유효한 형제' not in repr(result)
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_malformed_provider_json_is_unavailable(monkeypatch):
+    result, _ = await _generate_cluster_detail_with_gemini(
+        monkeypatch,
+        malformed_gemini_ai_message('{"sections":'),
+    )
+
+    assert result['paragraphs'] == []
+    assert result['status'] == 'FALLBACK'
+    assert result['metadata_json']['analysisIssues'] == [
+        {
+            'code': 'ANALYSIS_GENERATION_FAILED',
+            'message': '분석을 생성하지 못했습니다.',
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_provider_exhaustion_is_unavailable(monkeypatch):
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [httpx.ConnectError('secret-project-token provider disconnected')],
+    )
+
+    with llm_retry_exhausted_mode():
+        result = await _generate_cluster_detail_summary(
+            BatchLlmProvider(harness.client),
+            'KR',
+            CLUSTER_DETAIL_CLUSTER,
+            CLUSTER_DETAIL_ARTICLES,
+        )
+
+    assert result['paragraphs'] == []
+    assert result['status'] == 'FALLBACK'
+    assert result['fallback_used'] is True
+    assert result['metadata_json'] == {
+        'analysisStatus': 'UNAVAILABLE',
+        'analysisIssues': [
+            {
+                'code': 'ANALYSIS_GENERATION_FAILED',
+                'message': '분석을 생성하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+    }
+    assert 'secret-project-token' not in repr(result)
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_propagates_transient_error(monkeypatch):
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [httpx.ReadTimeout('cluster detail provider timed out')],
+    )
+
+    with pytest.raises(LlmRetryableError):
+        await _generate_cluster_detail_summary(
+            BatchLlmProvider(harness.client),
+            'KR',
+            CLUSTER_DETAIL_CLUSTER,
+            CLUSTER_DETAIL_ARTICLES,
+        )
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_propagates_cancellation(monkeypatch):
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [asyncio.CancelledError()],
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await _generate_cluster_detail_summary(
+            BatchLlmProvider(harness.client),
+            'KR',
+            CLUSTER_DETAIL_CLUSTER,
+            CLUSTER_DETAIL_ARTICLES,
+        )
 
 
 @pytest.mark.anyio

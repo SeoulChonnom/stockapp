@@ -6,11 +6,19 @@ from uuid import uuid4
 
 import pytest
 
-from app.batch.ai_retry.models import AiRetryPageResult
-from app.batch.ai_retry.orchestrator import AI_RETRY_SELECT_STEP, AiRetryOrchestrator
+from app.batch.ai_retry.models import AiRetryPageResult, AiRetrySelection
+from app.batch.ai_retry.orchestrator import (
+    AI_RETRY_SELECT_STEP,
+    AiRetryOrchestrator,
+    _generate_target,
+    _retry_create_params,
+)
+from app.batch.ai_summary_targets import AiSummaryTarget
 from app.batch.exceptions import BatchLeaseLostError
+from app.batch.providers.llm_provider import BatchLlmProvider
 from app.db.repositories.ai_retry_repo import AiRetryJob
 from app.db.repositories.projections import AiSummaryRecord
+from tests.batch.gemini_mock import build_mock_gemini_harness, gemini_ai_message
 
 BUSINESS_DATE = date(2026, 7, 28)
 GENERATED_AT = datetime(2026, 7, 29, tzinfo=UTC)
@@ -506,6 +514,157 @@ async def test_recovered_global_target_persists_v2_outputs_and_retry_metadata():
         'keyPointIssue': None,
         'retry': {'sourceSummaryId': source.summary_id, 'attemptNo': 2},
     }
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_retry_persists_v2_grounded_shape_without_legacy(
+    monkeypatch,
+):
+    source = replace(
+        _source_summary(),
+        summary_type='CLUSTER_DETAIL_ANALYSIS',
+        market_type='KR',
+        cluster_id=7001,
+        title='반도체주 조정',
+        body='기존 상세 본문',
+        paragraphs_json=['이 레거시 문단은 재사용하지 않습니다.'],
+        target_key='CLUSTER_DETAIL_ANALYSIS:7001',
+    )
+    selection = AiRetrySelection(
+        target=AiSummaryTarget(
+            target_key='CLUSTER_DETAIL_ANALYSIS:7001',
+            summary_type='CLUSTER_DETAIL_ANALYSIS',
+            market_type='KR',
+            cluster_id=7001,
+        ),
+        source_summary=source,
+    )
+    grounded_sections = [
+        {
+            'kind': 'impact',
+            'title': '시장 영향',
+            'paragraphs': [
+                {
+                    'sentences': [
+                        {
+                            'text': '반도체 업종 약세가 지수에 부담을 줬습니다.',
+                            'sourceArticleIds': [1024],
+                            'conflictStatus': 'NONE',
+                            'conflictingSourceArticleIds': [],
+                            'conflictNote': None,
+                        }
+                    ]
+                }
+            ],
+        }
+    ]
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [gemini_ai_message({'sections': grounded_sections})],
+    )
+
+    class ClusterRepository:
+        async def get_cluster_articles(self, cluster_id):
+            assert cluster_id == 7001
+            return [{'processed_article_id': 1024}]
+
+        async def get_processed_articles(self, article_ids):
+            assert article_ids == [1024]
+            return [
+                {
+                    'id': 1024,
+                    'canonical_title': '반도체주 약세',
+                    'source_summary': '외국인 매도가 이어졌습니다.',
+                    'article_body_excerpt': '반도체 업종이 하락했습니다.',
+                }
+            ]
+
+    payload = await _generate_target(
+        selection,
+        llm_provider=BatchLlmProvider(harness.client),
+        cluster_repo=ClusterRepository(),
+        clusters=[
+            {
+                'id': 7001,
+                'market_type': 'KR',
+                'title': '반도체주 조정',
+                'summary_short': '반도체주가 하락했습니다.',
+                'summary_long': '외국인 매도와 업황 우려가 반영됐습니다.',
+                'analysis_paragraphs_json': ['낡은 클러스터 문단'],
+            }
+        ],
+        indices=[],
+    )
+    persisted = _retry_create_params(
+        job_id=20,
+        business_date=BUSINESS_DATE,
+        selection=selection,
+        payload=payload,
+    )
+
+    assert persisted.prompt_version == 'v2'
+    assert persisted.status == 'SUCCESS'
+    assert persisted.fallback_used is False
+    assert persisted.paragraphs_json == grounded_sections
+    assert persisted.metadata_json == {
+        'analysisStatus': 'READY',
+        'analysisIssues': [],
+        'conflictStatus': 'NONE',
+        'retry': {'sourceSummaryId': source.summary_id, 'attemptNo': 2},
+    }
+    assert '이 레거시 문단은 재사용하지 않습니다.' not in repr(persisted)
+    assert '낡은 클러스터 문단' not in repr(persisted)
+
+
+@pytest.mark.anyio
+async def test_missing_cluster_detail_retry_discards_legacy_paragraphs():
+    source = replace(
+        _source_summary(),
+        summary_type='CLUSTER_DETAIL_ANALYSIS',
+        market_type='KR',
+        cluster_id=7001,
+        paragraphs_json=['이 레거시 문단은 재사용하지 않습니다.'],
+        target_key='CLUSTER_DETAIL_ANALYSIS:7001',
+    )
+    selection = AiRetrySelection(
+        target=AiSummaryTarget(
+            target_key='CLUSTER_DETAIL_ANALYSIS:7001',
+            summary_type='CLUSTER_DETAIL_ANALYSIS',
+            market_type='KR',
+            cluster_id=7001,
+        ),
+        source_summary=source,
+    )
+
+    payload = await _generate_target(
+        selection,
+        llm_provider=SuccessfulLlm(),
+        cluster_repo=FakeClusterRepository(),
+        clusters=[],
+        indices=[],
+    )
+    persisted = _retry_create_params(
+        job_id=20,
+        business_date=BUSINESS_DATE,
+        selection=selection,
+        payload=payload,
+    )
+
+    assert persisted.status == 'FAILED'
+    assert persisted.fallback_used is False
+    assert persisted.paragraphs_json == []
+    assert persisted.metadata_json == {
+        'analysisStatus': 'UNAVAILABLE',
+        'analysisIssues': [
+            {
+                'code': 'ANALYSIS_GENERATION_FAILED',
+                'message': '분석을 생성하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+        'retry': {'sourceSummaryId': source.summary_id, 'attemptNo': 2},
+    }
+    assert '이 레거시 문단은 재사용하지 않습니다.' not in repr(persisted)
 
 
 @pytest.mark.anyio

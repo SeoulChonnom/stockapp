@@ -354,10 +354,15 @@ async def _persist_summary_result(
         context.ai_failed_count += 1
     else:
         context.ai_fallback_count += 1
-    context.fallback_count += int(payload['fallback_used'])
+    degrades_daily_page = (
+        summary_job['summary_type'] != AiSummaryType.CLUSTER_DETAIL_ANALYSIS.value
+    )
+    if payload['fallback_used'] and degrades_daily_page:
+        context.fallback_count += 1
     if payload['fallback_used']:
         partial_reason, fallback_detail = _build_fallback_report(payload, summary_job)
-        context.add_partial(AI_SUMMARY_FALLBACK, partial_reason)
+        if degrades_daily_page:
+            context.add_partial(AI_SUMMARY_FALLBACK, partial_reason)
         fallback_details.append(fallback_detail)
         await repository.add_event(
             job_id=context.job_id,

@@ -4,7 +4,11 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from app.batch.ai_output_contracts import normalize_key_points
+from app.batch.ai_output_contracts import (
+    build_unavailable_analysis,
+    normalize_key_points,
+    validate_analysis_sections,
+)
 from app.batch.logging import log_safe_exception
 from app.batch.providers.llm_provider import BatchLlmProvider
 from app.core.llm import LlmRetryableError
@@ -383,53 +387,84 @@ async def _generate_cluster_detail_summary(
     cluster: dict,
     articles: list[dict],
 ) -> dict:
+    unavailable = build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
     fallback = {
         'title': cluster['title'],
         'body': cluster['summary_long'] or cluster['summary_short'],
-        'paragraphs': cluster.get('analysis_paragraphs_json') or [],
+        'paragraphs': [],
         'status': AiSummaryStatus.FALLBACK.value,
         'fallback_used': True,
-        'metadata_json': {'reason': 'llm_fallback'},
+        'metadata_json': {
+            'analysisStatus': unavailable['analysisStatus'],
+            'analysisIssues': unavailable['analysisIssues'],
+            'conflictStatus': unavailable['conflictStatus'],
+        },
     }
+    if not llm_provider.is_configured():
+        return fallback
 
-    def normalize(result: object) -> object:
-        result = _normalize_string_list_fields(result, field_names=('paragraphs',))
-        return _normalize_string_fields(result, field_names=('body',))
-
-    def build_success(
-        payload: dict[str, Any], model_name: str | None
-    ) -> dict[str, Any]:
-        return {
-            'title': payload.get('title') or fallback['title'],
-            'body': payload.get('body') or fallback['body'],
-            'paragraphs': payload.get('paragraphs') or fallback['paragraphs'],
-            'status': AiSummaryStatus.SUCCESS.value,
-            'fallback_used': False,
-            'model_name': model_name,
-            'metadata_json': {'reason': 'llm'},
+    prompt_articles = [
+        {
+            'processedArticleId': article['id'],
+            'title': article.get('canonical_title'),
+            'summary': article.get('source_summary'),
+            'excerpt': article.get('article_body_excerpt'),
         }
-
-    return await _run_llm_summary(
-        llm_provider,
-        fallback=fallback,
-        request=lambda: llm_provider.summarize_cluster_detail(
+        for article in articles
+        if isinstance(article.get('id'), int)
+        and not isinstance(article.get('id'), bool)
+    ]
+    valid_article_ids = {article['processedArticleId'] for article in prompt_articles}
+    try:
+        result = await llm_provider.summarize_cluster_detail(
             market_type=market_type,
             cluster={
                 'title': cluster['title'],
                 'summary': cluster['summary_long'] or cluster['summary_short'],
             },
-            articles=articles,
-        ),
-        validate=lambda result: _validate_summary_result(
-            result,
-            summary_name='Cluster detail summary',
-            string_fields=('title', 'body'),
-            list_fields=('paragraphs',),
-        ),
-        build_success=build_success,
-        normalize=normalize,
-        log_message='Cluster detail summary provider request failed.',
-    )
+            articles=prompt_articles,
+        )
+    except LlmRetryableError:
+        raise
+    except Exception as exc:
+        log_safe_exception(
+            LOGGER,
+            logging.WARNING,
+            'Cluster detail summary provider request failed.',
+            exception=exc,
+        )
+        return {
+            **fallback,
+            'error_message': AI_PROVIDER_FAILURE_MESSAGE,
+        }
+
+    analysis = validate_analysis_sections(result, valid_article_ids)
+    metadata = {
+        'analysisStatus': analysis['analysisStatus'],
+        'analysisIssues': analysis['analysisIssues'],
+        'conflictStatus': analysis['conflictStatus'],
+    }
+    if analysis['analysisStatus'] == 'UNAVAILABLE':
+        error_message = None
+        if any(
+            issue.get('code') == 'ANALYSIS_GENERATION_FAILED'
+            for issue in analysis['analysisIssues']
+        ):
+            error_message = public_ai_invalid_response()['message']
+        return {
+            **fallback,
+            'error_message': error_message,
+            'metadata_json': metadata,
+        }
+    return {
+        'title': fallback['title'],
+        'body': fallback['body'],
+        'paragraphs': analysis['sections'],
+        'status': AiSummaryStatus.SUCCESS.value,
+        'fallback_used': False,
+        'model_name': getattr(llm_provider, 'model_name', None),
+        'metadata_json': metadata,
+    }
 
 
 __all__ = [

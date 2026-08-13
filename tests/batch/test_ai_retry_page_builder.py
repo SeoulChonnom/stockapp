@@ -457,6 +457,69 @@ async def test_partial_recovery_creates_partial_vnext():
 
 
 @pytest.mark.anyio
+async def test_unavailable_cluster_detail_does_not_degrade_retry_page():
+    source_state = _source_state()
+    writes = FakePageWriteRepository()
+    global_source = _summary(
+        1,
+        job_id=10,
+        target_key='GLOBAL_HEADLINE',
+        success=False,
+    )
+    detail_source = _summary(
+        2,
+        job_id=10,
+        target_key='CLUSTER_DETAIL_ANALYSIS:7',
+        success=False,
+        metadata_json={
+            'analysisStatus': 'UNAVAILABLE',
+            'analysisIssues': [
+                {
+                    'code': 'ANALYSIS_GENERATION_FAILED',
+                    'message': '분석을 생성하지 못했습니다.',
+                }
+            ],
+            'conflictStatus': 'NOT_CHECKED',
+        },
+    )
+    global_retry = _summary(
+        11,
+        job_id=20,
+        target_key='GLOBAL_HEADLINE',
+        success=True,
+        source_summary_id=1,
+        metadata_json={'keyPoints': KEY_POINTS, 'keyPointIssue': None},
+    )
+    builder = AiRetryPageBuilder(
+        source_page_repo_factory=lambda _: FakeSourcePageRepository(source_state),
+        snapshot_repo_factory=lambda _: writes,
+    )
+
+    result = await builder.build(
+        session=object(),
+        source_page_id=501,
+        source_job_id=10,
+        retry_job_id=20,
+        summaries=[global_source, detail_source, global_retry],
+        counts=AiRetryCounts(
+            target_count=2,
+            attempted_count=2,
+            success_count=1,
+            fallback_count=1,
+            recovered_count=1,
+        ),
+    )
+
+    assert detail_source.status == 'FALLBACK'
+    assert detail_source.fallback_used is True
+    assert result.status == 'READY'
+    assert result.partial_message is None
+    assert writes.page is not None
+    assert writes.page['status'] == 'READY'
+    assert writes.page['metadata_json']['issues'] == []
+
+
+@pytest.mark.anyio
 async def test_non_ai_issue_keeps_all_recovery_page_partial():
     source_state = _source_state(non_ai_issue=True)
     writes = FakePageWriteRepository()

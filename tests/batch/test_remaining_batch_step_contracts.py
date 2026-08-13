@@ -457,6 +457,83 @@ async def test_persist_global_headline_records_key_point_partial_and_warning():
 
 
 @pytest.mark.anyio
+async def test_persist_unavailable_cluster_detail_does_not_degrade_daily_page():
+    generate_module = load_module('app.batch.steps.generate_ai_summaries')
+
+    class RecordingSummaryRepo:
+        def __init__(self):
+            self.rows = []
+
+        async def insert_summary(self, params):
+            self.rows.append(params)
+
+    class RecordingProgress:
+        def __init__(self):
+            self.committed = []
+
+        async def commit_target(self, target_key, context):
+            self.committed.append((target_key, context.to_checkpoint()))
+
+    target_key = 'CLUSTER_DETAIL_ANALYSIS:7001'
+    summary_repo = RecordingSummaryRepo()
+    progress = RecordingProgress()
+    repository = RichEventRepository(
+        session=RecordingAsyncSession(),
+        events=[],
+    )
+    context = build_context()
+    fallback_details = []
+
+    await generate_module._persist_summary_result(
+        target_key,
+        {
+            'title': '반도체주 조정',
+            'body': '외국인 매도와 업황 우려가 반영됐습니다.',
+            'paragraphs': [],
+            'status': 'FALLBACK',
+            'fallback_used': True,
+            'metadata_json': {
+                'analysisStatus': 'UNAVAILABLE',
+                'analysisIssues': [
+                    {
+                        'code': 'ANALYSIS_GENERATION_FAILED',
+                        'message': '분석을 생성하지 못했습니다.',
+                    }
+                ],
+                'conflictStatus': 'NOT_CHECKED',
+            },
+        },
+        context=context,
+        repository=repository,
+        step_code='GENERATE_AI_SUMMARIES',
+        summary_repo=summary_repo,
+        summary_jobs_by_key={
+            target_key: {
+                'summary_type': 'CLUSTER_DETAIL_ANALYSIS',
+                'market_type': 'KR',
+                'cluster_id': 7001,
+                'target_key': target_key,
+                'generate': None,
+            }
+        },
+        progress=progress,
+        fallback_details=fallback_details,
+    )
+
+    persisted = summary_repo.rows[0]
+    assert persisted.status == 'FALLBACK'
+    assert persisted.fallback_used is True
+    assert persisted.paragraphs_json == []
+    assert persisted.metadata_json['analysisStatus'] == 'UNAVAILABLE'
+    assert context.ai_fallback_count == 1
+    assert context.fallback_count == 0
+    assert context.partial_reasons == []
+    assert context.partial_categories == {}
+    assert len(fallback_details) == 1
+    assert progress.committed[0][0] == target_key
+
+
+@pytest.mark.anyio
 async def test_generate_ai_summaries_skips_provider_when_rebuild_page_only():
     class FailingFactory:
         def __init__(self, _session=None):
@@ -589,7 +666,29 @@ async def test_generate_ai_summaries_bounds_llm_calls_and_persists_model_name():
             return await self._record(f'card-{kwargs["cluster"]["title"]}')
 
         async def summarize_cluster_detail(self, **kwargs):
-            return await self._record(f'detail-{kwargs["cluster"]["title"]}')
+            await self._record(f'detail-{kwargs["cluster"]["title"]}')
+            article_id = kwargs['articles'][0]['processedArticleId']
+            return {
+                'sections': [
+                    {
+                        'kind': 'impact',
+                        'title': '시장 영향',
+                        'paragraphs': [
+                            {
+                                'sentences': [
+                                    {
+                                        'text': '근거 기반 상세 분석입니다.',
+                                        'sourceArticleIds': [article_id],
+                                        'conflictStatus': 'NONE',
+                                        'conflictingSourceArticleIds': [],
+                                        'conflictNote': None,
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            }
 
     summary_repo = RecordingSummaryRepo(RecordingAsyncSession())
     llm_provider = TrackingLlmProvider()
@@ -711,10 +810,27 @@ async def test_generate_ai_summaries_normalizes_string_market_metadata():
             }
 
         async def summarize_cluster_detail(self, **kwargs):
+            article_id = kwargs['articles'][0]['processedArticleId']
             return {
-                'title': kwargs['cluster']['title'],
-                'body': kwargs['cluster']['summary'],
-                'paragraphs': ['Detailed paragraph.'],
+                'sections': [
+                    {
+                        'kind': 'impact',
+                        'title': '시장 영향',
+                        'paragraphs': [
+                            {
+                                'sentences': [
+                                    {
+                                        'text': 'Grounded detailed analysis.',
+                                        'sourceArticleIds': [article_id],
+                                        'conflictStatus': 'NONE',
+                                        'conflictingSourceArticleIds': [],
+                                        'conflictNote': None,
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ]
             }
 
     summary_repo = RecordingSummaryRepo(RecordingAsyncSession())
@@ -856,7 +972,7 @@ async def test_generate_ai_summaries_step_records_fallback_error_metadata(monkey
     updated_context = await GenerateAiSummariesStep().run(repository, context)
 
     assert updated_context.generated_summary_count == 4
-    assert updated_context.fallback_count == 4
+    assert updated_context.fallback_count == 3
     assert updated_context.ai_target_count == 4
     assert updated_context.ai_attempted_count == 4
     assert updated_context.ai_success_count == 0
@@ -869,11 +985,24 @@ async def test_generate_ai_summaries_step_records_fallback_error_metadata(monkey
             row.error_message
             == 'AI provider request failed; fallback content was used.'
         )
-        assert row.metadata_json['error'] == {
-            'code': 'AI_PROVIDER_REQUEST_FAILED',
-            'errorClass': 'TimeoutError',
-            'message': 'AI provider request failed; fallback content was used.',
-        }
+        if row.summary_type == 'CLUSTER_DETAIL_ANALYSIS':
+            assert row.paragraphs_json == []
+            assert row.metadata_json == {
+                'analysisStatus': 'UNAVAILABLE',
+                'analysisIssues': [
+                    {
+                        'code': 'ANALYSIS_GENERATION_FAILED',
+                        'message': '분석을 생성하지 못했습니다.',
+                    }
+                ],
+                'conflictStatus': 'NOT_CHECKED',
+            }
+        else:
+            assert row.metadata_json['error'] == {
+                'code': 'AI_PROVIDER_REQUEST_FAILED',
+                'errorClass': 'TimeoutError',
+                'message': 'AI provider request failed; fallback content was used.',
+            }
         serialized = repr(row)
         assert 'secret-token' not in serialized
         assert 'RetryInfo' not in serialized

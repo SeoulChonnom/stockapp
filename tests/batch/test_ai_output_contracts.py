@@ -429,6 +429,158 @@ def test_validate_analysis_sections_keeps_valid_found_conflict_ready() -> None:
     )
 
 
+def test_validate_analysis_sections_retains_not_checked_as_partial() -> None:
+    assert validate_analysis_sections(
+        _analysis_payload(
+            sections=[
+                _section(
+                    paragraphs=[
+                        _paragraph(
+                            sentences=[
+                                _sentence(
+                                    conflictStatus='NOT_CHECKED',
+                                    conflictingSourceArticleIds=[],
+                                    conflictNote=None,
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ]
+        ),
+        {1024},
+    ) == {
+        'analysisStatus': 'PARTIAL',
+        'analysisIssues': [
+            {
+                'code': 'CONFLICT_CHECK_FAILED',
+                'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+        'sections': [
+            {
+                'kind': 'impact',
+                'title': '시장 영향',
+                'paragraphs': [
+                    {
+                        'sentences': [
+                            {
+                                'text': '반도체 업종 약세가 지수에 부담을 줬습니다.',
+                                'sourceArticleIds': [1024],
+                                'conflictStatus': 'NOT_CHECKED',
+                                'conflictingSourceArticleIds': [],
+                                'conflictNote': None,
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_validate_analysis_sections_deduplicates_repeated_not_checked_issue() -> None:
+    result = validate_analysis_sections(
+        _analysis_payload(
+            sections=[
+                _section(
+                    paragraphs=[
+                        _paragraph(
+                            sentences=[
+                                _sentence(
+                                    text='첫 번째 충돌 미확인 문장입니다.',
+                                    conflictStatus='NOT_CHECKED',
+                                ),
+                                _sentence(
+                                    text='두 번째 충돌 미확인 문장입니다.',
+                                    conflictStatus='NOT_CHECKED',
+                                ),
+                            ]
+                        )
+                    ]
+                )
+            ]
+        ),
+        {1024},
+    )
+
+    assert result['analysisStatus'] == 'PARTIAL'
+    assert result['analysisIssues'] == [
+        {
+            'code': 'CONFLICT_CHECK_FAILED',
+            'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+        }
+    ]
+    assert result['conflictStatus'] == 'NOT_CHECKED'
+    assert len(result['sections'][0]['paragraphs'][0]['sentences']) == 2
+
+
+def test_validate_analysis_sections_found_and_not_checked_is_partial_found() -> None:
+    result = validate_analysis_sections(
+        _analysis_payload(
+            sections=[
+                _section(
+                    paragraphs=[
+                        _paragraph(
+                            sentences=[
+                                _sentence(
+                                    text='보도 간 충돌이 확인됐습니다.',
+                                    conflictStatus='FOUND',
+                                    conflictingSourceArticleIds=[1025],
+                                    conflictNote='기사별 수급 방향이 다릅니다.',
+                                ),
+                                _sentence(
+                                    text='다른 영향은 충돌을 확인하지 못했습니다.',
+                                    conflictStatus='NOT_CHECKED',
+                                ),
+                            ]
+                        )
+                    ]
+                )
+            ]
+        ),
+        {1024, 1025},
+    )
+
+    assert result == {
+        'analysisStatus': 'PARTIAL',
+        'analysisIssues': [
+            {
+                'code': 'CONFLICT_CHECK_FAILED',
+                'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'FOUND',
+        'sections': [
+            {
+                'kind': 'impact',
+                'title': '시장 영향',
+                'paragraphs': [
+                    {
+                        'sentences': [
+                            {
+                                'text': '보도 간 충돌이 확인됐습니다.',
+                                'sourceArticleIds': [1024],
+                                'conflictStatus': 'FOUND',
+                                'conflictingSourceArticleIds': [1025],
+                                'conflictNote': '기사별 수급 방향이 다릅니다.',
+                            },
+                            {
+                                'text': '다른 영향은 충돌을 확인하지 못했습니다.',
+                                'sourceArticleIds': [1024],
+                                'conflictStatus': 'NOT_CHECKED',
+                                'conflictingSourceArticleIds': [],
+                                'conflictNote': None,
+                            },
+                        ]
+                    }
+                ],
+            }
+        ],
+    }
+
+
 def test_validate_analysis_sections_omits_empty_input_containers_without_degrading() -> (
     None
 ):
