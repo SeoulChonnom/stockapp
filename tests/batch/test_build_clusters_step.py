@@ -11,6 +11,7 @@ from app.core.llm import LlmRetryableError
 from tests.support import BUSINESS_DATE, RecordingAsyncSession, load_module
 
 build_clusters_module = load_module('app.batch.steps.build_clusters')
+cluster_enrichment_module = load_module('app.batch.steps.cluster_enrichment')
 projections_module = load_module('app.db.repositories.projections')
 
 BuildClustersStep = build_clusters_module.BuildClustersStep
@@ -18,6 +19,9 @@ BatchExecutionContext = load_module('app.batch.models').BatchExecutionContext
 CLUSTER_ENRICHMENT_FALLBACK = load_module(
     'app.batch.diagnostics'
 ).CLUSTER_ENRICHMENT_FALLBACK
+THEME_CLASSIFICATION = build_clusters_module.THEME_CLASSIFICATION
+THEME_CLASSIFICATION_MISSING = build_clusters_module.THEME_CLASSIFICATION_MISSING
+CANONICAL_LEAF_CODES = load_module('app.batch.theme_rules').CANONICAL_LEAF_CODES
 
 
 @dataclass
@@ -73,10 +77,22 @@ class FakeProcessedRepo:
         ]
 
 
+class FakeThemeRepository:
+    def __init__(self, session):
+        _ = session
+
+    async def list_active_tree_rows(self):
+        return [
+            SimpleNamespace(code=code, parent_code=None)
+            for code in CANONICAL_LEAF_CODES
+        ]
+
+
 class FakeClusterRepo:
     def __init__(self, session):
         _ = session
         self.calls = []
+        self.theme_calls = []
 
     async def create_cluster_bundle(self, params, article_ids):
         self.calls.append((params, list(article_ids)))
@@ -96,6 +112,9 @@ class FakeClusterRepo:
             created_at='2026-03-18T06:12:10+00:00',
             updated_at='2026-03-18T06:12:10+00:00',
         )
+
+    async def replace_cluster_themes(self, cluster_id, assignments):
+        self.theme_calls.append((cluster_id, list(assignments)))
 
 
 class ListProcessedRepo:
@@ -135,6 +154,7 @@ class RecordingLlmProvider:
             'tags': ['tag'],
             'analysis_paragraphs': ['analysis'],
             'representative_article_index': 0,
+            'themeCodes': ['SECTOR_SEMICONDUCTORS_MEMORY_HBM'],
         }
 
 
@@ -177,6 +197,7 @@ async def _run_step_with_articles(articles, *, provider, max_per_market=12):
     step = BuildClustersStep(
         processed_repo_factory=lambda _session: processed_repository,
         cluster_repo_factory=lambda _session: cluster_repository,
+        theme_repository_factory=lambda _session: FakeThemeRepository(_session),
         llm_provider_factory=lambda: provider,
         settings=SimpleNamespace(
             batch_max_clusters_per_market=max_per_market,
@@ -186,6 +207,121 @@ async def _run_step_with_articles(articles, *, provider, max_per_market=12):
 
     updated_context = await step.run(batch_repository, context)
     return updated_context, batch_repository, cluster_repository
+
+
+def test_theme_parser_preserves_valid_order_deduplicates_and_caps_at_three():
+    valid_codes = CANONICAL_LEAF_CODES[:4]
+
+    parsed = cluster_enrichment_module._parse_theme_codes(
+        [
+            valid_codes[1],
+            'PARENT_CODE',
+            valid_codes[1],
+            valid_codes[0],
+            'unknown',
+            valid_codes[2],
+            valid_codes[3],
+        ],
+        allowed_theme_codes=valid_codes,
+    )
+
+    assert parsed == [valid_codes[1], valid_codes[0], valid_codes[2]]
+
+
+@pytest.mark.anyio
+async def test_build_clusters_persists_llm_themes_as_persistence_assignments():
+    article = _processed_article(
+        9001,
+        market_type='US',
+        title='single cluster title',
+        published_at=datetime(2026, 3, 17, tzinfo=UTC),
+    )
+
+    context, _batch_repository, cluster_repository = await _run_step_with_articles(
+        [article],
+        provider=RecordingLlmProvider(configured=True),
+    )
+
+    assert context.partial_categories == {}
+    assert len(cluster_repository.theme_calls) == 1
+    cluster_id, assignments = cluster_repository.theme_calls[0]
+    assert cluster_id == 7001
+    assert assignments == [
+        projections_module.ThemeAssignmentCreateParams(
+            theme_code='SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+            rank=1,
+            classification_method='LLM',
+        )
+    ]
+
+
+@pytest.mark.anyio
+async def test_missing_llm_theme_keeps_content_and_runs_keyword_fallback():
+    article = _processed_article(
+        9002,
+        market_type='US',
+        title='completely unrelated headline',
+        published_at=datetime(2026, 3, 17, tzinfo=UTC),
+    )
+
+    class MissingThemeProvider:
+        concurrency_limit = 1
+
+        def is_configured(self):
+            return True
+
+        async def enrich_cluster(self, **_kwargs):
+            return {
+                'title': 'preserved content title',
+                'summary_short': 'preserved short summary',
+                'summary_long': 'preserved long summary',
+                'tags': ['preserved-tag'],
+                'analysis_paragraphs': ['preserved analysis'],
+                'representative_article_index': 0,
+                'themeCodes': ['not-a-leaf-code'],
+            }
+
+    context, _batch_repository, cluster_repository = await _run_step_with_articles(
+        [article],
+        provider=MissingThemeProvider(),
+    )
+
+    assert cluster_repository.calls[0][0].title == 'preserved content title'
+    assert cluster_repository.calls[0][0].tags_json == ['preserved-tag']
+    assert cluster_repository.theme_calls == [(7001, [])]
+    assert context.partial_categories == {THEME_CLASSIFICATION: 1}
+    assert context.partial_reasons == [THEME_CLASSIFICATION_MISSING]
+
+
+@pytest.mark.anyio
+async def test_theme_catalog_mismatch_fails_before_cluster_processing():
+    class MismatchThemeRepository:
+        def __init__(self, session):
+            _ = session
+
+        async def list_active_tree_rows(self):
+            return [SimpleNamespace(code='NOT_IN_GIT_RULES', parent_code=None)]
+
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+    repository = FakeBatchRepository(session=RecordingAsyncSession(), events=[])
+    step = BuildClustersStep(
+        processed_repo_factory=lambda _session: ListProcessedRepo([]),
+        cluster_repo_factory=lambda _session: FakeClusterRepo(_session),
+        theme_repository_factory=MismatchThemeRepository,
+        llm_provider_factory=lambda: RecordingLlmProvider(configured=True),
+        settings=SimpleNamespace(
+            batch_max_clusters_per_market=12,
+            batch_clustering_processed_article_limit=5000,
+        ),
+    )
+
+    with pytest.raises(ValueError, match='missing rule codes'):
+        await step.run(repository, context)
 
 
 @pytest.mark.anyio
@@ -210,6 +346,7 @@ async def test_build_clusters_creates_scaffold_bundle(monkeypatch):
         build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
     )
     monkeypatch.setattr(build_clusters_module, 'BatchLlmProvider', FakeLlmProvider)
+    monkeypatch.setattr(build_clusters_module, 'ThemeRepository', FakeThemeRepository)
 
     step = BuildClustersStep()
     updated_context = await step.run(fake_repository, context)
@@ -250,6 +387,7 @@ async def test_build_clusters_offloads_grouping_to_a_thread(monkeypatch):
         build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
     )
     monkeypatch.setattr(build_clusters_module, 'BatchLlmProvider', FakeLlmProvider)
+    monkeypatch.setattr(build_clusters_module, 'ThemeRepository', FakeThemeRepository)
     monkeypatch.setattr(build_clusters_module.asyncio, 'to_thread', recording_to_thread)
 
     step = BuildClustersStep()
@@ -287,6 +425,7 @@ async def test_build_clusters_records_llm_fallback_error_context(monkeypatch):
         build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
     )
     monkeypatch.setattr(build_clusters_module, 'BatchLlmProvider', FakeLlmProvider)
+    monkeypatch.setattr(build_clusters_module, 'ThemeRepository', FakeThemeRepository)
 
     updated_context = await BuildClustersStep().run(fake_repository, context)
 
@@ -307,9 +446,9 @@ async def test_build_clusters_records_llm_fallback_error_context(monkeypatch):
     assert 'secret-token' not in serialized
     assert 'RetryInfo' not in serialized
     assert 'googleapis.com' not in serialized
-    assert context.partial_categories == {
-        CLUSTER_ENRICHMENT_FALLBACK: len(context.partial_reasons)
-    }
+    assert context.partial_categories[CLUSTER_ENRICHMENT_FALLBACK] == 2
+    assert context.partial_categories[THEME_CLASSIFICATION] == 1
+    assert THEME_CLASSIFICATION_MISSING in context.partial_reasons
 
 
 @pytest.mark.anyio
@@ -343,6 +482,7 @@ async def test_build_clusters_propagates_retryable_llm_error(monkeypatch):
         'BatchLlmProvider',
         RetryableLlmProvider,
     )
+    monkeypatch.setattr(build_clusters_module, 'ThemeRepository', FakeThemeRepository)
 
     with pytest.raises(LlmRetryableError):
         await BuildClustersStep().run(fake_repository, context)
@@ -377,6 +517,7 @@ async def test_build_clusters_falls_back_when_llm_enrichment_is_malformed(
         build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
     )
     monkeypatch.setattr(build_clusters_module, 'BatchLlmProvider', FakeLlmProvider)
+    monkeypatch.setattr(build_clusters_module, 'ThemeRepository', FakeThemeRepository)
 
     updated_context = await BuildClustersStep().run(fake_repository, context)
 
@@ -441,6 +582,7 @@ async def test_build_clusters_bounds_llm_enrichment_concurrency(monkeypatch):
         build_clusters_module, 'NewsClusterWriteRepository', FakeClusterRepo
     )
     monkeypatch.setattr(build_clusters_module, 'BatchLlmProvider', lambda: llm_provider)
+    monkeypatch.setattr(build_clusters_module, 'ThemeRepository', FakeThemeRepository)
 
     updated_context = await BuildClustersStep().run(fake_repository, context)
 
@@ -456,6 +598,7 @@ class UpsertingClusterRepo:
 
     def __init__(self, existing: dict[tuple[str, int], dict] | None = None):
         self.store: dict[tuple[str, int], dict] = dict(existing or {})
+        self.theme_store: dict[int, list] = {}
         self._next_id = (
             max((row['cluster_id'] for row in self.store.values()), default=100) + 1
         )
@@ -469,6 +612,9 @@ class UpsertingClusterRepo:
             self._next_id += 1
         self.store[key] = {'cluster_id': cluster_id, 'title': params.title}
         return SimpleNamespace(cluster_id=cluster_id, cluster_rank=params.cluster_rank)
+
+    async def replace_cluster_themes(self, cluster_id, assignments):
+        self.theme_store[cluster_id] = list(assignments)
 
     async def list_cluster_ids_for_business_date(
         self, business_date, market_type, *, min_rank=None
@@ -540,6 +686,7 @@ async def test_force_rerun_failure_preserves_untouched_market_clusters():
         processed_repo_factory=lambda _session: processed_repository,
         cluster_repo_factory=lambda _session: cluster_repository,
         llm_provider_factory=FailOnUsProvider,
+        theme_repository_factory=lambda _session: FakeThemeRepository(_session),
         settings=SimpleNamespace(
             batch_max_clusters_per_market=12,
             batch_clustering_processed_article_limit=5000,

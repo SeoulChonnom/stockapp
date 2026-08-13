@@ -8,6 +8,7 @@ from uuid import UUID
 import pytest
 
 from app.batch.providers.llm_provider import BatchLlmProvider
+from app.batch.theme_rules import CANONICAL_LEAF_CODES
 from app.core.llm import estimate_input_tokens
 from tests.batch.gemini_mock import (
     build_mock_gemini_harness,
@@ -17,6 +18,7 @@ from tests.batch.gemini_mock import (
 
 class RecordingClient:
     def __init__(self) -> None:
+        self.system_prompt: str | None = None
         self.user_prompt: str | None = None
 
     def is_configured(self) -> bool:
@@ -31,7 +33,7 @@ class RecordingClient:
         return 1
 
     async def invoke_json(self, *, system_prompt: str, user_prompt: str) -> dict:
-        _ = system_prompt
+        self.system_prompt = system_prompt
         self.user_prompt = user_prompt
         return {}
 
@@ -69,6 +71,20 @@ async def test_cluster_prompt_serializes_nested_domain_values_without_mutation()
     assert article['published_at'] is published_at
     assert article['score'] == Decimal('1.25')
     assert article['cluster_id'] is cluster_id
+
+
+@pytest.mark.anyio
+async def test_cluster_enrichment_prompt_names_all_leaf_theme_codes():
+    client = RecordingClient()
+    provider = BatchLlmProvider(client)
+
+    await provider.enrich_cluster(market_type='US', articles=[])
+
+    assert client.system_prompt is not None
+    assert 'themeCodes' in client.system_prompt
+    assert '1–3 unique primary-first themeCodes' in client.system_prompt
+    assert all(code in client.system_prompt for code in CANONICAL_LEAF_CODES)
+    assert 'active leaf codes only' in client.system_prompt
 
 
 @pytest.mark.anyio
