@@ -375,6 +375,7 @@ async def test_successful_headline_key_point_issue_keeps_retry_page_partial():
 async def test_retry_page_preserves_key_points_when_headline_remains_fallback():
     source_state = _source_state()
     writes = FakePageWriteRepository()
+    source_key_points = deepcopy(KEY_POINTS)
     lineage = _lineage(recover_market=True, recover_all=False)
     lineage = [
         (
@@ -384,7 +385,7 @@ async def test_retry_page_preserves_key_points_when_headline_remains_fallback():
                 fallback_used=True,
                 metadata_json={
                     'reason': 'llm_fallback',
-                    'keyPoints': KEY_POINTS,
+                    'keyPoints': source_key_points,
                     'keyPointIssue': None,
                     'retry': {'sourceSummaryId': 1, 'attemptNo': 2},
                 },
@@ -421,6 +422,8 @@ async def test_retry_page_preserves_key_points_when_headline_remains_fallback():
         issue['code'] != 'KEY_POINTS_GENERATION_FAILED'
         for issue in writes.page['metadata_json']['issues']
     )
+    writes.page['metadata_json']['keyPoints'][0]['text'] = '새 페이지 변경'
+    assert source_key_points == KEY_POINTS
 
 
 @pytest.mark.anyio

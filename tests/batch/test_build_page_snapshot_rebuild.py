@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +15,30 @@ build_module = load_module('app.batch.steps.build_page_snapshot')
 
 BatchExecutionContext = batch_models_module.BatchExecutionContext
 BuildPageSnapshotStep = build_module.BuildPageSnapshotStep
+
+KEY_POINTS = [
+    {
+        'kind': 'direction',
+        'label': '시장 방향',
+        'text': '주요 지수가 상승했습니다.',
+        'direction': 'UP',
+    },
+    {
+        'kind': 'driver',
+        'label': '주요 원인',
+        'text': '반도체 강세가 상승을 이끌었습니다.',
+    },
+    {
+        'kind': 'watch',
+        'label': '관전 포인트',
+        'text': '다음 물가 지표를 확인해야 합니다.',
+    },
+]
+KEY_POINT_ISSUE = {
+    'category': 'AI_SUMMARY',
+    'code': 'KEY_POINTS_GENERATION_FAILED',
+    'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+}
 
 
 @dataclass
@@ -55,6 +81,61 @@ class EmptyIndexRepository:
     async def list_indices_by_business_date(self, business_date):
         _ = business_date
         return []
+
+
+class SuccessfulKeyPointSummaryRepository:
+    metadata = {
+        'reason': 'llm',
+        'keyPoints': KEY_POINTS,
+        'keyPointIssue': None,
+    }
+
+    def __init__(self, session):
+        _ = session
+
+    async def list_summaries_for_job(self, job_id):
+        _ = job_id
+        return [
+            SimpleNamespace(
+                summary_type='GLOBAL_HEADLINE',
+                market_type=None,
+                cluster_id=None,
+                title='저장할 글로벌 헤드라인',
+                metadata_json=self.metadata,
+            )
+        ]
+
+
+class FailedKeyPointSummaryRepository(SuccessfulKeyPointSummaryRepository):
+    metadata = {
+        'reason': 'llm',
+        'keyPoints': [],
+        'keyPointIssue': KEY_POINT_ISSUE,
+    }
+
+
+class InvalidIdentityClusterRepository(SourceClusterRepository):
+    invalid_field = 'processed_article_id'
+
+    async def list_clusters_by_business_date(self, business_date):
+        clusters = await super().list_clusters_by_business_date(business_date)
+        if self.invalid_field == 'cluster_uid':
+            clusters[0]['cluster_uid'] = None
+        return clusters
+
+    async def list_cluster_article_links_by_business_date(self, business_date):
+        _ = business_date
+        article_link = {
+            'market_type': 'US',
+            'processed_article_id': 4001,
+            'cluster_id': 7001,
+            'cluster_uid': 'cluster-uid',
+            'cluster_title': '기존 클러스터',
+            'title': '기존 기사',
+            'origin_link': 'https://example.com/article',
+        }
+        article_link[self.invalid_field] = None
+        return [article_link]
 
 
 class FailingLiveRepository:
@@ -107,6 +188,7 @@ class ExistingPageRepository:
             'metadata_json': {
                 'warnings': ['기존 경고'],
                 'sourceMarker': 'stored-page',
+                'keyPoints': KEY_POINTS,
             },
         }
 
@@ -284,6 +366,7 @@ async def test_rebuild_uses_persisted_source_and_preserves_page_outcome():
         'metadata_json': {
             'warnings': ['기존 경고'],
             'sourceMarker': 'stored-page',
+            'keyPoints': KEY_POINTS,
         },
     }
     create_market = next(
@@ -364,6 +447,47 @@ async def test_rebuild_uses_persisted_source_and_preserves_page_outcome():
         'origin_link': 'https://stored.example/article',
         'naver_link': None,
     }
+
+
+@pytest.mark.anyio
+async def test_rebuild_preserves_persisted_key_points_without_live_generation():
+    source_metadata = {
+        'warnings': ['기존 경고'],
+        'sourceMarker': 'stored-page',
+        'keyPoints': KEY_POINTS,
+    }
+
+    class SharedMetadataPageRepository(ExistingPageRepository):
+        async def get_page_header_by_business_date(self, business_date):
+            page = await super().get_page_header_by_business_date(business_date)
+            page['metadata_json'] = source_metadata
+            return page
+
+    snapshot_repository = RecordingSnapshotRepository(RecordingAsyncSession())
+    step = BuildPageSnapshotStep(
+        cluster_repo_factory=FailingLiveRepository,
+        summary_repo_factory=FailingLiveRepository,
+        index_repo_factory=FailingLiveRepository,
+        source_page_repo_factory=SharedMetadataPageRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+    )
+    context = BatchExecutionContext(
+        job_id=2002,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=True,
+    )
+
+    await step.run(
+        EventRepository(session=RecordingAsyncSession(), events=[]),
+        context,
+    )
+
+    create_page = next(
+        payload for name, payload in snapshot_repository.calls if name == 'create_page'
+    )
+    assert create_page['metadata_json']['keyPoints'] == KEY_POINTS
+    assert create_page['metadata_json'] is not source_metadata
 
 
 @pytest.mark.anyio
@@ -464,6 +588,107 @@ async def test_normal_snapshot_marks_fallback_partial_and_builds_partial_message
         == '요약 일부가 대체 생성되었습니다.; 외부 제공자 경고'
     )
     assert updated_context.partial_message == create_page['partial_message']
+
+
+@pytest.mark.anyio
+async def test_normal_snapshot_copies_successful_key_points_into_page_metadata():
+    original_metadata = deepcopy(SuccessfulKeyPointSummaryRepository.metadata)
+    snapshot_repository = RecordingSnapshotRepository(RecordingAsyncSession())
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await BuildPageSnapshotStep(
+        cluster_repo_factory=SourceClusterRepository,
+        summary_repo_factory=SuccessfulKeyPointSummaryRepository,
+        index_repo_factory=EmptyIndexRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+        context_repo_factory=CompleteMarketContextRepository,
+    ).run(EventRepository(session=RecordingAsyncSession(), events=[]), context)
+
+    create_page = next(
+        payload for name, payload in snapshot_repository.calls if name == 'create_page'
+    )
+    assert create_page['status'] == 'READY'
+    assert create_page['metadata_json'] == {
+        'warnings': [],
+        'issues': [],
+        'keyPoints': KEY_POINTS,
+    }
+    assert SuccessfulKeyPointSummaryRepository.metadata == original_metadata
+
+
+@pytest.mark.anyio
+async def test_normal_snapshot_records_key_point_failure_as_explicit_partial_issue():
+    original_metadata = deepcopy(FailedKeyPointSummaryRepository.metadata)
+    snapshot_repository = RecordingSnapshotRepository(RecordingAsyncSession())
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    updated_context = await BuildPageSnapshotStep(
+        cluster_repo_factory=SourceClusterRepository,
+        summary_repo_factory=FailedKeyPointSummaryRepository,
+        index_repo_factory=EmptyIndexRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+        context_repo_factory=CompleteMarketContextRepository,
+    ).run(EventRepository(session=RecordingAsyncSession(), events=[]), context)
+
+    create_page = next(
+        payload for name, payload in snapshot_repository.calls if name == 'create_page'
+    )
+    assert create_page['status'] == 'PARTIAL'
+    assert create_page['partial_message'] == KEY_POINT_ISSUE['message']
+    assert create_page['metadata_json'] == {
+        'warnings': [],
+        'issues': [KEY_POINT_ISSUE],
+        'keyPoints': [],
+    }
+    assert updated_context.partial_message == KEY_POINT_ISSUE['message']
+    assert FailedKeyPointSummaryRepository.metadata == original_metadata
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'invalid_field',
+    ['processed_article_id', 'cluster_uid'],
+    ids=['null-processed-article-id', 'null-cluster-uid'],
+)
+async def test_normal_snapshot_rejects_null_public_article_identity(invalid_field):
+    snapshot_repository = RecordingSnapshotRepository(RecordingAsyncSession())
+
+    def cluster_repo_factory(session):
+        repository = InvalidIdentityClusterRepository(session)
+        repository.invalid_field = invalid_field
+        return repository
+
+    step = BuildPageSnapshotStep(
+        cluster_repo_factory=cluster_repo_factory,
+        summary_repo_factory=SuccessfulKeyPointSummaryRepository,
+        index_repo_factory=EmptyIndexRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+        context_repo_factory=CompleteMarketContextRepository,
+    )
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    with pytest.raises(ValueError, match=invalid_field):
+        await step.run(
+            EventRepository(session=RecordingAsyncSession(), events=[]),
+            context,
+        )
+
+    assert snapshot_repository.calls == []
 
 
 @pytest.mark.anyio

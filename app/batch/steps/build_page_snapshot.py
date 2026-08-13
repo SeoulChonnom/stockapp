@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from copy import deepcopy
 from typing import Any
 
+from app.batch.ai_output_contracts import KEY_POINT_FAILURE
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import metadata_optional_string, metadata_string_list
 from app.batch.steps.base import BatchStep, require_repository_session
@@ -51,6 +53,9 @@ def _structured_page_issues(
 ) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
     for reason in sanitize_public_diagnostics(context.partial_reasons):
+        if reason == KEY_POINT_FAILURE['message']:
+            issues.append(dict(KEY_POINT_FAILURE))
+            continue
         is_ai_issue = reason.startswith('AI summary fallback')
         issues.append(
             {
@@ -68,6 +73,40 @@ def _structured_page_issues(
         for warning in sanitize_public_diagnostics(context.warning_messages)
     )
     return issues
+
+
+def _global_key_point_metadata(
+    global_headline_summary: object | None,
+) -> tuple[list[dict[str, str]], dict[str, str] | None]:
+    metadata = getattr(global_headline_summary, 'metadata_json', None)
+    if not isinstance(metadata, Mapping):
+        return [], None
+
+    raw_key_points = metadata.get('keyPoints')
+    key_points = deepcopy(raw_key_points) if isinstance(raw_key_points, list) else []
+    raw_issue = metadata.get('keyPointIssue')
+    if (
+        isinstance(raw_issue, Mapping)
+        and raw_issue.get('code') == KEY_POINT_FAILURE['code']
+    ):
+        return key_points, dict(KEY_POINT_FAILURE)
+    return key_points, None
+
+
+def _validate_snapshot_public_identities(
+    clusters: list[dict[str, Any]],
+    article_links: list[dict[str, Any]],
+) -> None:
+    for cluster in clusters:
+        if cluster.get('cluster_uid') is None:
+            raise ValueError('cluster_uid must not be null in a current snapshot')
+    for article_link in article_links:
+        if article_link.get('processed_article_id') is None:
+            raise ValueError(
+                'processed_article_id must not be null in a current snapshot'
+            )
+        if article_link.get('cluster_uid') is None:
+            raise ValueError('cluster_uid must not be null in a current snapshot')
 
 
 class BuildPageSnapshotStep(BatchStep):
@@ -138,6 +177,7 @@ class BuildPageSnapshotStep(BatchStep):
                 context_json={'businessDate': context.business_date.isoformat()},
             )
             return context
+        _validate_snapshot_public_identities(clusters, cluster_article_links)
         market_contexts = {
             row.market_type: row
             for row in await self._context_repo_factory(session).list_for_job(
@@ -163,6 +203,23 @@ class BuildPageSnapshotStep(BatchStep):
             )
             return context
 
+        summary_by_type: dict[tuple[str, str | None, int | None], object] = {}
+        for summary in summaries:
+            summary_by_type[
+                (summary.summary_type, summary.market_type, summary.cluster_id)
+            ] = summary
+        global_headline_summary = summary_by_type.get(
+            (AiSummaryType.GLOBAL_HEADLINE.value, None, None)
+        )
+        key_points, key_point_issue = _global_key_point_metadata(
+            global_headline_summary
+        )
+        if key_point_issue is not None:
+            context.add_partial(
+                KEY_POINT_FAILURE['code'],
+                KEY_POINT_FAILURE['message'],
+            )
+
         if not context.partial_message:
             partial_messages = sanitize_public_diagnostics(
                 [*context.partial_reasons, *context.warning_messages]
@@ -174,12 +231,6 @@ class BuildPageSnapshotStep(BatchStep):
                 context.partial_message
             )
 
-        summary_by_type: dict[tuple[str, str | None, int | None], object] = {}
-        for summary in summaries:
-            summary_by_type[
-                (summary.summary_type, summary.market_type, summary.cluster_id)
-            ] = summary
-
         version_no = await snapshot_repo.get_next_version_no(context.business_date)
         page_status = (
             PageStatus.PARTIAL.value
@@ -190,9 +241,6 @@ class BuildPageSnapshotStep(BatchStep):
                 or context.fallback_count
             )
             else PageStatus.READY.value
-        )
-        global_headline_summary = summary_by_type.get(
-            (AiSummaryType.GLOBAL_HEADLINE.value, None, None)
         )
         page_id = await snapshot_repo.create_page(
             business_date=context.business_date,
@@ -208,6 +256,7 @@ class BuildPageSnapshotStep(BatchStep):
             metadata_json={
                 'warnings': sanitize_public_diagnostics(context.warning_messages),
                 'issues': _structured_page_issues(context),
+                'keyPoints': key_points,
             },
         )
         by_market: dict[str, list[dict]] = {

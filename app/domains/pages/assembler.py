@@ -99,6 +99,12 @@ def _page_issues_from_metadata(metadata_json: Any) -> list[dict[str, str]]:
     return _sanitize_page_issues(metadata_json.get('issues'))
 
 
+def _page_key_points_from_metadata(metadata_json: Any) -> Any:
+    if not isinstance(metadata_json, dict) or 'keyPoints' not in metadata_json:
+        return []
+    return metadata_json['keyPoints']
+
+
 def _build_versions(
     versions: list[dict[str, Any]],
 ) -> list[PageVersionSummaryResponse]:
@@ -251,7 +257,7 @@ def build_daily_page_payload(
             PageIssueResponse(**entry)
             for entry in _page_issues_from_metadata(page.get('metadata_json'))
         ],
-        keyPoints=[],
+        keyPoints=_page_key_points_from_metadata(page.get('metadata_json')),
         markets=market_sections,
         metadata=PageMetadataResponse(
             rawNewsCount=page['raw_news_count'],

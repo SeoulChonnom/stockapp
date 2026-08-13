@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from typing import Any
 
 from app.batch.ai_output_contracts import KEY_POINT_FAILURE
@@ -71,7 +72,7 @@ class AiRetryPageBuilder:
             else PageStatus.PARTIAL.value
         )
         partial_message = _partial_message(issues)
-        metadata = dict(source_page.get('metadata_json') or {})
+        metadata = deepcopy(source_page.get('metadata_json') or {})
         global_summary = effective.get(AiSummaryType.GLOBAL_HEADLINE.value)
         global_metadata = (
             global_summary.metadata_json if global_summary is not None else {}
@@ -82,7 +83,7 @@ class AiRetryPageBuilder:
             else None
         )
         if isinstance(key_points, list):
-            metadata['keyPoints'] = list(key_points)
+            metadata['keyPoints'] = deepcopy(key_points)
         metadata['issues'] = issues
         metadata['aiRetry'] = {
             'sourceJobId': source_job_id,

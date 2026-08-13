@@ -422,6 +422,8 @@ class PageSnapshotRepository(PostgresRepository):
                 naver_link
             FROM {page_article_link_table}
             WHERE page_market_id IN :page_market_ids
+              AND processed_article_id IS NOT NULL
+              AND cluster_uid IS NOT NULL
             ORDER BY page_market_id, display_order
             """.format(
                 page_article_link_table=qualify_db_identifier(

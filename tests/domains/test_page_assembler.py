@@ -420,6 +420,59 @@ def test_daily_page_assembler_exposes_ready_page_with_empty_issues(
     )
 
     assert payload['issues'] == []
+    assert payload['keyPoints'] == []
+
+
+def test_daily_page_assembler_reads_key_points_from_persisted_page_metadata(
+    sample_page_snapshot_row,
+    sample_page_market_rows,
+    sample_page_index_rows,
+    sample_page_cluster_rows,
+    sample_page_article_link_rows,
+    sample_adjacent_business_dates_row,
+    sample_page_version_rows,
+):
+    metadata = {'keyPoints': deepcopy(KEY_POINTS)}
+    page_row = {**sample_page_snapshot_row, 'metadata_json': metadata}
+
+    payload = build_daily_page_payload(
+        page_row,
+        sample_page_market_rows,
+        sample_page_index_rows,
+        sample_page_cluster_rows,
+        sample_page_article_link_rows,
+        neighbors=sample_adjacent_business_dates_row,
+        versions=sample_page_version_rows,
+    )
+
+    assert payload['keyPoints'] == KEY_POINTS
+    assert metadata == {'keyPoints': KEY_POINTS}
+
+
+def test_daily_page_assembler_validates_persisted_key_points_through_response_model(
+    sample_page_snapshot_row,
+    sample_page_market_rows,
+    sample_page_index_rows,
+    sample_page_cluster_rows,
+    sample_page_article_link_rows,
+    sample_adjacent_business_dates_row,
+    sample_page_version_rows,
+):
+    page_row = {
+        **sample_page_snapshot_row,
+        'metadata_json': {'keyPoints': [{'kind': 'direction'}]},
+    }
+
+    with pytest.raises(ValidationError):
+        build_daily_page_payload(
+            page_row,
+            sample_page_market_rows,
+            sample_page_index_rows,
+            sample_page_cluster_rows,
+            sample_page_article_link_rows,
+            neighbors=sample_adjacent_business_dates_row,
+            versions=sample_page_version_rows,
+        )
 
 
 def test_daily_page_assembler_extracts_structured_issues_from_metadata(

@@ -153,6 +153,49 @@ async def test_get_page_indices_includes_source_daily_index_id():
 
 
 @pytest.mark.anyio
+async def test_get_page_article_links_excludes_legacy_null_public_identities():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = PageSnapshotRepository(session)
+
+    result = await repo.get_page_article_links([901])
+
+    assert result == []
+    sql = normalize_sql(session.statements[0]).lower()
+    assert 'processed_article_id is not null' in sql
+    assert 'cluster_uid is not null' in sql
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'field',
+    ['processed_article_id', 'cluster_uid'],
+    ids=['null-processed-article-id', 'null-cluster-uid'],
+)
+async def test_insert_page_article_link_rejects_null_public_identity(field):
+    session = RecordingAsyncSession()
+    repo = PageSnapshotWriteRepository(session)
+    payload = {
+        'page_market_id': 901,
+        'display_order': 1,
+        'processed_article_id': 4001,
+        'cluster_id': 7001,
+        'cluster_uid': 'cluster-uid',
+        'cluster_title': '클러스터',
+        'title': '기사',
+        'publisher_name': '매체',
+        'published_at': None,
+        'origin_link': 'https://example.com/article',
+        'naver_link': None,
+    }
+    payload[field] = None
+
+    with pytest.raises(ValueError, match=field):
+        await repo.insert_page_article_link(payload)
+
+    assert session.statements == []
+
+
+@pytest.mark.anyio
 async def test_exists_page_for_business_date_checks_date_boundary(sample_business_date):
     session = RecordingAsyncSession(results=[DummyResult([1])])
     repo = PageSnapshotRepository(session)

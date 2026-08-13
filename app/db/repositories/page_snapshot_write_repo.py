@@ -292,6 +292,11 @@ class PageSnapshotWriteRepository(PostgresRepository):
         await self.session.execute(statement, payload)
 
     async def insert_page_article_link(self, params: dict[str, Any]) -> None:
+        for required_identity in ('processed_article_id', 'cluster_uid'):
+            if params.get(required_identity) is None:
+                raise ValueError(
+                    f'{required_identity} must not be null in a current snapshot'
+                )
         statement = text(
             """
             INSERT INTO {article_table} (

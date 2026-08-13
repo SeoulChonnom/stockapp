@@ -12,6 +12,27 @@ from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImport
 pages_router_module = load_module('app.domains.pages.router')
 archive_router_module = load_module('app.domains.archive.router')
 exceptions_module = load_module('app.core.exceptions')
+pages_service_module = load_module('app.domains.pages.service')
+llm_provider_module = load_module('app.batch.providers.llm_provider')
+
+KEY_POINTS = [
+    {
+        'kind': 'direction',
+        'label': '시장 방향',
+        'text': '주요 지수가 상승했습니다.',
+        'direction': 'UP',
+    },
+    {
+        'kind': 'driver',
+        'label': '주요 원인',
+        'text': '반도체 강세가 상승을 이끌었습니다.',
+    },
+    {
+        'kind': 'watch',
+        'label': '관전 포인트',
+        'text': '다음 물가 지표를 확인해야 합니다.',
+    },
+]
 
 
 class FakePagesService:
@@ -67,6 +88,54 @@ class FakeArchiveService:
         return self.archive_payload
 
 
+class PersistedPageRepository:
+    def __init__(
+        self,
+        *,
+        page,
+        markets,
+        indices,
+        clusters,
+        article_links,
+        neighbors,
+        versions,
+    ):
+        self.page = page
+        self.markets = markets
+        self.indices = indices
+        self.clusters = clusters
+        self.article_links = article_links
+        self.neighbors = neighbors
+        self.versions = versions
+
+    async def get_latest_public_page_header(self):
+        return self.page
+
+    async def get_page_markets(self, page_id):
+        assert page_id == self.page['id']
+        return self.markets
+
+    async def get_page_indices(self, page_market_ids):
+        assert page_market_ids == [market['id'] for market in self.markets]
+        return self.indices
+
+    async def get_page_clusters(self, page_market_ids):
+        assert page_market_ids == [market['id'] for market in self.markets]
+        return self.clusters
+
+    async def get_page_article_links(self, page_market_ids):
+        assert page_market_ids == [market['id'] for market in self.markets]
+        return self.article_links
+
+    async def get_adjacent_public_business_dates(self, business_date):
+        assert business_date == self.page['business_date']
+        return self.neighbors
+
+    async def list_page_versions(self, business_date):
+        assert business_date == self.page['business_date']
+        return self.versions
+
+
 @pytest.fixture
 def client(sample_daily_page_payload, sample_archive_list_payload):
     fake_pages_service = FakePagesService(sample_daily_page_payload)
@@ -111,10 +180,12 @@ def test_get_latest_page_allows_user_and_admin_roles(
         'generatedAt',
         'partialMessage',
         'issues',
+        'keyPoints',
         'markets',
         'metadata',
     } <= set(data)
     assert data['issues'] == []
+    assert data['keyPoints'] == []
     assert data['pageId'] == sample_daily_page_payload['pageId']
     assert data['markets'][0]['marketType'] == 'US'
     assert (
@@ -132,6 +203,65 @@ def test_get_latest_page_allows_user_and_admin_roles(
     assert payload['meta']['timestamp']
     assert data['generatedAt'].endswith('Z')
     assert data['metadata']['lastUpdatedAt'].endswith('Z')
+
+
+def test_repeated_api_reads_return_same_persisted_key_points_without_provider(
+    monkeypatch,
+    sample_page_snapshot_row,
+    sample_page_market_rows,
+    sample_page_index_rows,
+    sample_page_cluster_rows,
+    sample_page_article_link_rows,
+    sample_adjacent_business_dates_row,
+    sample_page_version_rows,
+):
+    provider_calls = []
+
+    def fail_provider_init(*args, **kwargs):
+        provider_calls.append((args, kwargs))
+        raise AssertionError('page reads must not construct an AI provider')
+
+    monkeypatch.setattr(
+        llm_provider_module.BatchLlmProvider,
+        '__init__',
+        fail_provider_init,
+    )
+    metadata = {'keyPoints': KEY_POINTS}
+    repository = PersistedPageRepository(
+        page={
+            **sample_page_snapshot_row,
+            'metadata_json': metadata,
+        },
+        markets=sample_page_market_rows,
+        indices=sample_page_index_rows,
+        clusters=sample_page_cluster_rows,
+        article_links=sample_page_article_link_rows,
+        neighbors=sample_adjacent_business_dates_row,
+        versions=sample_page_version_rows,
+    )
+    service = pages_service_module.PagesService(repository)
+    app = FastAPI()
+    exceptions_module.register_exception_handlers(app)
+    app.include_router(pages_router_module.router, prefix='/stock/api')
+    app.dependency_overrides[pages_router_module.get_pages_service] = lambda: service
+
+    with TestClient(app) as test_client:
+        first = test_client.get(
+            '/stock/api/pages/daily/latest',
+            headers=build_test_bearer_headers('USER'),
+        )
+        second = test_client.get(
+            '/stock/api/pages/daily/latest',
+            headers=build_test_bearer_headers('USER'),
+        )
+
+    app.dependency_overrides.clear()
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()['data']['keyPoints'] == KEY_POINTS
+    assert second.json()['data']['keyPoints'] == KEY_POINTS
+    assert metadata == {'keyPoints': KEY_POINTS}
+    assert provider_calls == []
 
 
 def test_get_latest_page_rejects_missing_token_as_unauthorized(client):

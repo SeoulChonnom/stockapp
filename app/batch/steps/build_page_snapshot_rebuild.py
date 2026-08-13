@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from app.batch.models import BatchExecutionContext
@@ -110,7 +111,7 @@ async def rebuild_page_snapshot_from_persisted_page(
         processed_news_count=source_page['processed_news_count'],
         cluster_count=source_page['cluster_count'],
         batch_job_id=context.job_id,
-        metadata_json=source_page.get('metadata_json') or {},
+        metadata_json=deepcopy(source_page.get('metadata_json') or {}),
     )
 
     new_market_ids = await clone_page_markets(
