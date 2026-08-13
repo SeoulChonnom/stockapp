@@ -384,12 +384,28 @@ def test_fixture_has_per_theme_case_gates_and_human_expected_labels() -> None:
             assert case['expected_primary_leaf'] == code
         if case['label'] == 'negative':
             assert case['expected_primary_leaf'] is None
+        accepted_secondary = case.get('accepted_secondary_leaves', [])
+        assert isinstance(accepted_secondary, list)
+        assert len(accepted_secondary) == len(set(accepted_secondary))
+        assert set(accepted_secondary) <= APPROVED_FALLBACK_CODES
+        assert case['expected_primary_leaf'] not in accepted_secondary
+        if case['label'] == 'negative':
+            assert accepted_secondary == []
         article_ids = [article['article_id'] for article in case['articles']]
         assert len(article_ids) == len(set(article_ids))
         if case.get('representative_article_id') is not None:
             assert case['representative_article_id'] in article_ids
 
     assert set(by_theme) == set(APPROVED_FALLBACK_CODES)
+    accepted_secondary_cases = {
+        case['id']: tuple(case.get('accepted_secondary_leaves', []))
+        for case in cases
+        if case.get('accepted_secondary_leaves')
+    }
+    assert accepted_secondary_cases == {
+        '17-positive-10': ('CORPORATE_EVENT_PERFORMANCE_ORDERS_CONTRACTS',),
+        '20-positive-10': ('MARKET_FLOW_INVESTOR_INSTITUTIONAL',),
+    }
     for code in APPROVED_FALLBACK_CODES:
         labels = Counter(case['label'] for case in by_theme[code])
         assert labels['positive'] >= 10, code
@@ -401,40 +417,55 @@ def test_fixture_evaluation_meets_each_theme_gate_and_is_repeatable() -> None:
     cases = yaml.safe_load(FIXTURE_PATH.read_text(encoding='utf-8'))
     rules = load_theme_rules(CANONICAL_LEAF_CODES)
     assert isinstance(cases, list)
-    by_theme: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for case in cases:
-        by_theme[case['theme_code']].append(case)
-
+    metrics: dict[str, Counter[str]] = {
+        code: Counter() for code in APPROVED_FALLBACK_CODES
+    }
     multi_assignment_cases: list[str] = []
-    for code in APPROVED_FALLBACK_CODES:
-        expected_cases = [
-            case for case in by_theme[code] if case['expected_primary_leaf'] is not None
-        ]
-        negative_cases = [
-            case for case in by_theme[code] if case['label'] == 'negative'
-        ]
-        true_positives = 0
-        false_positives = 0
-        for case in by_theme[code]:
-            first = classify_theme_fallback(_fixture_evidence(case), rules)
-            second = classify_theme_fallback(_fixture_evidence(case), rules)
-            assert first == second
-            assert _serialize_assignments(first) == _serialize_assignments(second)
-            if len(first) > 1:
-                multi_assignment_cases.append(case['id'])
-            target_present = any(assignment.theme_code == code for assignment in first)
-            if case['expected_primary_leaf'] == code:
-                true_positives += target_present
-                assert first[0].theme_code == code
-            elif case['label'] == 'negative' and target_present:
-                false_positives += 1
+    negative_case_count = sum(case['label'] == 'negative' for case in cases)
+    for case in cases:
+        accepted = set(case.get('accepted_secondary_leaves', []))
+        if case['expected_primary_leaf'] is not None:
+            accepted.add(case['expected_primary_leaf'])
+        first = classify_theme_fallback(_fixture_evidence(case), rules)
+        second = classify_theme_fallback(_fixture_evidence(case), rules)
+        assert first == second
+        assert _serialize_assignments(first) == _serialize_assignments(second)
+        assert [assignment.rank for assignment in first] == list(
+            range(1, len(first) + 1)
+        )
+        if len(first) > 1:
+            multi_assignment_cases.append(case['id'])
+        if case['expected_primary_leaf'] is not None:
+            assert first[0].theme_code == case['expected_primary_leaf']
+        if case['id'] == '13-negative-05':
+            assert first == []
+        for assignment in first:
+            assert assignment.theme_code in APPROVED_FALLBACK_CODES
+            row = metrics[assignment.theme_code]
+            row['predictions'] += 1
+            if assignment.theme_code in accepted:
+                row['true_positives'] += 1
+            else:
+                row['false_positives'] += 1
+                if case['label'] == 'negative':
+                    row['negative_false_positives'] += 1
+        for code in accepted:
+            metrics[code]['accepted_cases'] += 1
 
-        precision = true_positives / max(true_positives + false_positives, 1)
-        recall = true_positives / max(len(expected_cases), 1)
-        false_positive_rate = false_positives / max(len(negative_cases), 1)
-        assert precision >= 0.95, code
-        assert recall >= 0.70, code
-        assert false_positive_rate <= 0.05, code
+    for code in APPROVED_FALLBACK_CODES:
+        row = metrics[code]
+        precision = row['true_positives'] / max(row['predictions'], 1)
+        recall = row['true_positives'] / max(row['accepted_cases'], 1)
+        false_positive_rate = row['negative_false_positives'] / max(
+            negative_case_count, 1
+        )
+        assert precision >= 0.95, (code, dict(row), precision)
+        assert recall >= 0.70, (code, dict(row), recall)
+        assert false_positive_rate <= 0.05, (
+            code,
+            dict(row),
+            false_positive_rate,
+        )
 
     assert len(multi_assignment_cases) >= 2
 
