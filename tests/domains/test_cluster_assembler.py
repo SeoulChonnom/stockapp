@@ -1076,6 +1076,53 @@ def test_cluster_builder_fails_closed_for_invalid_success_metadata(
     }
 
 
+@pytest.mark.parametrize(
+    'metadata',
+    [
+        {
+            'analysisStatus': 'UNAVAILABLE',
+            'analysisIssues': [
+                {
+                    'code': 'CONFLICT_CHECK_FAILED',
+                    'message': 'provider detail must not reach the API',
+                }
+            ],
+            'conflictStatus': 'NOT_CHECKED',
+        },
+        {
+            'analysisStatus': 'UNAVAILABLE',
+            'analysisIssues': [
+                {'code': 'UNKNOWN', 'message': 'provider detail must not reach the API'}
+            ],
+            'conflictStatus': 'NOT_CHECKED',
+        },
+    ],
+    ids=['conflict-only-fallback', 'unknown-fallback-issue'],
+)
+def test_cluster_builder_fails_closed_for_impossible_fallback_metadata(
+    metadata,
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        _summary_record(
+            paragraphs=[],
+            metadata=metadata,
+            status='FALLBACK',
+            fallback_used=True,
+        ),
+    )
+
+    response = assemble_cluster_detail_response(payload)
+
+    assert response.summary.analysisStatus == 'UNAVAILABLE'
+    assert response.summary.analysisIssues[0].code == 'ANALYSIS_GENERATION_FAILED'
+    assert response.summary.analysisIssues[0].message == '분석을 생성하지 못했습니다.'
+
+
 def test_cluster_builder_structural_failure_wins_over_persisted_metadata(
     sample_cluster_row,
     sample_processed_article_rows,

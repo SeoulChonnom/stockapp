@@ -15,6 +15,8 @@ from app.batch.ai_retry.models import (
 from app.batch.ai_retry.page_builder import AiRetryPageBuilder
 from app.batch.ai_retry.resolver import (
     calculate_retry_counts,
+    has_unresolved_key_points,
+    is_successful_summary,
     select_retry_targets,
 )
 from app.batch.exceptions import BatchLeaseLostError
@@ -315,7 +317,22 @@ async def _generate_target(
 ) -> dict[str, Any]:
     target = selection.target
     if target.summary_type == 'GLOBAL_HEADLINE':
-        return await _generate_global_outputs(llm_provider, clusters, indices)
+        existing_summary = None
+        if has_unresolved_key_points(selection.source_summary):
+            existing_summary = selection.source_summary
+        elif selection.existing_retry is not None and has_unresolved_key_points(
+            selection.existing_retry
+        ):
+            existing_summary = selection.existing_retry
+        if existing_summary is None and selection.existing_retry is not None:
+            if is_successful_summary(selection.existing_retry):
+                existing_summary = selection.existing_retry
+        return await _generate_global_outputs(
+            llm_provider,
+            clusters,
+            indices,
+            existing_summary=existing_summary,
+        )
     market_type = target.market_type
     if market_type is None:
         raise ValueError(f'Retry target is missing a market type: {target.target_key}')

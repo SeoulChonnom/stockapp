@@ -346,6 +346,36 @@ def test_normalize_key_points_accepts_decoded_plain_text_forms(text: str) -> Non
     assert result['keyPoints'][0]['text'] == text
 
 
+def _nested_entity_encode(value: str, levels: int) -> str:
+    for _ in range(levels):
+        value = value.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    return value
+
+
+def test_normalize_key_points_rejects_markup_that_resolves_beyond_decode_cap() -> None:
+    deeply_encoded_tag = _nested_entity_encode(
+        '<b>시장</b> 문장입니다.',
+        5,
+    )
+    payload = _key_points()
+    payload[0]['text'] = deeply_encoded_tag
+
+    assert normalize_key_points(payload)['issue'] == {
+        'category': 'AI_SUMMARY',
+        'code': 'KEY_POINTS_GENERATION_FAILED',
+        'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+    }
+
+
+def test_normalize_key_points_keeps_safe_ampersand_entity() -> None:
+    payload = _key_points()
+    payload[0]['text'] = 'AT&amp;T는 상승했습니다.'
+
+    assert normalize_key_points(payload)['keyPoints'][0]['text'] == (
+        'AT&amp;T는 상승했습니다.'
+    )
+
+
 def test_aggregate_conflict_status_uses_found_then_not_checked_then_none() -> None:
     assert aggregate_conflict_status([]) == 'NOT_CHECKED'
     assert (
@@ -394,6 +424,20 @@ def test_build_unavailable_analysis_deduplicates_codes_in_discovery_order() -> N
                 'code': 'NO_GROUNDED_SENTENCES',
                 'message': '근거를 확인할 수 있는 분석 문장이 없습니다.',
             },
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+        'sections': [],
+    }
+
+
+def test_build_unavailable_analysis_fails_closed_for_unknown_issue_codes() -> None:
+    assert build_unavailable_analysis('UNKNOWN') == {
+        'analysisStatus': 'UNAVAILABLE',
+        'analysisIssues': [
+            {
+                'code': 'ANALYSIS_GENERATION_FAILED',
+                'message': '분석을 생성하지 못했습니다.',
+            }
         ],
         'conflictStatus': 'NOT_CHECKED',
         'sections': [],

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from functools import partial
 from typing import Any, TypedDict, cast
 
+from app.batch.ai_output_contracts import (
+    KEY_POINT_FAILURE,
+    canonical_key_point_issue,
+)
 from app.batch.ai_summary_targets import build_ai_summary_target_key
 from app.batch.diagnostics import AI_SUMMARY_FALLBACK, AI_SUMMARY_NO_CLUSTERS
 from app.batch.models import BatchExecutionContext
@@ -317,6 +321,17 @@ async def _persist_summary_result(
     fallback_details: list[dict[str, Any]],
 ) -> None:
     summary_job = summary_jobs_by_key[target_key]
+    raw_metadata = payload.get('metadata_json')
+    metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
+    raw_key_point_issue = metadata.get('keyPointIssue')
+    key_point_issue = (
+        canonical_key_point_issue(raw_key_point_issue)
+        if raw_key_point_issue is not None
+        else None
+    )
+    if raw_key_point_issue is not None:
+        metadata['keyPointIssue'] = key_point_issue
+    safe_payload = {**payload, 'metadata_json': metadata}
     create_params = AiSummaryCreateParams(
         batch_job_id=context.job_id,
         summary_type=summary_job['summary_type'],
@@ -331,7 +346,7 @@ async def _persist_summary_result(
         status=payload['status'],
         fallback_used=payload['fallback_used'],
         error_message=payload.get('error_message'),
-        metadata_json=payload.get('metadata_json', {}),
+        metadata_json=metadata,
         target_key=target_key,
     )
     upsert = getattr(summary_repo, 'upsert_retry_summary', None)
@@ -346,21 +361,23 @@ async def _persist_summary_result(
 
     context.generated_summary_count += 1
     if (
-        payload['status'] == AiSummaryStatus.SUCCESS.value
-        and not payload['fallback_used']
+        safe_payload['status'] == AiSummaryStatus.SUCCESS.value
+        and not safe_payload['fallback_used']
     ):
         context.ai_success_count += 1
-    elif payload['status'] == AiSummaryStatus.FAILED.value:
+    elif safe_payload['status'] == AiSummaryStatus.FAILED.value:
         context.ai_failed_count += 1
     else:
         context.ai_fallback_count += 1
     degrades_daily_page = (
         summary_job['summary_type'] != AiSummaryType.CLUSTER_DETAIL_ANALYSIS.value
     )
-    if payload['fallback_used'] and degrades_daily_page:
+    if safe_payload['fallback_used'] and degrades_daily_page:
         context.fallback_count += 1
-    if payload['fallback_used']:
-        partial_reason, fallback_detail = _build_fallback_report(payload, summary_job)
+    if safe_payload['fallback_used']:
+        partial_reason, fallback_detail = _build_fallback_report(
+            safe_payload, summary_job
+        )
         if degrades_daily_page:
             context.add_partial(AI_SUMMARY_FALLBACK, partial_reason)
         fallback_details.append(fallback_detail)
@@ -371,25 +388,18 @@ async def _persist_summary_result(
             message='AI summary target generated with fallback response.',
             context_json=fallback_detail,
         )
-    metadata = payload.get('metadata_json')
-    key_point_issue = (
-        metadata.get('keyPointIssue') if isinstance(metadata, dict) else None
-    )
-    if isinstance(key_point_issue, dict):
-        issue_message = key_point_issue.get('message')
-        if isinstance(issue_message, str):
-            context.add_partial('KEY_POINTS_GENERATION_FAILED', issue_message)
-            await repository.add_event(
-                job_id=context.job_id,
-                step_code=step_code,
-                level=EventLevel.WARN.value,
-                message='AI key point generation failed.',
-                context_json={
-                    'category': 'AI_SUMMARY',
-                    'code': 'KEY_POINTS_GENERATION_FAILED',
-                    'message': issue_message,
-                },
-            )
+    if key_point_issue is not None:
+        context.add_partial(
+            KEY_POINT_FAILURE['code'],
+            KEY_POINT_FAILURE['message'],
+        )
+        await repository.add_event(
+            job_id=context.job_id,
+            step_code=step_code,
+            level=EventLevel.WARN.value,
+            message='AI key point generation failed.',
+            context_json=dict(KEY_POINT_FAILURE),
+        )
     await progress.commit_target(target_key, context)
 
 

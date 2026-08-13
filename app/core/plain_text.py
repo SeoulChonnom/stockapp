@@ -72,6 +72,8 @@ def is_complete_plain_sentence(value: object) -> bool:
     if not isinstance(value, str):
         return False
     semantic = _decode_semantic_view(value)
+    if semantic is None:
+        return False
     if any(character in _LINE_BREAKS for character in semantic):
         return False
     text = semantic.strip()
@@ -95,13 +97,19 @@ def is_complete_plain_sentence(value: object) -> bool:
     return _sentence_boundary_count(text) == 1
 
 
-def _decode_semantic_view(text: str) -> str:
+def _decode_semantic_view(text: str) -> str | None:
     decoded = text
     for _ in range(_ENTITY_DECODE_ROUNDS):
         next_decoded = unescape(decoded)
         if next_decoded == decoded:
             break
         decoded = next_decoded
+    else:
+        # A bounded decoder must not accept an unresolved entity that can turn
+        # into syntax after one more pass.  This keeps hostile nesting bounded
+        # while allowing ordinary entities such as ``AT&amp;T``.
+        if unescape(decoded) != decoded:
+            return None
     return decoded
 
 

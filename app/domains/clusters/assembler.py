@@ -274,7 +274,23 @@ def _persisted_sentence_statuses(persisted: Mapping[str, Any]) -> list[str]:
 
 
 def _unavailable_from_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
-    codes = _issue_codes(metadata.get('analysisIssues'))
+    raw_issues = metadata.get('analysisIssues')
+    if not isinstance(raw_issues, list):
+        return build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
+
+    codes: list[str] = []
+    for issue in raw_issues:
+        if not isinstance(issue, Mapping):
+            return build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
+        code = issue.get('code')
+        if (
+            not isinstance(code, str)
+            or code not in ANALYSIS_ISSUE_MESSAGES
+            or code in codes
+            or code == 'CONFLICT_CHECK_FAILED'
+        ):
+            return build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
+        codes.append(code)
     return build_unavailable_analysis(*(codes or ['ANALYSIS_GENERATION_FAILED']))
 
 

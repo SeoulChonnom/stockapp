@@ -21,6 +21,7 @@ def _summary(
     fallback_used: bool,
     attempt_no: int = 1,
     source_summary_id: int | None = None,
+    metadata_json: dict | None = None,
 ) -> AiSummaryRecord:
     summary_type, _, suffix = target_key.partition(':')
     market_type = suffix if summary_type == 'MARKET_SUMMARY' else None
@@ -40,7 +41,7 @@ def _summary(
         status=status,
         fallback_used=fallback_used,
         error_message=None,
-        metadata_json={},
+        metadata_json=metadata_json or {},
         generated_at=GENERATED_AT + timedelta(seconds=summary_id),
         target_key=target_key,
         source_summary_id=source_summary_id,
@@ -187,3 +188,29 @@ def test_success_status_with_fallback_flag_is_still_retryable():
     )
 
     assert len(selected) == 1
+
+
+def test_successful_global_headline_with_key_point_issue_is_retryable():
+    source = _summary(
+        11,
+        job_id=10,
+        target_key='GLOBAL_HEADLINE',
+        status='SUCCESS',
+        fallback_used=False,
+        metadata_json={
+            'keyPointIssue': {
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': 'untrusted persisted text',
+            }
+        },
+    )
+
+    selected = select_retry_targets(
+        source_job_id=10,
+        retry_job_id=20,
+        lineage=[source],
+    )
+
+    assert [selection.target.target_key for selection in selected] == [
+        'GLOBAL_HEADLINE'
+    ]

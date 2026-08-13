@@ -333,6 +333,25 @@ class KeyPointFailureLlm(SuccessfulLlm):
         return {'keyPoints': [{'kind': 'direction'}]}
 
 
+class KeyPointOnlyLlm(SuccessfulLlm):
+    def __init__(self, *, fail: bool = False):
+        self.headline_calls = 0
+        self.key_point_calls = 0
+        self.fail = fail
+
+    async def summarize_global_headline(self, **_kwargs):
+        self.headline_calls += 1
+        raise AssertionError('headline must not be regenerated')
+
+    async def summarize_key_points(self, **_kwargs):
+        self.key_point_calls += 1
+        return (
+            {'keyPoints': [{'kind': 'direction'}]}
+            if self.fail
+            else {'keyPoints': KEY_POINTS}
+        )
+
+
 class TimeoutLlm(SuccessfulLlm):
     async def summarize_global_headline(self, **_kwargs):
         raise TimeoutError('provider timeout')
@@ -691,7 +710,7 @@ async def test_retry_keeps_successful_headline_when_key_points_fail():
     result = await orchestrator.run(20)
 
     persisted = summary_writer.params[0]
-    assert result.counts.success_count == 1
+    assert result.counts.success_count == 0
     assert persisted.status == 'SUCCESS'
     assert persisted.fallback_used is False
     assert persisted.title == 'recovered'
@@ -705,6 +724,81 @@ async def test_retry_keeps_successful_headline_when_key_points_fail():
         'sourceSummaryId': source.summary_id,
         'attemptNo': 2,
     }
+
+
+@pytest.mark.anyio
+async def test_retry_key_point_only_preserves_headline_and_recovers_key_points():
+    source = replace(
+        _source_summary(),
+        status='SUCCESS',
+        fallback_used=False,
+        title='persisted headline',
+        body='persisted body',
+        metadata_json={
+            'keyPoints': [],
+            'keyPointIssue': {
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': 'untrusted persisted text',
+            },
+        },
+    )
+    provider = KeyPointOnlyLlm()
+    orchestrator, _, summary_writer, _ = _orchestrator(
+        lineage=[source],
+        llm=provider,
+        page_builder=FakePageBuilder(),
+    )
+
+    result = await orchestrator.run(20)
+
+    persisted = summary_writer.params[0]
+    assert result.counts.recovered_count == 1
+    assert persisted.title == 'persisted headline'
+    assert persisted.body == 'persisted body'
+    assert persisted.metadata_json['keyPoints'] == KEY_POINTS
+    assert persisted.metadata_json['keyPointIssue'] is None
+    assert provider.headline_calls == 0
+    assert provider.key_point_calls == 1
+
+
+@pytest.mark.anyio
+async def test_retry_key_point_only_failure_preserves_headline_and_canonical_issue():
+    source = replace(
+        _source_summary(),
+        status='SUCCESS',
+        fallback_used=False,
+        title='persisted headline',
+        body='persisted body',
+        metadata_json={
+            'keyPoints': [],
+            'keyPointIssue': {
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': 'untrusted persisted text',
+            },
+        },
+    )
+    provider = KeyPointOnlyLlm(fail=True)
+    orchestrator, _, summary_writer, _ = _orchestrator(
+        lineage=[source],
+        llm=provider,
+        page_builder=FakePageBuilder(),
+    )
+
+    result = await orchestrator.run(20)
+
+    persisted = summary_writer.params[0]
+    assert result.status == 'PARTIAL'
+    assert persisted.status == 'SUCCESS'
+    assert persisted.fallback_used is False
+    assert persisted.title == 'persisted headline'
+    assert persisted.body == 'persisted body'
+    assert persisted.metadata_json['keyPointIssue'] == {
+        'category': 'AI_SUMMARY',
+        'code': 'KEY_POINTS_GENERATION_FAILED',
+        'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+    }
+    assert provider.headline_calls == 0
+    assert provider.key_point_calls == 1
 
 
 @pytest.mark.anyio

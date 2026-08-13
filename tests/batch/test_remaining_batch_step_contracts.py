@@ -457,6 +457,73 @@ async def test_persist_global_headline_records_key_point_partial_and_warning():
 
 
 @pytest.mark.anyio
+async def test_persist_global_headline_sanitizes_untrusted_key_point_issue_message():
+    generate_module = load_module('app.batch.steps.generate_ai_summaries')
+
+    class RecordingSummaryRepo:
+        def __init__(self):
+            self.rows = []
+
+        async def insert_summary(self, params):
+            self.rows.append(params)
+
+    class RecordingProgress:
+        async def commit_target(self, target_key, context):
+            _ = target_key, context
+
+    repository = RichEventRepository(
+        session=RecordingAsyncSession(),
+        events=[],
+    )
+    context = build_context()
+    summary_repo = RecordingSummaryRepo()
+    raw_issue = {
+        'category': 'AI_SUMMARY',
+        'code': 'KEY_POINTS_GENERATION_FAILED',
+        'message': 'provider secret must not leak',
+    }
+
+    await generate_module._persist_summary_result(
+        'GLOBAL_HEADLINE',
+        {
+            'title': '글로벌 증시 반등',
+            'body': '반도체가 강세였습니다.',
+            'status': 'SUCCESS',
+            'fallback_used': False,
+            'metadata_json': {
+                'keyPoints': [],
+                'keyPointIssue': raw_issue,
+            },
+        },
+        context=context,
+        repository=repository,
+        step_code='GENERATE_AI_SUMMARIES',
+        summary_repo=summary_repo,
+        summary_jobs_by_key={
+            'GLOBAL_HEADLINE': {
+                'summary_type': 'GLOBAL_HEADLINE',
+                'market_type': None,
+                'cluster_id': None,
+                'target_key': 'GLOBAL_HEADLINE',
+                'generate': None,
+            }
+        },
+        progress=RecordingProgress(),
+        fallback_details=[],
+    )
+
+    canonical_issue = {
+        'category': 'AI_SUMMARY',
+        'code': 'KEY_POINTS_GENERATION_FAILED',
+        'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+    }
+    assert summary_repo.rows[0].metadata_json['keyPointIssue'] == canonical_issue
+    assert context.partial_reasons == [canonical_issue['message']]
+    warning = next(event for event in repository.events if event['level'] == 'WARN')
+    assert warning['context_json'] == canonical_issue
+
+
+@pytest.mark.anyio
 async def test_persist_unavailable_cluster_detail_does_not_degrade_daily_page():
     generate_module = load_module('app.batch.steps.generate_ai_summaries')
 

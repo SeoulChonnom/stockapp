@@ -50,12 +50,29 @@ def normalize_key_points(payload: object) -> dict[str, object]:
 
 def build_unavailable_analysis(*issue_codes: str) -> AnalysisResult:
     """Build the single public fallback shape with stable, unique issue codes."""
+    # CONFLICT_CHECK_FAILED describes a retained sentence degraded to
+    # NOT_CHECKED.  An UNAVAILABLE response has no retained sentences, so that
+    # issue would create an impossible public model state.
+    if any(
+        code not in ANALYSIS_ISSUE_MESSAGES or code == 'CONFLICT_CHECK_FAILED'
+        for code in issue_codes
+    ):
+        issue_codes = ('ANALYSIS_GENERATION_FAILED',)
     return {
         'analysisStatus': 'UNAVAILABLE',
         'analysisIssues': _issues_for(issue_codes),
         'conflictStatus': 'NOT_CHECKED',
         'sections': [],
     }
+
+
+def canonical_key_point_issue(value: object) -> dict[str, str] | None:
+    """Return the fixed public key-point issue for its approved code only."""
+    if not isinstance(value, Mapping):
+        return None
+    if value.get('code') != KEY_POINT_FAILURE['code']:
+        return None
+    return dict(KEY_POINT_FAILURE)
 
 
 def validate_analysis_sections(
@@ -320,6 +337,7 @@ __all__ = [
     'KEY_POINT_LABELS',
     'aggregate_conflict_status',
     'build_unavailable_analysis',
+    'canonical_key_point_issue',
     'normalize_key_points',
     'validate_analysis_sections',
 ]

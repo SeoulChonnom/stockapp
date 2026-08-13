@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
+from app.batch.ai_output_contracts import KEY_POINT_FAILURE
 from app.batch.ai_retry.models import AiRetryCounts, AiRetrySelection
 from app.batch.ai_summary_targets import target_from_summary
 from app.db.enums import AiSummaryStatus
@@ -11,6 +12,22 @@ from app.db.repositories.projections import AiSummaryRecord
 def is_successful_summary(summary: AiSummaryRecord) -> bool:
     """Return whether a summary is a usable provider success."""
     return summary.status == AiSummaryStatus.SUCCESS.value and not summary.fallback_used
+
+
+def has_unresolved_key_points(summary: AiSummaryRecord) -> bool:
+    """Return whether a successful global headline still needs key points."""
+    if summary.summary_type != 'GLOBAL_HEADLINE':
+        return False
+    metadata = summary.metadata_json
+    if not isinstance(metadata, Mapping):
+        return False
+    issue = metadata.get('keyPointIssue')
+    return isinstance(issue, Mapping) and issue.get('code') == KEY_POINT_FAILURE['code']
+
+
+def is_retry_resolved(summary: AiSummaryRecord) -> bool:
+    """Return whether all public outputs for a summary target are usable."""
+    return is_successful_summary(summary) and not has_unresolved_key_points(summary)
 
 
 def resolve_effective_summaries(
@@ -49,9 +66,9 @@ def select_retry_targets(
         target = target_from_summary(source_row)
         current = current_rows.get(target.target_key)
         resolved = effective.get(target.target_key, source_row)
-        if is_successful_summary(resolved):
+        if is_retry_resolved(resolved):
             continue
-        if current is not None and is_successful_summary(current):
+        if current is not None and is_retry_resolved(current):
             continue
 
         if current is None:
@@ -96,7 +113,7 @@ def calculate_retry_counts(
     )
     for target_key in source_targets:
         row = effective[target_key]
-        if is_successful_summary(row):
+        if is_retry_resolved(row):
             counts.success_count += 1
         elif row.status == AiSummaryStatus.FAILED.value:
             counts.failed_count += 1
@@ -111,7 +128,7 @@ def calculate_retry_counts(
             lineage=lineage,
             fallback=retry_row,
         )
-        if not is_successful_summary(source):
+        if not is_retry_resolved(source):
             counts.recovered_count += 1
     return counts
 
@@ -137,6 +154,8 @@ def _summary_order(summary: AiSummaryRecord) -> tuple[int, object, int]:
 __all__ = [
     'calculate_retry_counts',
     'is_successful_summary',
+    'has_unresolved_key_points',
+    'is_retry_resolved',
     'resolve_effective_summaries',
     'select_retry_targets',
 ]

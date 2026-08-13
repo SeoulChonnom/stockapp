@@ -14,6 +14,17 @@ class AiSummaryWriteRepository(PostgresRepository):
     async def insert_summary(self, params: AiSummaryCreateParams) -> AiSummaryRecord:
         statement = text(
             """
+            WITH target_lock AS (
+                SELECT pg_advisory_xact_lock(
+                    hashtextextended(CAST(:target_key AS TEXT), 0)
+                )
+            ),
+            next_attempt AS (
+                SELECT COALESCE(MAX(existing.attempt_no), 0) + 1 AS attempt_no
+                FROM {summary_table} AS existing
+                CROSS JOIN target_lock
+                WHERE existing.target_key = :target_key
+            )
             INSERT INTO {summary_table} (
                 batch_job_id,
                 summary_type,
@@ -50,7 +61,7 @@ class AiSummaryWriteRepository(PostgresRepository):
                 CAST(:metadata_json AS JSONB),
                 :target_key,
                 :source_summary_id,
-                :attempt_no
+                (SELECT attempt_no FROM next_attempt)
             )
             RETURNING
                 id AS summary_id,

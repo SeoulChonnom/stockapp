@@ -230,8 +230,40 @@ async def _generate_key_points(
 
 
 async def _generate_global_outputs(
-    llm_provider: BatchLlmProvider, clusters: list[dict], indices: list
+    llm_provider: BatchLlmProvider,
+    clusters: list[dict],
+    indices: list,
+    *,
+    existing_summary: Any | None = None,
 ) -> dict[str, Any]:
+    if existing_summary is not None:
+        key_point_result = await _generate_key_points(
+            llm_provider,
+            clusters,
+            indices,
+        )
+        existing_metadata = getattr(existing_summary, 'metadata_json', None)
+        metadata = (
+            dict(existing_metadata) if isinstance(existing_metadata, dict) else {}
+        )
+        metadata.update(
+            {
+                'keyPoints': key_point_result['keyPoints'],
+                'keyPointIssue': key_point_result['issue'],
+            }
+        )
+        return {
+            'title': getattr(existing_summary, 'title', None),
+            'body': getattr(existing_summary, 'body', None),
+            'status': getattr(
+                existing_summary, 'status', AiSummaryStatus.FALLBACK.value
+            ),
+            'fallback_used': bool(getattr(existing_summary, 'fallback_used', True)),
+            'model_name': getattr(existing_summary, 'model_name', None),
+            'error_message': getattr(existing_summary, 'error_message', None),
+            'metadata_json': metadata,
+        }
+
     headline_result = await _generate_global_headline(
         llm_provider,
         clusters,
