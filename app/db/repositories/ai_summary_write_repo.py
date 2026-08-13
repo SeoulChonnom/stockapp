@@ -12,19 +12,14 @@ from app.db.repositories.projections import AiSummaryCreateParams, AiSummaryReco
 
 class AiSummaryWriteRepository(PostgresRepository):
     async def insert_summary(self, params: AiSummaryCreateParams) -> AiSummaryRecord:
+        target_key = params.target_key or build_ai_summary_target_key(
+            params.summary_type,
+            market_type=params.market_type,
+            cluster_id=params.cluster_id,
+        )
+        await self._lock_target(target_key)
         statement = text(
             """
-            WITH target_lock AS MATERIALIZED (
-                SELECT pg_advisory_xact_lock(
-                    hashtextextended(CAST(:target_key AS TEXT), 0)
-                )
-            ),
-            next_attempt AS MATERIALIZED (
-                SELECT COALESCE(MAX(existing.attempt_no), 0) + 1 AS attempt_no
-                FROM target_lock
-                LEFT JOIN {summary_table} AS existing
-                  ON existing.target_key = :target_key
-            )
             INSERT INTO {summary_table} (
                 batch_job_id,
                 summary_type,
@@ -61,7 +56,11 @@ class AiSummaryWriteRepository(PostgresRepository):
                 CAST(:metadata_json AS JSONB),
                 :target_key,
                 :source_summary_id,
-                (SELECT attempt_no FROM next_attempt)
+                (
+                    SELECT COALESCE(MAX(existing.attempt_no), 0) + 1
+                    FROM {summary_table} AS existing
+                    WHERE existing.target_key = :target_key
+                )
             )
             RETURNING
                 id AS summary_id,
@@ -89,11 +88,6 @@ class AiSummaryWriteRepository(PostgresRepository):
                 market_type_enum=qualify_db_identifier('market_type_enum'),
                 status_enum=qualify_db_identifier('ai_summary_status_enum'),
             )
-        )
-        target_key = params.target_key or build_ai_summary_target_key(
-            params.summary_type,
-            market_type=params.market_type,
-            cluster_id=params.cluster_id,
         )
         result = await self.session.execute(
             statement,
@@ -129,19 +123,9 @@ class AiSummaryWriteRepository(PostgresRepository):
             market_type=params.market_type,
             cluster_id=params.cluster_id,
         )
+        await self._lock_target(target_key)
         statement = text(
             """
-            WITH target_lock AS MATERIALIZED (
-                SELECT pg_advisory_xact_lock(
-                    hashtextextended(CAST(:target_key AS TEXT), 0)
-                ) AS acquired
-            ),
-            next_attempt AS MATERIALIZED (
-                SELECT COALESCE(MAX(existing.attempt_no), 0) + 1 AS attempt_no
-                FROM target_lock
-                LEFT JOIN {summary_table} AS existing
-                  ON existing.target_key = :target_key
-            )
             INSERT INTO {summary_table} (
                 batch_job_id,
                 summary_type,
@@ -178,7 +162,11 @@ class AiSummaryWriteRepository(PostgresRepository):
                 CAST(:metadata_json AS JSONB),
                 :target_key,
                 :source_summary_id,
-                (SELECT attempt_no FROM next_attempt)
+                (
+                    SELECT COALESCE(MAX(existing.attempt_no), 0) + 1
+                    FROM {summary_table} AS existing
+                    WHERE existing.target_key = :target_key
+                )
             )
             ON CONFLICT (batch_job_id, target_key) DO UPDATE
             SET
@@ -242,6 +230,18 @@ class AiSummaryWriteRepository(PostgresRepository):
         )
         row = result.mappings().one()
         return self._model_from_mapping(AiSummaryRecord, row)
+
+    async def _lock_target(self, target_key: str) -> None:
+        await self.session.execute(
+            text(
+                """
+                SELECT pg_advisory_xact_lock(
+                    hashtextextended(CAST(:target_key AS TEXT), 0)
+                )
+                """
+            ),
+            {'target_key': target_key},
+        )
 
     async def upsert_retry_summary(
         self, params: AiSummaryCreateParams
