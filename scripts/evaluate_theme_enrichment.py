@@ -30,16 +30,18 @@ ROOT_PATH = Path(__file__).resolve().parents[1]
 if str(ROOT_PATH) not in sys.path:
     sys.path.insert(0, str(ROOT_PATH))
 
-from app.batch.providers.llm_provider import (  # noqa: E402
-    THEME_ENRICHMENT_PROMPT_VERSION,
-    BatchLlmProvider,
-    _serialize_prompt,
+from app.batch.providers.llm_provider import _serialize_prompt  # noqa: E402
+from app.batch.steps.classify_cluster_themes import (  # noqa: E402
+    _parse_theme_codes,
 )
 from app.batch.steps.cluster_enrichment import (  # noqa: E402
     _build_enrichment_payload,
-    _enrich_cluster,
     _parse_enrichment_response,
-    _parse_theme_codes,
+)
+from app.batch.theme_classifier import (  # noqa: E402
+    ArticleEvidence,
+    ThemeEvidence,
+    classify_theme_fallback,
 )
 from app.batch.theme_rules import CANONICAL_LEAF_CODES, load_theme_rules  # noqa: E402
 
@@ -50,7 +52,9 @@ MANIFEST_PATH = Path('docs/evaluations/2026-08-13-theme-enrichment.manifest.json
 
 MODEL_NAME = 'mock-gemini-2.5-flash'
 BASELINE_PROMPT_VERSION = 'historical-production-36411a6-parent'
-CANDIDATE_PROMPT_VERSION = THEME_ENRICHMENT_PROMPT_VERSION
+# Frozen historical Candidate-A provenance.  Candidate A is no longer a
+# production path; this evaluator retains its raw Task6 replay unchanged.
+CANDIDATE_PROMPT_VERSION = 'v3'
 BASELINE_SYSTEM_PROMPT_SHA256 = (
     'b8eabdbda4dcb46ff18797d12867ba8148dcbf0ec7ee5c12ab269bf74e6c7193'
 )
@@ -360,7 +364,8 @@ BASELINE_SYSTEM_PROMPT = (
 # These two templates are frozen evaluator fixtures for the one already-made
 # Candidate-A correction.  v2 is the prompt at the parent of bd3ff95; v3 is
 # the current production prompt after bd3ff95.  They are hashes/provenance
-# inputs only: the live Candidate-A call always goes through BatchLlmProvider.
+# inputs only: the historical Candidate-A call uses the frozen local provider
+# below; Candidate A is not a production strategy.
 def _candidate_system_prompt(version: str, allowed_codes: Sequence[str]) -> str:
     formatted_theme_codes = ', '.join(allowed_codes)
     if version == 'v2':
@@ -551,7 +556,7 @@ def evaluate_gates(
             <= GATE_THRESHOLDS['invalid_theme_response_rate'],
         },
         'fallback_assignment_rate': {
-            'observed': candidate.fallback_assignment_rate,
+            'observed': candidate.fallback_assignment_rate or 0.0,
             'threshold': GATE_THRESHOLDS['fallback_assignment_rate'],
             'passed': candidate.fallback_assignment_rate is not None
             and candidate.fallback_assignment_rate
@@ -774,6 +779,73 @@ class _FrozenPromptProvider:
         )
 
 
+def _historical_candidate_enrichment(
+    response: object,
+    articles: list,
+    catalog: Any,
+) -> tuple[dict[str, Any], list[str], bool]:
+    """Reconstruct Task6 Candidate-A accounting outside production enrichment."""
+
+    fallback = {
+        'title': articles[0].canonical_title,
+        'summary_short': articles[0].source_summary or articles[0].article_body_excerpt,
+        'summary_long': articles[0].source_summary or articles[0].article_body_excerpt,
+        'tags': [],
+        'analysis_paragraphs': [],
+        'representative_article_id': articles[0].processed_article_id,
+        'fallback_used': True,
+    }
+    reason, tags, paragraphs, representative_index = _parse_enrichment_response(
+        response, articles
+    )
+    if reason is not None or not isinstance(response, Mapping):
+        return fallback, [], True
+    representative = articles[representative_index]
+    raw_codes = response.get('themeCodes')
+    accepted_codes = _parse_theme_codes(
+        raw_codes,
+        allowed_theme_codes=catalog.codes,
+    )
+    if accepted_codes:
+        assigned_codes = accepted_codes
+        theme_fallback_used = False
+    else:
+        evidence = ThemeEvidence(
+            cluster_title=response.get('title') or representative.canonical_title,
+            representative_article_id=representative.processed_article_id,
+            articles=tuple(
+                ArticleEvidence(
+                    article_id=article.processed_article_id,
+                    title=article.canonical_title,
+                    source_summary=article.source_summary,
+                    article_body_excerpt=article.article_body_excerpt,
+                )
+                for article in articles
+            ),
+        )
+        assigned_codes = [
+            assignment.theme_code
+            for assignment in classify_theme_fallback(evidence, catalog)
+        ]
+        theme_fallback_used = True
+    return (
+        {
+            'title': response.get('title') or representative.canonical_title,
+            'summary_short': response.get('summary_short')
+            or representative.source_summary,
+            'summary_long': response.get('summary_long')
+            or representative.source_summary,
+            'tags': [] if tags is None else tags,
+            'analysis_paragraphs': [] if paragraphs is None else paragraphs,
+            'representative_article_id': representative.processed_article_id,
+            'fallback_used': False,
+            'theme_fallback_used': theme_fallback_used,
+        },
+        assigned_codes,
+        theme_fallback_used,
+    )
+
+
 async def _run_candidate_call(
     http_client: httpx.AsyncClient,
     cluster: EvalCluster,
@@ -788,22 +860,20 @@ async def _run_candidate_call(
         cluster=cluster,
         run_index=run_index,
     )
-    provider: Any = BatchLlmProvider(client)
-    if prompt_version != 'v3':
-        provider = _FrozenPromptProvider(
-            client, prompt_version=prompt_version, theme_codes=catalog.codes
-        )
-    articles = _article_views(cluster)
-    enriched = await _enrich_cluster(
-        provider,
-        cluster.market_type,
-        articles,
-        theme_catalog=catalog,
+    provider: Any = _FrozenPromptProvider(
+        client, prompt_version=prompt_version, theme_codes=catalog.codes
     )
-    raw_response = json.loads(client.exchange.raw_response.decode('utf-8'))
-    assigned_codes = [
-        assignment.theme_code for assignment in enriched['theme_assignments']
-    ]
+    articles = _article_views(cluster)
+    raw_response = await provider.enrich_cluster(
+        market_type=cluster.market_type,
+        articles=_build_enrichment_payload(articles),
+        theme_codes=catalog.codes,
+    )
+    enriched, assigned_codes, theme_fallback_used = _historical_candidate_enrichment(
+        raw_response,
+        articles,
+        catalog,
+    )
     raw_invalid, invalid_reason, zero_valid, accepted_codes = _audit_theme_output(
         raw_response, catalog.codes
     )
@@ -816,10 +886,8 @@ async def _run_candidate_call(
         response_valid=not bool(enriched['fallback_used']),
         theme_output_valid=not raw_invalid,
         assigned_codes=assigned_codes,
-        fallback_used=bool(enriched['theme_fallback_used']),
-        fallback_assignment_count=len(assigned_codes)
-        if enriched['theme_fallback_used']
-        else 0,
+        fallback_used=theme_fallback_used,
+        fallback_assignment_count=len(assigned_codes) if theme_fallback_used else 0,
         primary_correct=bool(assigned_codes)
         and assigned_codes[0] == cluster.expected_primary_leaf,
         latency_ms=client.exchange.latency_ms,
@@ -899,14 +967,11 @@ async def _run_warmup(
         run_index=0,
         request_kind='warmup',
     )
-    if candidate_prompt_version == 'v3':
-        warmup_provider: Any = BatchLlmProvider(candidate_client)
-    else:
-        warmup_provider = _FrozenPromptProvider(
-            candidate_client,
-            prompt_version=candidate_prompt_version,
-            theme_codes=catalog.codes,
-        )
+    warmup_provider: Any = _FrozenPromptProvider(
+        candidate_client,
+        prompt_version=candidate_prompt_version,
+        theme_codes=catalog.codes,
+    )
     await warmup_provider.enrich_cluster(
         market_type=cluster.market_type,
         articles=articles,
@@ -1167,6 +1232,13 @@ def _json_payload(result: EvaluationResult) -> dict[str, Any]:
         'modelName': result.model_name,
         'promptVersions': result.prompt_versions,
         'correctionState': result.correction_state,
+        'productionStrategy': {
+            'candidateA': 'REMOVED',
+            'candidateB': 'CLASSIFY_CLUSTER_THEMES',
+            'soleProductionLlmThemeStrategy': (
+                'Candidate B dedicated classification step'
+            ),
+        },
         'datasetSha256': result.dataset_sha256,
         'mockApi': {
             'transport': 'httpx.MockTransport',
@@ -1416,9 +1488,9 @@ def _render_report(
     lines.extend(['', '## Latency repeatability audit', '', *repeatability_lines])
     lines.extend(initial_run_lines)
     decision_line = (
-        '- Production decision: `CANDIDATE_A` remains the selected inline enrichment strategy. Candidate B was not implemented.'
-        if result.passed
-        else '- Production decision: `CANDIDATE_B_REQUIRED`; Candidate B was not implemented in Task 6. The next task must remove the failed inline A-specific path before introducing B.'
+        '- Production decision: Candidate A code was removed after the Task 6 '
+        'gate, and Candidate B (`CLASSIFY_CLUSTER_THEMES`) is the sole '
+        'production LLM theme strategy.'
     )
     evaluation_exit_line = (
         '- The evaluator exited zero because every gate passed.'

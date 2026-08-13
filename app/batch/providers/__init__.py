@@ -1,5 +1,9 @@
 from app.batch.providers.article_content import ArticleContentProvider
-from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
+from app.batch.providers.llm_provider import (
+    PROMPT_VERSION,
+    THEME_CLASSIFIER_PROMPT_VERSION,
+    BatchLlmProvider,
+)
 from app.batch.providers.market_index_provider import (
     MARKET_INDEX_TICKERS,
     YFINANCE_PROVIDER_NAME,
@@ -14,6 +18,7 @@ __all__ = [
     'NAVER_NEWS_PROVIDER_NAME',
     'NaverNewsProvider',
     'PROMPT_VERSION',
+    'THEME_CLASSIFIER_PROMPT_VERSION',
     'YFINANCE_PROVIDER_NAME',
     'MarketIndexProvider',
 ]

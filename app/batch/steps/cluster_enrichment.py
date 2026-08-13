@@ -1,20 +1,12 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 from app.batch.logging import log_safe_exception
 from app.batch.normalizers import normalize_title, tokenize_text
 from app.batch.providers.llm_provider import BatchLlmProvider
-from app.batch.theme_classifier import (
-    ArticleEvidence,
-    ThemeAssignment,
-    ThemeEvidence,
-    classify_theme_fallback,
-)
-from app.batch.theme_rules import ThemeRuleCatalog, load_theme_rules
 from app.core.llm import LlmRetryableError
 from app.core.public_diagnostics import (
     public_ai_invalid_response,
@@ -129,102 +121,6 @@ def _build_cluster_fallback(articles: list) -> dict[str, Any]:
     }
 
 
-def _parse_theme_codes(
-    value: object,
-    *,
-    allowed_theme_codes: Sequence[str],
-) -> list[str]:
-    """Return valid leaf codes in provider order, capped at three items."""
-
-    if not isinstance(value, list):
-        return []
-    allowed = set(allowed_theme_codes)
-    parsed: list[str] = []
-    for candidate in value:
-        if not isinstance(candidate, str) or candidate not in allowed:
-            continue
-        if candidate in parsed:
-            continue
-        parsed.append(candidate)
-        if len(parsed) == 3:
-            break
-    return parsed
-
-
-def _build_theme_evidence(
-    articles: list,
-    *,
-    cluster_title: str | None,
-    representative_article_id: int,
-) -> ThemeEvidence:
-    """Build canonical source evidence for deterministic theme fallback."""
-
-    return ThemeEvidence(
-        cluster_title=cluster_title,
-        representative_article_id=representative_article_id,
-        articles=tuple(
-            ArticleEvidence(
-                article_id=article.processed_article_id,
-                title=article.canonical_title,
-                source_summary=article.source_summary,
-                article_body_excerpt=article.article_body_excerpt,
-            )
-            for article in articles
-        ),
-    )
-
-
-def _classify_theme_codes(
-    result: object,
-    *,
-    articles: list,
-    cluster_title: str | None,
-    representative_article_id: int,
-    theme_catalog: ThemeRuleCatalog,
-) -> tuple[list[ThemeAssignment], bool]:
-    """Use valid provider themes or independently classify with keyword rules."""
-
-    result_mapping = result if isinstance(result, dict) else {}
-    valid_codes = _parse_theme_codes(
-        result_mapping.get('themeCodes'),
-        allowed_theme_codes=theme_catalog.codes,
-    )
-    if valid_codes:
-        return [
-            ThemeAssignment(
-                theme_code=code,
-                rank=rank,
-                classification_method='LLM',
-            )
-            for rank, code in enumerate(valid_codes, start=1)
-        ], False
-
-    evidence = _build_theme_evidence(
-        articles,
-        cluster_title=cluster_title,
-        representative_article_id=representative_article_id,
-    )
-    return classify_theme_fallback(evidence, theme_catalog), True
-
-
-def _with_theme_fallback(
-    fallback: dict[str, Any],
-    *,
-    articles: list,
-    theme_catalog: ThemeRuleCatalog,
-) -> dict[str, Any]:
-    assignments, _ = _classify_theme_codes(
-        {},
-        articles=articles,
-        cluster_title=fallback['title'],
-        representative_article_id=fallback['representative_article_id'],
-        theme_catalog=theme_catalog,
-    )
-    fallback['theme_assignments'] = assignments
-    fallback['theme_fallback_used'] = True
-    return fallback
-
-
 def _parse_enrichment_response(
     result: object, articles: list
 ) -> tuple[str | None, list | None, list | None, int]:
@@ -254,22 +150,14 @@ async def _enrich_cluster(
     llm_provider: BatchLlmProvider,
     market_type: str,
     articles: list,
-    *,
-    theme_catalog: ThemeRuleCatalog | None = None,
 ) -> dict:
-    selected_catalog = theme_catalog or load_theme_rules()
     fallback = _build_cluster_fallback(articles)
     if not llm_provider.is_configured():
-        return _with_theme_fallback(
-            fallback,
-            articles=articles,
-            theme_catalog=selected_catalog,
-        )
+        return fallback
     try:
         result = await llm_provider.enrich_cluster(
             market_type=market_type,
             articles=_build_enrichment_payload(articles),
-            theme_codes=selected_catalog.codes,
         )
     except LlmRetryableError:
         raise
@@ -281,11 +169,7 @@ async def _enrich_cluster(
             exception=exc,
         )
         fallback['error_context'] = public_ai_provider_error(exc)
-        return _with_theme_fallback(
-            fallback,
-            articles=articles,
-            theme_catalog=selected_catalog,
-        )
+        return fallback
 
     reason, tags, analysis_paragraphs, representative_index = (
         _parse_enrichment_response(result, articles)
@@ -293,21 +177,10 @@ async def _enrich_cluster(
     if reason:
         fallback['fallback_reason'] = 'llm_malformed_response'
         fallback['error_context'] = public_ai_invalid_response()
-        return _with_theme_fallback(
-            fallback,
-            articles=articles,
-            theme_catalog=selected_catalog,
-        )
+        return fallback
 
     result_mapping = result if isinstance(result, dict) else {}
     representative_article_id = articles[representative_index].processed_article_id
-    theme_assignments, theme_fallback_used = _classify_theme_codes(
-        result,
-        articles=articles,
-        cluster_title=result_mapping.get('title') or fallback['title'],
-        representative_article_id=representative_article_id,
-        theme_catalog=selected_catalog,
-    )
     return {
         'title': result_mapping.get('title') or fallback['title'],
         'summary_short': result_mapping.get('summary_short')
@@ -320,8 +193,6 @@ async def _enrich_cluster(
             else analysis_paragraphs
         ),
         'representative_article_id': representative_article_id,
-        'theme_assignments': theme_assignments,
-        'theme_fallback_used': theme_fallback_used,
         'fallback_used': False,
         'fallback_reason': 'llm',
         'error_context': None,
@@ -332,6 +203,5 @@ __all__ = [
     '_derive_tags',
     '_enrich_cluster',
     '_group_articles',
-    '_parse_theme_codes',
     '_rank_market_clusters',
 ]

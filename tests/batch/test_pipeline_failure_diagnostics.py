@@ -19,7 +19,6 @@ from app.batch.steps.collect_news import CollectNewsStep
 from app.batch.steps.finalize_job import FinalizeJobStep
 from app.batch.steps.generate_ai_summaries import GenerateAiSummariesStep
 from app.db.repositories.news_article_raw_repo import NewsArticleRawRepository
-from tests.batch.theme_test_support import StrictThemeRepository
 from tests.support import DummyResult, RecordingAsyncSession, normalize_sql
 
 
@@ -394,7 +393,6 @@ async def test_cluster_llm_fallback_increments_count_and_adds_partial_diagnostic
         processed_repo_factory=ProcessedRepo,
         cluster_repo_factory=ClusterRepo,
         llm_provider_factory=FailingLlmProvider,
-        theme_repository_factory=StrictThemeRepository,
     ).run(repository, build_context())
 
     assert context.fallback_count == 1

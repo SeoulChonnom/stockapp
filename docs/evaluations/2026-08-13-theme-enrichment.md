@@ -1,12 +1,17 @@
 # B3 Task 6 — Theme enrichment mock evaluation
 
+> Historical gate artifact: Candidate A was removed after the failed token gate.
+> Candidate B (`CLASSIFY_CLUSTER_THEMES`) is now the sole production LLM theme
+> strategy; the metrics below remain the original Task 6 mock replay.
+
 - Status: **FAIL**
 - Decision: **CANDIDATE_B_REQUIRED**
 - Run: `final-after-one-correction`; 240 matrix HTTP-style calls (40 clusters × 2 variants × 3 runs), plus 2 excluded warmups
 - Model name: `mock-gemini-2.5-flash` (deterministic local Mockup API)
 - Prompt versions: baseline `historical-production-36411a6-parent`, Candidate A `v3`
+- Production strategy: Candidate A code **removed**; Candidate B (`CLASSIFY_CLUSTER_THEMES`) is the sole production LLM strategy.
 - Dataset SHA-256: `b5ffb015c031f18789229cb0ba9904fea21cb6a18098ee270bb4da2c19b1cd14`
-- Result JSON SHA-256: `6ebe025503ca518a70d88ff5c21c3caf53875e2a6db059005becb336aa1a4b2f`
+- Result JSON SHA-256: `392d1b34800af4ffb300700d0e4b9d9fe94b9365e4214f60eea4b5aecb13a297`
 - Hash manifest: `docs/evaluations/2026-08-13-theme-enrichment.manifest.json`
 - Detailed JSON: `docs/evaluations/2026-08-13-theme-enrichment.json`
 - Initial failed-run JSON retained at `docs/evaluations/2026-08-13-theme-enrichment-initial.json`; the final run below is the required complete rerun after the one correction.
@@ -15,7 +20,7 @@
 
 The fixture contains 40 manually curated representative real-market-event clusters (KR20/US20), with stable local article IDs, paraphrased titles/excerpts, expected primary leaves, accepted secondary leaves, and source/date notes. It is explicitly a curated evaluation fixture, not production database rows; no full copyrighted article body is stored.
 
-This validates the enrichment content contract, independent `themeCodes` parsing, deterministic precision-first fallback, exact-call accounting, and measurement pipeline under a deterministic local `httpx.MockTransport` API. There is no retry or error-response scenario in this run. It is **not** production Gemini model-quality evidence and **not** live provider-latency evidence.
+This is a historical Candidate-A contract/gate replay: it validates the former enrichment content contract, independent `themeCodes` parsing, deterministic precision-first fallback, exact-call accounting, and measurement pipeline under a deterministic local `httpx.MockTransport` API. Candidate A is not production code, and the replay is **not** production Gemini model-quality evidence or live provider-latency evidence.
 
 ## Mock API proof
 
@@ -41,7 +46,7 @@ This validates the enrichment content contract, independent `themeCodes` parsing
 
 Token usage uses one deterministic estimator (`ceil(UTF-8 bytes / 4)`) over the actual serialized system prompt, user prompt, and raw response body. It is not manually normalized between variants.
 - Baseline prompt: `b8eabdbda4dcb46ff18797d12867ba8148dcbf0ec7ee5c12ab269bf74e6c7193` (178 bytes); Candidate v2: `89478326d2e6e9ceb7ded5bfb90bef4caf20d268fa40a23fbbcafa4d2566bc20`; Candidate v3: `2b12eb68abfd4b153fdce2d90d44a00aabbbc003e019d7ff5aba0e38f9378034`.
-- Evaluator script SHA-256: `275acc85c4a690f25abfe5d5f12f5655d0205e0023330b036d0266760d700967`; Mock implementation SHA-256: `ae64b3d145112896945a1e76045a12164fc6f4ef1ddee236b20f262a5a63c854`.
+- Evaluator script SHA-256: `5bc51d27a37b1a3c31847452a294607d1b87c846737052ab6da4699537ff26ad`; Mock implementation SHA-256: `ae64b3d145112896945a1e76045a12164fc6f4ef1ddee236b20f262a5a63c854`.
 
 | Gate | Observed | Threshold | Result |
 | --- | ---: | ---: | --- |
@@ -77,7 +82,7 @@ Token usage uses one deterministic estimator (`ceil(UTF-8 bytes / 4)`) over the 
 
 - Initial 240-call run: failed the serialized token-increase gate; local p95 timing is an observed mock measurement, not production evidence.
 - Prompt/validation correction: exactly one Candidate-A prompt correction was made before this evidence repair: redundant instructions were tightened while the complete canonical 40-code allowlist and independent parser contract stayed intact. The complete corrected 240-call matrix was rerun.
-- Production decision: `CANDIDATE_B_REQUIRED`; Candidate B was not implemented in Task 6. The next task must remove the failed inline A-specific path before introducing B.
+- Production decision: `CANDIDATE_B_REQUIRED`; the failed inline Candidate-A path was removed and Candidate B (`CLASSIFY_CLUSTER_THEMES`) is the sole production LLM theme strategy.
 
 ## Commit and self-review
 

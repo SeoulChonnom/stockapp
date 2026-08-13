@@ -15,6 +15,7 @@ from app.batch.models import BatchExecutionContext
 from app.batch.steps import (
     BuildClustersStep,
     BuildPageSnapshotStep,
+    ClassifyClusterThemesStep,
     CollectMarketIndicesStep,
     CreateJobStep,
     DedupeArticlesStep,
@@ -44,6 +45,7 @@ class MarketDailyBatchOrchestrator:
             PrepareMarketContextsStep(),
             DedupeArticlesStep(),
             BuildClustersStep(),
+            ClassifyClusterThemesStep(),
             CollectMarketIndicesStep(),
             GenerateAiSummariesStep(),
             BuildPageSnapshotStep(),

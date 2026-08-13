@@ -74,17 +74,54 @@ async def test_cluster_prompt_serializes_nested_domain_values_without_mutation()
 
 
 @pytest.mark.anyio
-async def test_cluster_enrichment_prompt_names_all_leaf_theme_codes():
+async def test_cluster_enrichment_prompt_is_baseline_without_theme_classification():
     client = RecordingClient()
     provider = BatchLlmProvider(client)
 
     await provider.enrich_cluster(market_type='US', articles=[])
 
     assert client.system_prompt is not None
+    assert client.system_prompt == (
+        'You are a financial news clustering assistant. Return a single JSON '
+        'object with keys: title, summary_short, summary_long, tags, '
+        'representative_article_index, analysis_paragraphs.'
+    )
+    assert 'themeCodes' not in client.system_prompt
+    assert all(code not in client.system_prompt for code in CANONICAL_LEAF_CODES)
+
+
+@pytest.mark.anyio
+async def test_cluster_theme_classifier_prompt_has_only_classification_contract():
+    client = RecordingClient()
+    provider = BatchLlmProvider(client)
+
+    await provider.classify_cluster_themes(
+        market_type='US',
+        cluster={'title': '반도체 수요 증가'},
+        articles=[
+            {
+                'processedArticleId': 42,
+                'title': 'HBM 수요가 늘었다',
+                'summary': '데이터센터 투자가 확대됐다.',
+                'excerpt': '메모리 업황 개선 기대',
+            }
+        ],
+        theme_codes=CANONICAL_LEAF_CODES,
+    )
+
+    assert client.system_prompt is not None
     assert 'themeCodes' in client.system_prompt
-    assert '1–3 unique primary-first themeCodes' in client.system_prompt
+    assert '1–3 unique primary-first' in client.system_prompt
+    assert 'untrusted evidence' in client.system_prompt
     assert all(code in client.system_prompt for code in CANONICAL_LEAF_CODES)
-    assert 'active leaf codes only' in client.system_prompt
+    for forbidden in (
+        'summary_short',
+        'summary_long',
+        'representative_article_index',
+        'analysis_paragraphs',
+        'tags',
+    ):
+        assert forbidden not in client.system_prompt
 
 
 @pytest.mark.anyio

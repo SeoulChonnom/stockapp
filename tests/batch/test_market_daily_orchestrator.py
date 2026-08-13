@@ -30,6 +30,19 @@ class FakeSessionMaker:
         return FakeSession()
 
 
+def test_market_daily_orchestrator_places_theme_classification_after_clusters():
+    orchestrator = MarketDailyBatchOrchestrator(session_maker=FakeSessionMaker())
+
+    step_codes = [step.step_code for step in orchestrator._steps]
+
+    assert step_codes.index('CLASSIFY_CLUSTER_THEMES') == (
+        step_codes.index('BUILD_CLUSTERS') + 1
+    )
+    assert step_codes.index('CLASSIFY_CLUSTER_THEMES') == (
+        step_codes.index('COLLECT_MARKET_INDICES') - 1
+    )
+
+
 @dataclass
 class FakeRepository:
     events: list[tuple[str, str]]

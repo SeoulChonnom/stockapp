@@ -1,5 +1,6 @@
 from app.batch.steps.build_clusters import BuildClustersStep
 from app.batch.steps.build_page_snapshot import BuildPageSnapshotStep
+from app.batch.steps.classify_cluster_themes import ClassifyClusterThemesStep
 from app.batch.steps.collect_market_indices import CollectMarketIndicesStep
 from app.batch.steps.collect_news import CollectNewsStep
 from app.batch.steps.create_job import CreateJobStep
@@ -11,6 +12,7 @@ from app.batch.steps.prepare_market_contexts import PrepareMarketContextsStep
 __all__ = [
     'BuildClustersStep',
     'BuildPageSnapshotStep',
+    'ClassifyClusterThemesStep',
     'CollectMarketIndicesStep',
     'CollectNewsStep',
     'CreateJobStep',

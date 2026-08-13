@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from functools import partial
 from typing import Any
 
@@ -21,8 +21,6 @@ from app.batch.steps.target_progress import (
     TargetCall,
     run_target_calls,
 )
-from app.batch.theme_classifier import ThemeAssignment
-from app.batch.theme_rules import ThemeRuleCatalog, load_theme_rules
 from app.core.settings import Settings, get_settings
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
@@ -30,16 +28,9 @@ from app.db.repositories.news_article_processed_repo import (
     NewsArticleProcessedRepository,
 )
 from app.db.repositories.news_cluster_write_repo import NewsClusterWriteRepository
-from app.db.repositories.projections import (
-    NewsClusterCreateParams,
-    ThemeAssignmentCreateParams,
-)
-from app.db.repositories.theme_repo import ThemeRepository
+from app.db.repositories.projections import NewsClusterCreateParams
 
 LOGGER = logging.getLogger(__name__)
-
-THEME_CLASSIFICATION = 'THEME_CLASSIFICATION'
-THEME_CLASSIFICATION_MISSING = 'THEME_CLASSIFICATION_MISSING'
 
 
 class BuildClustersStep(BatchStep):
@@ -53,7 +44,6 @@ class BuildClustersStep(BatchStep):
         processed_repo_factory: Callable[[object], Any] | None = None,
         cluster_repo_factory: Callable[[object], Any] | None = None,
         llm_provider_factory: Callable[[], Any] | None = None,
-        theme_repository_factory: Callable[[object], Any] | None = None,
         settings: Settings | None = None,
     ) -> None:
         self._processed_repo_factory = (
@@ -61,7 +51,6 @@ class BuildClustersStep(BatchStep):
         )
         self._cluster_repo_factory = cluster_repo_factory or NewsClusterWriteRepository
         self._llm_provider_factory = llm_provider_factory or BatchLlmProvider
-        self._theme_repository_factory = theme_repository_factory or ThemeRepository
         resolved_settings = settings or get_settings()
         self._max_clusters_per_market = resolved_settings.batch_max_clusters_per_market
         self._processed_article_limit = (
@@ -84,9 +73,6 @@ class BuildClustersStep(BatchStep):
         processed_repo = self._processed_repo_factory(session)
         cluster_repo = self._cluster_repo_factory(session)
         llm_provider = self._llm_provider_factory()
-        theme_catalog: ThemeRuleCatalog = await _load_theme_catalog(
-            self._theme_repository_factory(session)
-        )
         progress = await DurableTargetProgress.load(
             repository,
             job_id=context.job_id,
@@ -155,7 +141,6 @@ class BuildClustersStep(BatchStep):
                         llm_provider,
                         target_market_type,
                         ordered_articles,
-                        theme_catalog=theme_catalog,
                     )
 
             articles_by_target = {
@@ -335,30 +320,6 @@ async def _persist_cluster_enrichment(
         ),
         [article.processed_article_id for article in ordered_articles],
     )
-    theme_assignments = _to_theme_assignment_create_params(
-        enrichment.get('theme_assignments', [])
-    )
-    await cluster_repo.replace_cluster_themes(
-        cluster.cluster_id,
-        theme_assignments,
-    )
-    if enrichment.get('theme_fallback_used') and not theme_assignments:
-        context.add_partial(
-            THEME_CLASSIFICATION,
-            THEME_CLASSIFICATION_MISSING,
-        )
-        await repository.add_event(
-            job_id=context.job_id,
-            step_code=step_code,
-            level=EventLevel.WARN.value,
-            message='Cluster theme classification produced no assignment.',
-            context_json={
-                'marketType': market_type,
-                'clusterRank': cluster_rank,
-                'clusterId': cluster.cluster_id,
-                'reason': THEME_CLASSIFICATION_MISSING,
-            },
-        )
     context.cluster_count += 1
     await repository.add_event(
         job_id=context.job_id,
@@ -375,58 +336,6 @@ async def _persist_cluster_enrichment(
     await progress.commit_target(target_key, context)
 
 
-async def _load_theme_catalog(theme_repository: Any) -> ThemeRuleCatalog:
-    """Validate the Git rules against the active database leaf tree."""
-
-    rows = await theme_repository.list_active_tree_rows()
-    active_rows = [
-        row
-        for row in rows
-        if _theme_row_value(row, 'is_active') is None
-        or _theme_row_value(row, 'is_active') is True
-    ]
-    parent_codes = {
-        _theme_row_value(row, 'parent_code')
-        for row in active_rows
-        if isinstance(_theme_row_value(row, 'parent_code'), str)
-    }
-    leaf_codes: list[str] = []
-    for row in active_rows:
-        code = _theme_row_value(row, 'code')
-        if isinstance(code, str) and code not in parent_codes:
-            leaf_codes.append(code)
-    return load_theme_rules(tuple(leaf_codes))
-
-
-def _theme_row_value(row: object, field_name: str) -> object:
-    if isinstance(row, Mapping):
-        return row.get(field_name)
-    return getattr(row, field_name, None)
-
-
-def _to_theme_assignment_create_params(
-    assignments: object,
-) -> list[ThemeAssignmentCreateParams]:
-    """Convert classifier assignments at the persistence boundary."""
-
-    if not isinstance(assignments, (list, tuple)):
-        raise TypeError('theme assignments must be a list or tuple')
-    converted: list[ThemeAssignmentCreateParams] = []
-    for assignment in assignments:
-        if not isinstance(assignment, ThemeAssignment):
-            raise TypeError('theme assignments must be ThemeAssignment values')
-        converted.append(
-            ThemeAssignmentCreateParams(
-                theme_code=assignment.theme_code,
-                rank=assignment.rank,
-                classification_method=assignment.classification_method,
-            )
-        )
-    return converted
-
-
 __all__ = [
     'BuildClustersStep',
-    'THEME_CLASSIFICATION',
-    'THEME_CLASSIFICATION_MISSING',
 ]

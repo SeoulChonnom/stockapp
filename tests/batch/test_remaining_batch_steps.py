@@ -5,7 +5,6 @@ from datetime import date
 
 import pytest  # pyright: ignore[reportMissingImports]
 
-from tests.batch.theme_test_support import StrictThemeRepository
 from tests.support import load_module
 
 batch_models_module = load_module('app.batch.models')
@@ -141,7 +140,6 @@ def build_step(step_cls):
             processed_repo_factory=EmptyProcessedArticlesRepo,
             cluster_repo_factory=UnusedClusterWriteRepo,
             llm_provider_factory=EmptyLlmProvider,
-            theme_repository_factory=StrictThemeRepository,
         )
     if step_cls is CollectMarketIndicesStep:
         return step_cls(
@@ -259,7 +257,6 @@ async def test_remaining_batch_steps_emit_lifecycle_events_and_preserve_context(
                 processed_repo_factory=EmptyProcessedArticlesRepo,
                 cluster_repo_factory=UnusedClusterWriteRepo,
                 llm_provider_factory=EmptyLlmProvider,
-                theme_repository_factory=StrictThemeRepository,
             ),
             id='build-clusters',
         ),
