@@ -30,6 +30,7 @@ MARKET_SESSION_MIGRATION = (
 INCREMENTAL_NEWS_MIGRATION = (
     MIGRATIONS_DIRECTORY / '20260731_07_incremental_news_collection.sql'
 )
+THEME_MIGRATION = MIGRATIONS_DIRECTORY / '20260813_08_theme_catalog_archive_search.sql'
 
 
 def _execute_file(connection, path: Path) -> None:
@@ -1041,3 +1042,151 @@ def test_date_dedupe_migration_recovers_invalid_named_index(
         """
     ).fetchone()
     assert recovered_index == (True, True)
+
+
+def test_theme_catalog_has_canonical_tree_constraints_and_idempotent_seed(
+    postgres_connection,
+):
+    tree_counts = postgres_connection.execute(
+        """
+        WITH RECURSIVE theme_tree AS (
+            SELECT
+                code,
+                parent_code,
+                1 AS depth,
+                ARRAY[code] AS path
+            FROM stock.theme_catalog
+            WHERE parent_code IS NULL
+            UNION ALL
+            SELECT
+                child.code,
+                child.parent_code,
+                theme_tree.depth + 1,
+                theme_tree.path || child.code
+            FROM theme_tree
+            JOIN stock.theme_catalog AS child
+              ON child.parent_code = theme_tree.code
+            WHERE NOT child.code = ANY(theme_tree.path)
+        )
+        SELECT
+            count(*) AS reachable_count,
+            count(DISTINCT code) AS distinct_count,
+            count(*) FILTER (WHERE depth = 1) AS root_count,
+            count(*) FILTER (WHERE depth = 2) AS intermediate_count,
+            count(*) FILTER (WHERE depth = 3) AS leaf_count,
+            max(depth) AS max_depth
+        FROM theme_tree
+        """
+    ).fetchone()
+    assert tree_counts == (63, 63, 5, 18, 40, 3)
+
+    invalid_code_count, self_parent_count = postgres_connection.execute(
+        """
+        SELECT
+            count(*) FILTER (WHERE code !~ '^[A-Z0-9_]+$'),
+            count(*) FILTER (WHERE code = parent_code)
+        FROM stock.theme_catalog
+        """
+    ).fetchone()
+    assert invalid_code_count == 0
+    assert self_parent_count == 0
+
+    constraint_rows = postgres_connection.execute(
+        """
+        SELECT namespace.nspname, relation.relname, constraint_.conname,
+               constraint_.contype
+        FROM pg_constraint AS constraint_
+        JOIN pg_class AS relation
+          ON relation.oid = constraint_.conrelid
+        JOIN pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        WHERE constraint_.conrelid IN (
+            'stock.news_cluster_theme'::regclass,
+            'stock.market_daily_page_market_cluster_theme'::regclass
+        )
+          AND constraint_.conname IN (
+              'chk_news_cluster_theme_rank',
+              'chk_market_daily_page_market_cluster_theme_rank',
+              'news_cluster_theme_pkey',
+              'market_daily_page_market_cluster_theme_pkey',
+              'uq_news_cluster_theme_cluster_rank',
+              'uq_market_daily_page_market_cluster_theme_cluster_rank'
+          )
+        ORDER BY namespace.nspname, relation.relname, constraint_.conname
+        """
+    ).fetchall()
+    assert {
+        (schema, table, name, kind) for schema, table, name, kind in constraint_rows
+    } == {
+        (
+            'stock',
+            'news_cluster_theme',
+            'chk_news_cluster_theme_rank',
+            'c',
+        ),
+        (
+            'stock',
+            'news_cluster_theme',
+            'news_cluster_theme_pkey',
+            'p',
+        ),
+        (
+            'stock',
+            'news_cluster_theme',
+            'uq_news_cluster_theme_cluster_rank',
+            'u',
+        ),
+        (
+            'stock',
+            'market_daily_page_market_cluster_theme',
+            'chk_market_daily_page_market_cluster_theme_rank',
+            'c',
+        ),
+        (
+            'stock',
+            'market_daily_page_market_cluster_theme',
+            'market_daily_page_market_cluster_theme_pkey',
+            'p',
+        ),
+        (
+            'stock',
+            'market_daily_page_market_cluster_theme',
+            'uq_market_daily_page_market_cluster_theme_cluster_rank',
+            'u',
+        ),
+    }
+
+    before_seed = postgres_connection.execute(
+        """
+        SELECT code, parent_code, label, description, sort_order, is_active
+        FROM stock.theme_catalog
+        ORDER BY code
+        """
+    ).fetchall()
+    _execute_file(postgres_connection, THEME_MIGRATION)
+    after_seed = postgres_connection.execute(
+        """
+        SELECT code, parent_code, label, description, sort_order, is_active
+        FROM stock.theme_catalog
+        ORDER BY code
+        """
+    ).fetchall()
+    assert after_seed == before_seed
+
+    search_columns = postgres_connection.execute(
+        """
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'stock'
+          AND column_name = 'search_document'
+          AND table_name IN (
+              'market_daily_page_market',
+              'market_daily_page_market_cluster'
+          )
+        ORDER BY table_name
+        """
+    ).fetchall()
+    assert search_columns == [
+        ('market_daily_page_market', 'search_document'),
+        ('market_daily_page_market_cluster', 'search_document'),
+    ]

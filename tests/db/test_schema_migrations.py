@@ -6,6 +6,73 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).parents[2]
 SCHEMA_SQL = REPOSITORY_ROOT / 'db' / 'schema_postgresql.sql'
 MIGRATIONS_DIRECTORY = REPOSITORY_ROOT / 'db' / 'migrations'
+THEME_MIGRATION = MIGRATIONS_DIRECTORY / '20260813_08_theme_catalog_archive_search.sql'
+
+THEME_CODES = (
+    'MACRO',
+    'MACRO_ECONOMIC_DATA',
+    'MACRO_ECONOMIC_DATA_INFLATION',
+    'MACRO_ECONOMIC_DATA_EMPLOYMENT_GROWTH',
+    'MACRO_MONETARY_MARKETS',
+    'MACRO_MONETARY_MARKETS_INTEREST_RATES_BONDS',
+    'MACRO_MONETARY_MARKETS_LIQUIDITY',
+    'MACRO_MONETARY_MARKETS_FX',
+    'MACRO_POLICY_RISK',
+    'MACRO_POLICY_RISK_FISCAL_REGULATION',
+    'MACRO_POLICY_RISK_GEOPOLITICS_TRADE',
+    'SECTOR',
+    'SECTOR_SEMICONDUCTORS',
+    'SECTOR_SEMICONDUCTORS_MEMORY_HBM',
+    'SECTOR_SEMICONDUCTORS_FOUNDRY_SYSTEM',
+    'SECTOR_SEMICONDUCTORS_EQUIPMENT_MATERIALS',
+    'SECTOR_AI_SOFTWARE',
+    'SECTOR_AI_SOFTWARE_AI_INFRASTRUCTURE',
+    'SECTOR_AI_SOFTWARE_CLOUD_PLATFORM',
+    'SECTOR_FINANCIALS',
+    'SECTOR_FINANCIALS_BANKING',
+    'SECTOR_FINANCIALS_SECURITIES_INSURANCE',
+    'SECTOR_AUTOS_MOBILITY',
+    'SECTOR_AUTOS_MOBILITY_AUTOMAKERS_COMPONENTS',
+    'SECTOR_AUTOS_MOBILITY_EV_BATTERY',
+    'SECTOR_BIO_HEALTHCARE',
+    'SECTOR_BIO_HEALTHCARE_PHARMA_BIOTECH',
+    'SECTOR_BIO_HEALTHCARE_MEDICAL_SERVICES',
+    'SECTOR_CONSUMER_CONTENT',
+    'SECTOR_CONSUMER_CONTENT_RETAIL_ECOMMERCE',
+    'SECTOR_CONSUMER_CONTENT_BRANDS_MEDIA_GAMING',
+    'SECTOR_INDUSTRIALS_INFRA',
+    'SECTOR_INDUSTRIALS_INFRA_SHIPBUILDING_DEFENSE',
+    'SECTOR_INDUSTRIALS_INFRA_CONSTRUCTION_POWER',
+    'SECTOR_INDUSTRIALS_INFRA_TRANSPORT_LOGISTICS',
+    'SECTOR_ENERGY_MATERIALS',
+    'SECTOR_ENERGY_MATERIALS_OIL_GAS',
+    'SECTOR_ENERGY_MATERIALS_STEEL_CHEMICALS',
+    'CORPORATE_EVENT',
+    'CORPORATE_EVENT_PERFORMANCE',
+    'CORPORATE_EVENT_PERFORMANCE_EARNINGS_GUIDANCE',
+    'CORPORATE_EVENT_PERFORMANCE_ORDERS_CONTRACTS',
+    'CORPORATE_EVENT_CAPITAL_ACTION',
+    'CORPORATE_EVENT_CAPITAL_ACTION_MNA',
+    'CORPORATE_EVENT_CAPITAL_ACTION_IPO_CAPITAL_RAISE',
+    'CORPORATE_EVENT_CAPITAL_ACTION_DIVIDEND_BUYBACK',
+    'CORPORATE_EVENT_GOVERNANCE',
+    'CORPORATE_EVENT_GOVERNANCE_MANAGEMENT',
+    'MARKET_FLOW',
+    'MARKET_FLOW_INVESTOR',
+    'MARKET_FLOW_INVESTOR_FOREIGN',
+    'MARKET_FLOW_INVESTOR_INSTITUTIONAL',
+    'MARKET_FLOW_INVESTOR_RETAIL',
+    'MARKET_FLOW_POSITIONING',
+    'MARKET_FLOW_POSITIONING_SHORT_SELLING',
+    'MARKET_FLOW_POSITIONING_ETF_REBALANCING',
+    'MARKET_FLOW_POSITIONING_VOLATILITY_SENTIMENT',
+    'ALTERNATIVE_ASSET',
+    'ALTERNATIVE_ASSET_COMMODITIES',
+    'ALTERNATIVE_ASSET_COMMODITIES_ENERGY_PRICES',
+    'ALTERNATIVE_ASSET_COMMODITIES_METALS_AGRICULTURE',
+    'ALTERNATIVE_ASSET_DIGITAL',
+    'ALTERNATIVE_ASSET_DIGITAL_CRYPTO',
+)
 
 
 def _read_sql(path: Path) -> str:
@@ -205,3 +272,46 @@ def test_market_session_migration_preserves_legacy_nulls_but_rejects_new_nulls()
     ):
         assert constraint_name in migration_sql
     assert migration_sql.count('NOT VALID') == 3
+
+
+def test_theme_catalog_schema_has_hierarchy_constraints_and_canonical_seed():
+    schema_sql = _read_sql(SCHEMA_SQL)
+
+    assert 'CREATE EXTENSION IF NOT EXISTS pg_trgm' in schema_sql
+    assert 'CREATE TABLE theme_catalog' in schema_sql
+    assert (
+        'parent_code TEXT NULL REFERENCES theme_catalog(code) ON DELETE RESTRICT'
+        in schema_sql
+    )
+    assert "code ~ '^[A-Z0-9_]+$'" in schema_sql
+    assert 'code <> parent_code' in schema_sql
+    assert 'UNIQUE (parent_code, sort_order)' in schema_sql
+    assert 'CREATE TABLE news_cluster_theme' in schema_sql
+    assert 'rank BETWEEN 1 AND 3' in schema_sql
+    assert "classification_method IN ('LLM', 'KEYWORD_FALLBACK')" in schema_sql
+    assert 'CREATE TABLE market_daily_page_market_cluster_theme' in schema_sql
+    assert 'search_document TEXT NOT NULL DEFAULT' in schema_sql
+    assert 'gin_trgm_ops' in schema_sql
+    assert len(THEME_CODES) == 63
+    for code in THEME_CODES:
+        assert re.search(rf"\(\s*'{code}',", schema_sql)
+
+
+def test_theme_migration_is_transactional_qualified_and_idempotent():
+    assert THEME_MIGRATION.exists()
+    migration_sql = _read_sql(THEME_MIGRATION)
+
+    assert migration_sql.startswith('BEGIN;')
+    assert migration_sql.endswith('COMMIT;')
+    assert 'CREATE EXTENSION IF NOT EXISTS pg_trgm' in migration_sql
+    assert 'CREATE TABLE IF NOT EXISTS stock.theme_catalog' in migration_sql
+    assert 'CREATE TABLE IF NOT EXISTS stock.news_cluster_theme' in migration_sql
+    assert (
+        'CREATE TABLE IF NOT EXISTS '
+        'stock.market_daily_page_market_cluster_theme' in migration_sql
+    )
+    assert migration_sql.count('ADD COLUMN IF NOT EXISTS search_document') == 2
+    assert 'ON CONFLICT (code) DO UPDATE' in migration_sql
+    assert 'CREATE INDEX IF NOT EXISTS' in migration_sql
+    for code in THEME_CODES:
+        assert re.search(rf"\(\s*'{code}',", migration_sql)
