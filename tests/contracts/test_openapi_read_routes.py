@@ -496,13 +496,12 @@ def test_openapi_links_cluster_read_response_to_the_b2_and_grouping_contracts() 
     assert grouping['additionalProperties'] is False
     assert grouping['required'] == ['status', 'generatedAt', 'issue']
     assert grouping['properties']['status']['enum'] == ['READY', 'UNAVAILABLE']
-    assert grouping['properties']['generatedAt']['anyOf'] == [
-        {'type': 'string', 'format': 'date-time'},
-        {'type': 'null'},
-    ]
-    assert grouping['properties']['issue']['anyOf'][0] == {
-        '$ref': '#/components/schemas/ArticleGroupingIssueResponse'
-    }
+    generated_at_any_of = grouping['properties']['generatedAt']['anyOf']
+    assert {'type': 'null'} in generated_at_any_of
+    assert {'type': 'string', 'format': 'date-time'} in generated_at_any_of
+    issue_any_of = grouping['properties']['issue']['anyOf']
+    assert {'type': 'null'} in issue_any_of
+    assert {'$ref': '#/components/schemas/ArticleGroupingIssueResponse'} in issue_any_of
     grouping_issue = schema['components']['schemas']['ArticleGroupingIssueResponse']
     assert grouping_issue['required'] == ['code', 'message']
     assert grouping_issue['additionalProperties'] is False

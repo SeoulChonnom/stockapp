@@ -71,7 +71,7 @@ class _ClusterRepository:
         return self.groupings.get(cluster_id)
 
 
-class _PersistedGroupingRepository:
+class _InMemoryGroupingRepository:
     def __init__(self, cluster_repo: _ClusterRepository) -> None:
         self.cluster_repo = cluster_repo
         self.algorithm_version_by_cluster: dict[int, str] = {}
@@ -251,7 +251,7 @@ def _build_fixture():
 
 
 @pytest.mark.anyio
-async def test_mock_provider_persists_cluster_isolated_grouping_to_public_reads():
+async def test_mock_transport_pipeline_isolates_grouping_failures_and_builds_public_payloads():
     clusters, memberships, articles = _build_fixture()
     cluster_repo = _ClusterRepository(
         clusters,
@@ -259,7 +259,7 @@ async def test_mock_provider_persists_cluster_isolated_grouping_to_public_reads(
         articles,
         {101: 2, 102: 0, 103: 0, 201: 4, 301: 1, 302: 0},
     )
-    group_repo = _PersistedGroupingRepository(cluster_repo)
+    group_repo = _InMemoryGroupingRepository(cluster_repo)
     requests: list[dict[str, object]] = []
 
     def transport(request: httpx.Request) -> httpx.Response:
