@@ -17,6 +17,7 @@ def test_openapi_includes_read_routes():
     assert '/stock/api/pages/daily/latest' in paths
     assert '/stock/api/pages/daily' in paths
     assert '/stock/api/pages/navigation' in paths
+    assert '/stock/api/pages/archive/themes' in paths
     assert '/stock/api/pages/archive' in paths
     assert '/stock/api/pages/{pageId}' in paths
     assert '/stock/api/news/clusters/{clusterId}' in paths
@@ -34,6 +35,7 @@ def test_openapi_read_route_methods_are_stable():
         ('/stock/api/pages/daily/latest', 'get'),
         ('/stock/api/pages/daily', 'get'),
         ('/stock/api/pages/navigation', 'get'),
+        ('/stock/api/pages/archive/themes', 'get'),
         ('/stock/api/pages/archive', 'get'),
         ('/stock/api/pages/{pageId}', 'get'),
         ('/stock/api/news/clusters/{clusterId}', 'get'),
@@ -51,6 +53,63 @@ def test_openapi_read_route_methods_are_stable():
 
     assert expected_methods <= actual_methods
     assert ('/stock/api/archive', 'get') not in actual_methods
+
+
+def test_openapi_documents_archive_theme_catalog_and_error_envelopes():
+    schema = app_module.app.openapi()
+    operation = schema['paths']['/stock/api/pages/archive/themes']['get']
+
+    assert operation['responses']['200']['content']['application/json']['schema'] == {
+        '$ref': '#/components/schemas/ApiSuccess_list_ThemeNodeResponse__'
+    }
+    theme_node = schema['components']['schemas']['ThemeNodeResponse']
+    assert theme_node['required'] == ['code', 'label', 'description', 'children']
+    assert theme_node['additionalProperties'] is False
+    assert theme_node['properties']['children'] == {
+        'items': {'$ref': '#/components/schemas/ThemeNodeResponse'},
+        'type': 'array',
+        'title': 'Children',
+    }
+
+    for status_code in ('401', '403', '500'):
+        assert operation['responses'][status_code]['content']['application/json'][
+            'schema'
+        ] == {'$ref': '#/components/schemas/ApiError'}
+
+
+def test_openapi_documents_correlated_archive_filter_contract():
+    schema = app_module.app.openapi()
+    operation = schema['paths']['/stock/api/pages/archive']['get']
+    parameters = {
+        parameter['name']: parameter
+        for parameter in operation['parameters']
+        if parameter['in'] == 'query'
+    }
+
+    theme = parameters['theme']
+    assert theme['schema']['anyOf'][0] == {
+        'type': 'array',
+        'items': {'type': 'string'},
+        'maxItems': 100,
+    }
+    assert 'trimmed and deduplicated' in theme['description']
+    assert 'at most 10 distinct codes' in theme['description']
+
+    market_type = parameters['marketType']['schema']['anyOf'][0]
+    assert market_type == {'enum': ['US', 'KR'], 'type': 'string'}
+
+    query = parameters['q']
+    assert query['schema']['anyOf'][0] == {'type': 'string', 'maxLength': 1_000}
+    assert 'NFC/casefold/collapsed whitespace' in query['description']
+    assert '2–100 characters' in query['description']
+    assert 'at most 10 tokens' in query['description']
+
+    assert operation['responses']['422']['description'] == (
+        'Invalid archive filters. Codes: REQUEST_VALIDATION_ERROR, INVALID_THEME.'
+    )
+    assert operation['responses']['422']['content']['application/json']['schema'] == {
+        '$ref': '#/components/schemas/ApiError'
+    }
 
 
 def test_openapi_documents_public_page_navigation_contract():

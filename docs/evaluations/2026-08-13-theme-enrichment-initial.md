@@ -6,7 +6,7 @@
 - Model name: `mock-gemini-2.5-flash` (deterministic local Mockup API)
 - Prompt versions: baseline `historical-production-36411a6-parent`, Candidate A `v2`
 - Dataset SHA-256: `b5ffb015c031f18789229cb0ba9904fea21cb6a18098ee270bb4da2c19b1cd14`
-- Result JSON SHA-256: `b13e1d98df1134b1621a3ec025020959f19416661cf2fff8928f1f7cf35e66f0`
+- Result JSON SHA-256: `fe17fd956d009b8bfef23e65d6213e361bdbec915571e7898d409d4fc533210e`
 - Hash manifest: `docs/evaluations/2026-08-13-theme-enrichment-initial.manifest.json`
 - Detailed JSON: `docs/evaluations/2026-08-13-theme-enrichment-initial.json`
 
@@ -40,7 +40,7 @@ This validates the enrichment content contract, independent `themeCodes` parsing
 
 Token usage uses one deterministic estimator (`ceil(UTF-8 bytes / 4)`) over the actual serialized system prompt, user prompt, and raw response body. It is not manually normalized between variants.
 - Baseline prompt: `b8eabdbda4dcb46ff18797d12867ba8148dcbf0ec7ee5c12ab269bf74e6c7193` (178 bytes); Candidate v2: `89478326d2e6e9ceb7ded5bfb90bef4caf20d268fa40a23fbbcafa4d2566bc20`; Candidate v3: `2b12eb68abfd4b153fdce2d90d44a00aabbbc003e019d7ff5aba0e38f9378034`.
-- Evaluator script SHA-256: `275acc85c4a690f25abfe5d5f12f5655d0205e0023330b036d0266760d700967`; Mock implementation SHA-256: `ae64b3d145112896945a1e76045a12164fc6f4ef1ddee236b20f262a5a63c854`.
+- Evaluator script SHA-256: `5d8b25ccf9fd2dea1ea447f6403520ebfd81b659aa356c8c7ce62cac4b9595c1`; Mock implementation SHA-256: `ae64b3d145112896945a1e76045a12164fc6f4ef1ddee236b20f262a5a63c854`.
 
 | Gate | Observed | Threshold | Result |
 | --- | ---: | ---: | --- |

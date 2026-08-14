@@ -8,7 +8,6 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from app.batch.theme_rules import CANONICAL_LEAF_CODES
 from app.core.llm import GeminiJsonClient
 
 PROMPT_VERSION = 'v2'
@@ -106,13 +105,11 @@ class BatchLlmProvider:
         market_type: str,
         cluster: dict[str, Any],
         articles: list[dict[str, Any]],
-        theme_codes: Sequence[str] | None = None,
+        theme_codes: Sequence[str],
     ) -> dict[str, Any]:
         """Classify a persisted cluster into up to three active leaf themes."""
 
-        allowed_theme_codes = tuple(
-            CANONICAL_LEAF_CODES if theme_codes is None else theme_codes
-        )
+        allowed_theme_codes = tuple(theme_codes)
         if (
             not allowed_theme_codes
             or len(set(allowed_theme_codes)) != len(allowed_theme_codes)

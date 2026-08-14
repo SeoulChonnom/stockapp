@@ -363,9 +363,10 @@ BASELINE_SYSTEM_PROMPT = (
 
 # These two templates are frozen evaluator fixtures for the one already-made
 # Candidate-A correction.  v2 is the prompt at the parent of bd3ff95; v3 is
-# the current production prompt after bd3ff95.  They are hashes/provenance
-# inputs only: the historical Candidate-A call uses the frozen local provider
-# below; Candidate A is not a production strategy.
+# the corrected historical Candidate-A prompt after bd3ff95.  Neither is a
+# current production prompt: Candidate B's dedicated classifier is the sole
+# production strategy.  They are hashes/provenance inputs only; the historical
+# Candidate-A call uses the frozen local provider below.
 def _candidate_system_prompt(version: str, allowed_codes: Sequence[str]) -> str:
     formatted_theme_codes = ', '.join(allowed_codes)
     if version == 'v2':

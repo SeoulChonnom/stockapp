@@ -125,6 +125,18 @@ async def test_cluster_theme_classifier_prompt_has_only_classification_contract(
 
 
 @pytest.mark.anyio
+async def test_cluster_theme_classifier_requires_explicit_active_leaf_allowlist():
+    provider = BatchLlmProvider(RecordingClient())
+
+    with pytest.raises(TypeError):
+        await provider.classify_cluster_themes(
+            market_type='US',
+            cluster={'title': '반도체 수요 증가'},
+            articles=[],
+        )
+
+
+@pytest.mark.anyio
 async def test_cluster_prompt_rejects_non_string_object_keys():
     provider = BatchLlmProvider(RecordingClient())
 

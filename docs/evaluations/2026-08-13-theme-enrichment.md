@@ -11,7 +11,7 @@
 - Prompt versions: baseline `historical-production-36411a6-parent`, Candidate A `v3`
 - Production strategy: Candidate A code **removed**; Candidate B (`CLASSIFY_CLUSTER_THEMES`) is the sole production LLM strategy.
 - Dataset SHA-256: `b5ffb015c031f18789229cb0ba9904fea21cb6a18098ee270bb4da2c19b1cd14`
-- Result JSON SHA-256: `392d1b34800af4ffb300700d0e4b9d9fe94b9365e4214f60eea4b5aecb13a297`
+- Result JSON SHA-256: `e7b337dc538abb87f516d5ed737c7f4b5e035534c12cb2b8386405674300c463`
 - Hash manifest: `docs/evaluations/2026-08-13-theme-enrichment.manifest.json`
 - Detailed JSON: `docs/evaluations/2026-08-13-theme-enrichment.json`
 - Initial failed-run JSON retained at `docs/evaluations/2026-08-13-theme-enrichment-initial.json`; the final run below is the required complete rerun after the one correction.
@@ -46,7 +46,7 @@ This is a historical Candidate-A contract/gate replay: it validates the former e
 
 Token usage uses one deterministic estimator (`ceil(UTF-8 bytes / 4)`) over the actual serialized system prompt, user prompt, and raw response body. It is not manually normalized between variants.
 - Baseline prompt: `b8eabdbda4dcb46ff18797d12867ba8148dcbf0ec7ee5c12ab269bf74e6c7193` (178 bytes); Candidate v2: `89478326d2e6e9ceb7ded5bfb90bef4caf20d268fa40a23fbbcafa4d2566bc20`; Candidate v3: `2b12eb68abfd4b153fdce2d90d44a00aabbbc003e019d7ff5aba0e38f9378034`.
-- Evaluator script SHA-256: `5bc51d27a37b1a3c31847452a294607d1b87c846737052ab6da4699537ff26ad`; Mock implementation SHA-256: `ae64b3d145112896945a1e76045a12164fc6f4ef1ddee236b20f262a5a63c854`.
+- Evaluator script SHA-256: `5d8b25ccf9fd2dea1ea447f6403520ebfd81b659aa356c8c7ce62cac4b9595c1`; Mock implementation SHA-256: `ae64b3d145112896945a1e76045a12164fc6f4ef1ddee236b20f262a5a63c854`.
 
 | Gate | Observed | Threshold | Result |
 | --- | ---: | ---: | --- |
