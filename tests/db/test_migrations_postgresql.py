@@ -1904,8 +1904,113 @@ def _assert_article_similarity_contract(connection) -> None:
     ]
     assert indexes == [
         'idx_news_cluster_similar_group_article_processed',
-        'idx_news_cluster_similar_group_cluster_rank',
     ]
+
+    representative_fks = query(
+        """
+        SELECT source_namespace.nspname,
+               source_table.relname,
+               target_namespace.nspname,
+               target_table.relname,
+               ARRAY(
+                   SELECT source_column.attname
+                   FROM unnest(constraint_.conkey) WITH ORDINALITY AS source_key(attnum, ordinal)
+                   JOIN pg_attribute AS source_column
+                     ON source_column.attrelid = constraint_.conrelid
+                    AND source_column.attnum = source_key.attnum
+                   ORDER BY source_key.ordinal
+               ),
+               ARRAY(
+                   SELECT target_column.attname
+                   FROM unnest(constraint_.confkey) WITH ORDINALITY AS target_key(attnum, ordinal)
+                   JOIN pg_attribute AS target_column
+                     ON target_column.attrelid = constraint_.confrelid
+                    AND target_column.attnum = target_key.attnum
+                   ORDER BY target_key.ordinal
+               ),
+               constraint_.condeferrable,
+               constraint_.condeferred
+        FROM pg_constraint AS constraint_
+        JOIN pg_class AS source_table
+          ON source_table.oid = constraint_.conrelid
+        JOIN pg_namespace AS source_namespace
+          ON source_namespace.oid = source_table.relnamespace
+        JOIN pg_class AS target_table
+          ON target_table.oid = constraint_.confrelid
+        JOIN pg_namespace AS target_namespace
+          ON target_namespace.oid = target_table.relnamespace
+        WHERE source_namespace.nspname = 'stock'
+          AND constraint_.conname = 'fk_news_cluster_similar_group_representative_membership'
+        """
+    ).fetchall()
+    assert representative_fks == [
+        (
+            'stock',
+            'news_cluster_similar_group',
+            'stock',
+            'news_cluster_article',
+            ['cluster_id', 'representative_article_id'],
+            ['cluster_id', 'processed_article_id'],
+            True,
+            True,
+        )
+    ]
+
+    key_constraints = query(
+        """
+        SELECT constraint_.conname,
+               constraint_.contype,
+               pg_get_constraintdef(constraint_.oid)
+        FROM pg_constraint AS constraint_
+        WHERE constraint_.connamespace = 'stock'::regnamespace
+          AND constraint_.conrelid IN (
+              'stock.news_cluster_similar_group'::regclass,
+              'stock.news_cluster_similar_group_article'::regclass
+          )
+          AND constraint_.conname IN (
+              'news_cluster_similar_group_pkey',
+              'uq_news_cluster_similar_group_cluster_rank',
+              'chk_similar_group_rank_positive',
+              'news_cluster_similar_group_article_pkey',
+              'uq_news_cluster_similar_group_article_group_rank',
+              'chk_similar_group_article_exact_count_non_negative',
+              'chk_similar_group_article_rank_positive'
+          )
+        ORDER BY constraint_.conname
+        """
+    ).fetchall()
+    definitions = {
+        name: (constraint_type, definition)
+        for name, constraint_type, definition in key_constraints
+    }
+    assert definitions['news_cluster_similar_group_pkey'] == (
+        'p',
+        'PRIMARY KEY (id)',
+    )
+    assert definitions['uq_news_cluster_similar_group_cluster_rank'] == (
+        'u',
+        'UNIQUE (cluster_id, group_rank)',
+    )
+    assert definitions['chk_similar_group_rank_positive'] == (
+        'c',
+        'CHECK ((group_rank > 0))',
+    )
+    assert definitions['news_cluster_similar_group_article_pkey'] == (
+        'p',
+        'PRIMARY KEY (similar_group_id, processed_article_id)',
+    )
+    assert definitions['uq_news_cluster_similar_group_article_group_rank'] == (
+        'u',
+        'UNIQUE (similar_group_id, article_rank)',
+    )
+    assert definitions['chk_similar_group_article_exact_count_non_negative'] == (
+        'c',
+        'CHECK ((exact_duplicate_count >= 0))',
+    )
+    assert definitions['chk_similar_group_article_rank_positive'] == (
+        'c',
+        'CHECK ((article_rank > 0))',
+    )
 
     extension_count = query(
         """

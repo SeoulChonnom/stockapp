@@ -398,7 +398,7 @@ def test_article_similarity_schema_has_source_snapshot_and_group_contract():
     assert 'CREATE TABLE news_cluster_similar_group_article' in schema_sql
     assert 'DEFERRABLE INITIALLY DEFERRED' in schema_sql
     assert 'CHECK (exact_duplicate_count >= 0)' in schema_sql
-    assert 'idx_news_cluster_similar_group_cluster_rank' in schema_sql
+    assert 'idx_news_cluster_similar_group_cluster_rank' not in schema_sql
     assert 'idx_news_cluster_similar_group_article_processed' in schema_sql
     assert (
         'article_grouping_status TEXT NOT NULL DEFAULT'
@@ -429,7 +429,7 @@ def test_article_similarity_migration_is_transactional_qualified_idempotent_and_
     )
     assert (
         'CREATE INDEX IF NOT EXISTS idx_news_cluster_similar_group_cluster_rank'
-        in migration_sql
+        not in migration_sql
     )
     assert (
         'CREATE INDEX IF NOT EXISTS idx_news_cluster_similar_group_article_processed'

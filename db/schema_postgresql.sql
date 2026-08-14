@@ -483,9 +483,6 @@ CREATE TABLE news_cluster_similar_group_article (
         UNIQUE (similar_group_id, article_rank)
 );
 
-CREATE INDEX idx_news_cluster_similar_group_cluster_rank
-    ON news_cluster_similar_group (cluster_id, group_rank);
-
 CREATE INDEX idx_news_cluster_similar_group_article_processed
     ON news_cluster_similar_group_article (processed_article_id);
 

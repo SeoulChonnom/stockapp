@@ -176,9 +176,6 @@ BEGIN
 END;
 $migration_constraints$;
 
-CREATE INDEX IF NOT EXISTS idx_news_cluster_similar_group_cluster_rank
-    ON stock.news_cluster_similar_group (cluster_id, group_rank);
-
 CREATE INDEX IF NOT EXISTS idx_news_cluster_similar_group_article_processed
     ON stock.news_cluster_similar_group_article (processed_article_id);
 
