@@ -185,12 +185,25 @@ def build_daily_page_payload(
         )
 
     article_links_by_market: dict[int, list[ArticleLinkResponse]] = defaultdict(list)
-    article_group_ranks: dict[str, int] = defaultdict(int)
     for row in article_links:
         if row.get('processed_article_id') is None or row.get('cluster_uid') is None:
             continue
         cluster_uid = str(row['cluster_uid'])
-        article_group_ranks[cluster_uid] += 1
+        group_rank = row.get('similar_group_rank')
+        if isinstance(group_rank, bool) or not isinstance(group_rank, int):
+            raise ValueError('article grouping rank is invalid')
+        if group_rank <= 0:
+            raise ValueError('article grouping rank is invalid')
+        is_representative = row.get('is_similar_group_representative')
+        if not isinstance(is_representative, bool):
+            raise ValueError('article grouping representative flag is invalid')
+        exact_duplicate_count = row.get('exact_duplicate_count')
+        if (
+            isinstance(exact_duplicate_count, bool)
+            or not isinstance(exact_duplicate_count, int)
+            or exact_duplicate_count < 0
+        ):
+            raise ValueError('exact duplicate count is invalid')
         article_links_by_market[row['page_market_id']].append(
             ArticleLinkResponse(
                 processedArticleId=row['processed_article_id'],
@@ -201,11 +214,9 @@ def build_daily_page_payload(
                 publishedAt=_as_iso(row.get('published_at')),
                 originLink=row['origin_link'],
                 naverLink=row.get('naver_link'),
-                similarGroupId=(
-                    f'sim-{cluster_uid}-{article_group_ranks[cluster_uid]}'
-                ),
-                isSimilarGroupRepresentative=True,
-                exactDuplicateCount=0,
+                similarGroupId=f'sim-{cluster_uid}-{group_rank}',
+                isSimilarGroupRepresentative=is_representative,
+                exactDuplicateCount=exact_duplicate_count,
             )
         )
 

@@ -867,6 +867,9 @@ def build_page_article_link_rows() -> list[dict[str, Any]]:
             'published_at': '2026-03-17T23:15:00+00:00',
             'origin_link': 'https://example.com/article1',
             'naver_link': 'https://search.naver.com/article1',
+            'similar_group_rank': 1,
+            'is_similar_group_representative': True,
+            'exact_duplicate_count': 2,
         },
         {
             'id': 4002,
@@ -881,6 +884,9 @@ def build_page_article_link_rows() -> list[dict[str, Any]]:
             'published_at': '2026-03-17T22:40:00+00:00',
             'origin_link': 'https://example.com/article2',
             'naver_link': 'https://search.naver.com/article2',
+            'similar_group_rank': 1,
+            'is_similar_group_representative': False,
+            'exact_duplicate_count': 0,
         },
     ]
 

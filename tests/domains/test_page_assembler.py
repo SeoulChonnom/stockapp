@@ -355,10 +355,56 @@ def test_daily_page_assembler_excludes_legacy_links_without_public_ids(
             'originLink': 'https://example.com/article2',
             'naverLink': 'https://search.naver.com/article2',
             'similarGroupId': 'sim-51f0d9a0-9fc5-4f15-a4f9-62856f128683-1',
-            'isSimilarGroupRepresentative': True,
+            'isSimilarGroupRepresentative': False,
             'exactDuplicateCount': 0,
         }
     ]
+
+
+def test_daily_page_assembler_uses_persisted_article_grouping_fields(
+    sample_page_snapshot_row,
+    sample_page_market_rows,
+    sample_page_index_rows,
+    sample_page_cluster_rows,
+    sample_page_article_link_rows,
+    sample_adjacent_business_dates_row,
+    sample_page_version_rows,
+):
+    links = [
+        {
+            **sample_page_article_link_rows[0],
+            'similar_group_rank': 4,
+            'is_similar_group_representative': False,
+            'exact_duplicate_count': 3,
+        },
+        {
+            **sample_page_article_link_rows[1],
+            'similar_group_rank': 4,
+            'is_similar_group_representative': True,
+            'exact_duplicate_count': 1,
+        },
+    ]
+
+    payload = build_daily_page_payload(
+        sample_page_snapshot_row,
+        sample_page_market_rows,
+        sample_page_index_rows,
+        sample_page_cluster_rows,
+        links,
+        neighbors=sample_adjacent_business_dates_row,
+        versions=sample_page_version_rows,
+    )
+
+    articles = payload['markets'][0]['articleLinks']
+    assert [article['similarGroupId'] for article in articles] == [
+        f'sim-{sample_page_article_link_rows[0]["cluster_uid"]}-4',
+        f'sim-{sample_page_article_link_rows[1]["cluster_uid"]}-4',
+    ]
+    assert [article['isSimilarGroupRepresentative'] for article in articles] == [
+        False,
+        True,
+    ]
+    assert [article['exactDuplicateCount'] for article in articles] == [3, 1]
 
 
 def test_daily_page_assembler_keeps_legacy_session_snapshot_nullable(

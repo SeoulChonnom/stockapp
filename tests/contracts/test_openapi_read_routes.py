@@ -324,11 +324,28 @@ def test_openapi_links_daily_read_responses_to_the_b1_contract() -> None:
         '$ref': '#/components/schemas/ArticleLinkResponse'
     }
     article_link = schema['components']['schemas']['ArticleLinkResponse']
-    assert 'processedArticleId' in article_link['required']
+    assert article_link['required'] == [
+        'processedArticleId',
+        'title',
+        'originLink',
+        'similarGroupId',
+        'isSimilarGroupRepresentative',
+        'exactDuplicateCount',
+    ]
     assert article_link['properties']['processedArticleId'] == {
         'type': 'integer',
         'title': 'Processedarticleid',
     }
+    assert article_link['properties']['similarGroupId'] == {
+        'type': 'string',
+        'title': 'Similargroupid',
+    }
+    assert article_link['properties']['isSimilarGroupRepresentative'] == {
+        'type': 'boolean',
+        'title': 'Issimilargrouprepresentative',
+    }
+    assert article_link['properties']['exactDuplicateCount']['type'] == 'integer'
+    assert article_link['properties']['exactDuplicateCount']['minimum'] == 0.0
 
 
 def test_openapi_links_cluster_read_response_to_the_b2_and_grouping_contracts() -> None:
@@ -452,19 +469,43 @@ def test_openapi_links_cluster_read_response_to_the_b2_and_grouping_contracts() 
     ]
 
     article = schema['components']['schemas']['ClusterArticleResponse']
-    assert 'processedArticleId' in article['required']
+    assert article['required'] == [
+        'processedArticleId',
+        'title',
+        'originLink',
+        'similarGroupId',
+        'isSimilarGroupRepresentative',
+        'exactDuplicateCount',
+    ]
     assert article['properties']['processedArticleId'] == {
         'type': 'integer',
         'title': 'Processedarticleid',
     }
+    assert article['properties']['similarGroupId'] == {
+        'type': 'string',
+        'title': 'Similargroupid',
+    }
+    assert article['properties']['isSimilarGroupRepresentative'] == {
+        'type': 'boolean',
+        'title': 'Issimilargrouprepresentative',
+    }
+    assert article['properties']['exactDuplicateCount']['type'] == 'integer'
+    assert article['properties']['exactDuplicateCount']['minimum'] == 0.0
 
     grouping = schema['components']['schemas']['ArticleGroupingResponse']
+    assert grouping['additionalProperties'] is False
     assert grouping['required'] == ['status', 'generatedAt', 'issue']
     assert grouping['properties']['status']['enum'] == ['READY', 'UNAVAILABLE']
+    assert grouping['properties']['generatedAt']['anyOf'] == [
+        {'type': 'string', 'format': 'date-time'},
+        {'type': 'null'},
+    ]
     assert grouping['properties']['issue']['anyOf'][0] == {
         '$ref': '#/components/schemas/ArticleGroupingIssueResponse'
     }
     grouping_issue = schema['components']['schemas']['ArticleGroupingIssueResponse']
+    assert grouping_issue['required'] == ['code', 'message']
+    assert grouping_issue['additionalProperties'] is False
     assert grouping_issue['properties']['code']['const'] == 'SIMILARITY_GROUPING_FAILED'
     assert grouping_issue['properties']['message']['const'] == (
         '유사 기사 묶음을 생성하지 못했습니다.'
