@@ -36,4 +36,11 @@ For every future schema change:
 3. Do not modify an existing revision or frozen baseline asset.
 4. Test both an upgrade from the previous revision and a fresh database.
 
+The page-search revision
+`alembic/versions/20260814_02_page_search_document.py` reuses the guarded
+`db/migrations/20260814_09_page_search_document.sql` body as its single SQL
+source. The standalone transaction guards are stripped when Alembic executes
+the body inside its revision transaction; direct legacy migration runs retain
+the guards.
+
 Automatic startup migration supports only the canonical `stock` schema.

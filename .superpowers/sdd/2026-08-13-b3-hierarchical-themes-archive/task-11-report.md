@@ -74,13 +74,20 @@ column and GIN index to the source-of-truth schema, with sequential migration
 `20260814_09_page_search_document.sql`. New, rebuild, and AI-retry writes all
 call the shared `normalize_search_document(page_title, global_headline)` helper;
 the migration backfills legacy rows with an equivalent PostgreSQL-17-compatible
-Unicode case-fold map and is safe to re-run. The q-only repository scope now
-matches only `latest_public.search_document`, while market/theme-constrained
-scopes remain unchanged.
+Unicode case-fold and explicit Python-whitespace map and is safe to re-run. The
+new `alembic/versions/20260814_02_page_search_document.py` revision executes
+that same guarded SQL asset in the startup `upgrade head` path. The q-only
+repository scope now matches only `latest_public.search_document`, while
+market/theme-constrained scopes remain unchanged.
 
-Follow-up evidence: focused Unicode/repository/migration/batch tests **127
-passed**; PostgreSQL 17 migration/idempotency/backfill **10 passed**; full
-suite **1024 passed, 12 skipped**; Ruff format/lint and relevant Pyright passed.
+The migration also repairs a pre-existing nullable `search_document` column by
+backfilling first, then enforcing the canonical empty-string default and
+`NOT NULL` contract.
+
+Follow-up evidence: combined focused Unicode/archive/Alembic tests **152
+passed, 14 skipped**; PostgreSQL 17 fresh/previous-head/backfill/idempotency/
+startup-adoption/write tests **38 passed**; full suite **1025 passed, 15
+skipped**; Ruff format/lint and relevant Pyright passed.
 The disposable repository probe was not promoted to a new tracked test in this
 follow-up review; that remains the only documented minor limitation.
 

@@ -7,9 +7,13 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 ALTER TABLE stock.market_daily_page
     ADD COLUMN IF NOT EXISTS search_document TEXT NOT NULL DEFAULT '';
 
+ALTER TABLE stock.market_daily_page
+    ALTER COLUMN search_document SET DEFAULT '';
+
 -- PostgreSQL 17 has NFC normalization but not Unicode full case-folding.
--- This temporary map keeps legacy backfills identical to the Python shared
--- normalizer, including multi-codepoint folds such as Straße/STRASSE.
+-- These temporary helpers keep legacy backfills identical to the Python shared
+-- normalizer, including multi-codepoint folds such as Straße/STRASSE and every
+-- code point recognized by Python str.isspace().
 CREATE OR REPLACE FUNCTION stock._page_search_casefold(value TEXT)
 RETURNS TEXT
 LANGUAGE plpgsql
@@ -36,21 +40,46 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION stock._page_search_normalize(value TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+IMMUTABLE
+AS $function$
+DECLARE
+    normalized TEXT;
+    whitespace_chars CONSTANT TEXT :=
+        chr(9) || chr(10) || chr(11) || chr(12) || chr(13)
+        || chr(28) || chr(29) || chr(30) || chr(31) || chr(32)
+        || chr(133) || chr(160) || chr(5760)
+        || chr(8192) || chr(8193) || chr(8194) || chr(8195)
+        || chr(8196) || chr(8197) || chr(8198) || chr(8199)
+        || chr(8200) || chr(8201) || chr(8202)
+        || chr(8232) || chr(8233) || chr(8239)
+        || chr(8287) || chr(12288);
+BEGIN
+    IF value IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    normalized := stock._page_search_casefold(normalize(value, NFC));
+    normalized := translate(
+        normalized,
+        whitespace_chars,
+        repeat(' ', length(whitespace_chars))
+    );
+    RETURN trim(regexp_replace(normalized, ' +', ' ', 'g'));
+END;
+$function$;
+
 UPDATE stock.market_daily_page
-SET search_document = trim(
-    regexp_replace(
-        stock._page_search_casefold(
-            normalize(
-                concat_ws(' ', page_title, global_headline),
-                NFC
-            )
-        ),
-        '[[:space:]]+',
-        ' ',
-        'g'
-    )
+SET search_document = stock._page_search_normalize(
+    concat_ws(' ', page_title, global_headline)
 );
 
+ALTER TABLE stock.market_daily_page
+    ALTER COLUMN search_document SET NOT NULL;
+
+DROP FUNCTION stock._page_search_normalize(TEXT);
 DROP FUNCTION stock._page_search_casefold(TEXT);
 
 CREATE INDEX IF NOT EXISTS idx_market_daily_page_search_document

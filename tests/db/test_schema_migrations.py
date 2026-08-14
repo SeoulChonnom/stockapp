@@ -8,6 +8,9 @@ SCHEMA_SQL = REPOSITORY_ROOT / 'db' / 'schema_postgresql.sql'
 MIGRATIONS_DIRECTORY = REPOSITORY_ROOT / 'db' / 'migrations'
 THEME_MIGRATION = MIGRATIONS_DIRECTORY / '20260813_08_theme_catalog_archive_search.sql'
 PAGE_SEARCH_MIGRATION = MIGRATIONS_DIRECTORY / '20260814_09_page_search_document.sql'
+PAGE_SEARCH_ALEMBIC_REVISION = (
+    REPOSITORY_ROOT / 'alembic' / 'versions' / '20260814_02_page_search_document.py'
+)
 
 THEME_CODES = (
     'MACRO',
@@ -319,10 +322,24 @@ def test_page_search_document_migration_is_transactional_idempotent_and_backfill
     assert 'UPDATE stock.market_daily_page' in migration_sql
     assert 'page_title' in migration_sql
     assert 'global_headline' in migration_sql
+    assert 'ALTER COLUMN search_document SET DEFAULT' in migration_sql
+    assert 'ALTER COLUMN search_document SET NOT NULL' in migration_sql
+    assert 'stock._page_search_normalize' in migration_sql
+    assert 'chr(28)' in migration_sql
+    assert 'chr(8239)' in migration_sql
     assert (
         'CREATE INDEX IF NOT EXISTS idx_market_daily_page_search_document'
         in migration_sql
     )
+
+
+def test_page_search_document_is_connected_to_the_sequential_alembic_head():
+    assert PAGE_SEARCH_ALEMBIC_REVISION.exists()
+    revision_sql = _read_sql(PAGE_SEARCH_ALEMBIC_REVISION)
+
+    assert "revision = '20260814_02_page_search_document'" in revision_sql
+    assert "down_revision = '20260810_01_step_errors'" in revision_sql
+    assert '20260814_09_page_search_document.sql' in revision_sql
 
 
 def test_theme_migration_is_transactional_qualified_and_idempotent():

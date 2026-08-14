@@ -6,10 +6,15 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import text
+from alembic.config import Config
+from sqlalchemy import create_engine, pool, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from alembic import command
 from app.batch.ai_retry.resolver import resolve_effective_summaries
+from app.core.settings import Settings
+from app.core.text import normalize_search_document
+from app.db import migration_runner
 from app.db.repositories.ai_retry_repo import PostgresAiRetryRepository
 from app.db.repositories.ai_summary_repo import AiSummaryRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
@@ -32,10 +37,34 @@ INCREMENTAL_NEWS_MIGRATION = (
 )
 THEME_MIGRATION = MIGRATIONS_DIRECTORY / '20260813_08_theme_catalog_archive_search.sql'
 PAGE_SEARCH_MIGRATION = MIGRATIONS_DIRECTORY / '20260814_09_page_search_document.sql'
+ALEMBIC_BASELINE_SQL = (
+    REPOSITORY_ROOT / 'db' / 'alembic' / 'baselines' / '20260731_schema.sql'
+)
+ALEMBIC_PREVIOUS_HEAD = '20260810_01_step_errors'
+ALEMBIC_HEAD = '20260814_02_page_search_document'
 
 
 def _execute_file(connection, path: Path) -> None:
     connection.execute(path.read_text(encoding='utf-8'))
+
+
+def _run_alembic(
+    engine,
+    database_url: str,
+    action,
+    target: str,
+) -> None:
+    config = Config(str(REPOSITORY_ROOT / 'alembic.ini'))
+    config.set_main_option(
+        'sqlalchemy.url',
+        database_url.replace('postgresql://', 'postgresql+psycopg://', 1),
+    )
+    with engine.connect() as connection:
+        connection.execute(text('SET search_path TO "$user", public'))
+        connection.commit()
+        config.attributes['connection'] = connection
+        config.attributes['version_table_schema'] = 'stock'
+        action(config, target)
 
 
 def _execute_all_migrations_twice(connection) -> None:
@@ -1260,3 +1289,316 @@ def test_page_search_document_migration_backfills_unicode_normalization(
         (date(2026, 8, 15), 'café café'),
         (date(2026, 8, 16), 'i̇stanbul fi'),
     ]
+
+
+def test_alembic_head_applies_page_search_and_supports_snapshot_write():
+    database_url = os.getenv('STOCKAPP_MIGRATION_TEST_DSN')
+    if database_url is None:
+        pytest.skip('STOCKAPP_MIGRATION_TEST_DSN is not configured.')
+
+    sqlalchemy_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_engine(sqlalchemy_url, poolclass=pool.NullPool)
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+
+        _run_alembic(engine, database_url, command.upgrade, 'head')
+        _run_alembic(engine, database_url, command.upgrade, 'head')
+
+        with engine.connect() as connection:
+            column = connection.execute(
+                text(
+                    """
+                    SELECT column_name, is_nullable, column_default
+                    FROM information_schema.columns
+                    WHERE table_schema = 'stock'
+                      AND table_name = 'market_daily_page'
+                      AND column_name = 'search_document'
+                    """
+                )
+            ).one()
+            assert column[0] == 'search_document'
+            assert column[1] == 'NO'
+            assert "''::text" in column[2]
+
+            job_id = connection.execute(
+                text(
+                    """
+                    INSERT INTO stock.batch_job (business_date, status)
+                    VALUES (DATE '2026-08-17', 'SUCCESS')
+                    RETURNING id
+                    """
+                )
+            ).scalar_one()
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO stock.market_daily_page (
+                        business_date,
+                        version_no,
+                        page_title,
+                        status,
+                        global_headline,
+                        search_document,
+                        batch_job_id
+                    )
+                    VALUES (
+                        DATE '2026-08-17',
+                        1,
+                        :page_title,
+                        'READY',
+                        :global_headline,
+                        :search_document,
+                        :batch_job_id
+                    )
+                    """
+                ),
+                {
+                    'page_title': 'Straße',
+                    'global_headline': 'CAFÉ',
+                    'search_document': normalize_search_document('Straße', 'CAFÉ'),
+                    'batch_job_id': job_id,
+                },
+            )
+            connection.commit()
+
+            stored_document = connection.execute(
+                text(
+                    """
+                    SELECT search_document
+                    FROM stock.market_daily_page
+                    WHERE business_date = DATE '2026-08-17'
+                    """
+                )
+            ).scalar_one()
+            assert stored_document == 'strasse café'
+    finally:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+        engine.dispose()
+
+
+def test_alembic_page_search_backfill_matches_python_whitespace_contract():
+    database_url = os.getenv('STOCKAPP_MIGRATION_TEST_DSN')
+    if database_url is None:
+        pytest.skip('STOCKAPP_MIGRATION_TEST_DSN is not configured.')
+
+    whitespace = ''.join(
+        chr(codepoint)
+        for codepoint in (
+            0x0009,
+            0x000A,
+            0x000B,
+            0x000C,
+            0x000D,
+            0x001C,
+            0x001D,
+            0x001E,
+            0x001F,
+            0x0020,
+            0x0085,
+            0x00A0,
+            0x1680,
+            0x2000,
+            0x2001,
+            0x2002,
+            0x2003,
+            0x2004,
+            0x2005,
+            0x2006,
+            0x2007,
+            0x2008,
+            0x2009,
+            0x200A,
+            0x2028,
+            0x2029,
+            0x202F,
+            0x205F,
+            0x3000,
+        )
+    )
+    page_title = whitespace.join(('Straße', 'Café'))
+    global_headline = whitespace.join(('STRASSE', 'ﬁ'))
+    expected_document = normalize_search_document(page_title, global_headline)
+
+    sqlalchemy_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_engine(sqlalchemy_url, poolclass=pool.NullPool)
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+
+        _run_alembic(engine, database_url, command.upgrade, ALEMBIC_PREVIOUS_HEAD)
+        with engine.connect() as connection:
+            connection.execute(
+                text(
+                    """
+                    ALTER TABLE stock.market_daily_page
+                        ADD COLUMN search_document TEXT
+                    """
+                )
+            )
+            job_id = connection.execute(
+                text(
+                    """
+                    INSERT INTO stock.batch_job (business_date, status)
+                    VALUES (DATE '2026-08-18', 'SUCCESS')
+                    RETURNING id
+                    """
+                )
+            ).scalar_one()
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO stock.market_daily_page (
+                        business_date,
+                        version_no,
+                        page_title,
+                        status,
+                        global_headline,
+                        batch_job_id
+                    )
+                    VALUES (
+                        DATE '2026-08-18',
+                        1,
+                        :page_title,
+                        'READY',
+                        :global_headline,
+                        :batch_job_id
+                    )
+                    """
+                ),
+                {
+                    'page_title': page_title,
+                    'global_headline': global_headline,
+                    'batch_job_id': job_id,
+                },
+            )
+            connection.commit()
+
+        _run_alembic(engine, database_url, command.upgrade, ALEMBIC_HEAD)
+        _run_alembic(engine, database_url, command.upgrade, ALEMBIC_HEAD)
+
+        with engine.connect() as connection:
+            stored_document = connection.execute(
+                text(
+                    """
+                    SELECT search_document
+                    FROM stock.market_daily_page
+                    WHERE business_date = DATE '2026-08-18'
+                    """
+                )
+            ).scalar_one()
+            assert stored_document == expected_document
+            column = connection.execute(
+                text(
+                    """
+                    SELECT is_nullable, column_default
+                    FROM information_schema.columns
+                    WHERE table_schema = 'stock'
+                      AND table_name = 'market_daily_page'
+                      AND column_name = 'search_document'
+                    """
+                )
+            ).one()
+            assert column[0] == 'NO'
+            assert "''::text" in column[1]
+    finally:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+        engine.dispose()
+
+
+def test_startup_migration_adopts_unversioned_baseline_and_applies_page_revision():
+    database_url = os.getenv('STOCKAPP_MIGRATION_TEST_DSN')
+    if database_url is None:
+        pytest.skip('STOCKAPP_MIGRATION_TEST_DSN is not configured.')
+
+    sqlalchemy_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_engine(sqlalchemy_url, poolclass=pool.NullPool)
+    settings = Settings(
+        _env_file=None,
+        app_env='test',
+        database_url=sqlalchemy_url,
+        database_schema='stock',
+        database_migration_enabled=True,
+        database_migration_lock_timeout_seconds=5,
+    )
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+            baseline_sql = ALEMBIC_BASELINE_SQL.read_text(encoding='utf-8').strip()
+            connection.exec_driver_sql(
+                baseline_sql.removeprefix('BEGIN;').removesuffix('COMMIT;').strip()
+            )
+            connection.commit()
+            job_id = connection.execute(
+                text(
+                    """
+                    INSERT INTO stock.batch_job (business_date, status)
+                    VALUES (DATE '2026-08-19', 'SUCCESS')
+                    RETURNING id
+                    """
+                )
+            ).scalar_one()
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO stock.market_daily_page (
+                        business_date,
+                        version_no,
+                        page_title,
+                        status,
+                        global_headline,
+                        batch_job_id
+                    )
+                    VALUES (
+                        DATE '2026-08-19',
+                        1,
+                        'Café',
+                        'READY',
+                        'STRASSE',
+                        :batch_job_id
+                    )
+                    """
+                ),
+                {'batch_job_id': job_id},
+            )
+            connection.commit()
+
+        migration_runner.run_startup_migrations(settings, engine=engine)
+        migration_runner.run_startup_migrations(settings, engine=engine)
+
+        with engine.connect() as connection:
+            row = connection.execute(
+                text(
+                    """
+                    SELECT page.search_document, version.version_num
+                    FROM stock.market_daily_page AS page
+                    CROSS JOIN stock.alembic_version AS version
+                    WHERE page.business_date = DATE '2026-08-19'
+                    """
+                )
+            ).one()
+            assert row == ('café strasse', ALEMBIC_HEAD)
+    finally:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+        engine.dispose()
