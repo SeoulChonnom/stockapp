@@ -51,6 +51,9 @@ def test_source_ready_grouping_rejects_missing_article_membership():
                     'similar_group_rank': 1,
                     'is_similar_group_representative': True,
                     'exact_duplicate_count': 0,
+                    'article_grouping_status': 'READY',
+                    'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                    'article_grouping_issue_code': None,
                     'article_grouping_algorithm_version': 'v1',
                 }
             ],
@@ -77,6 +80,9 @@ def test_source_unavailable_grouping_requires_singletons_and_preserves_counts():
                 'similar_group_rank': 1,
                 'is_similar_group_representative': True,
                 'exact_duplicate_count': 3,
+                'article_grouping_status': 'UNAVAILABLE',
+                'article_grouping_generated_at': None,
+                'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
                 'article_grouping_algorithm_version': 'v1',
             },
             {
@@ -85,6 +91,9 @@ def test_source_unavailable_grouping_requires_singletons_and_preserves_counts():
                 'similar_group_rank': 2,
                 'is_similar_group_representative': True,
                 'exact_duplicate_count': 1,
+                'article_grouping_status': 'UNAVAILABLE',
+                'article_grouping_generated_at': None,
+                'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
                 'article_grouping_algorithm_version': 'v1',
             },
         ],
@@ -141,12 +150,50 @@ class SourceClusterRepository:
                 'tags_json': [],
                 'representative_article_id': 4001,
                 'article_count': 2,
+                'article_grouping_status': 'UNAVAILABLE',
+                'article_grouping_generated_at': None,
+                'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                'article_grouping_algorithm_version': 'v1',
+                'article_grouping_algorithm_version_count': 1,
             }
         ]
 
     async def list_cluster_article_links_by_business_date(self, business_date):
         _ = business_date
-        return []
+        return [
+            {
+                'market_type': 'US',
+                'processed_article_id': 4001,
+                'cluster_id': 7001,
+                'cluster_uid': 'cluster-uid',
+                'cluster_title': '기존 클러스터',
+                'title': '대표 기사',
+                'origin_link': 'https://example.com/1',
+                'article_grouping_status': 'UNAVAILABLE',
+                'article_grouping_generated_at': None,
+                'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                'article_grouping_algorithm_version': 'v1',
+                'similar_group_rank': 1,
+                'is_similar_group_representative': True,
+                'exact_duplicate_count': 0,
+            },
+            {
+                'market_type': 'US',
+                'processed_article_id': 4002,
+                'cluster_id': 7001,
+                'cluster_uid': 'cluster-uid',
+                'cluster_title': '기존 클러스터',
+                'title': '관련 기사',
+                'origin_link': 'https://example.com/2',
+                'article_grouping_status': 'UNAVAILABLE',
+                'article_grouping_generated_at': None,
+                'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                'article_grouping_algorithm_version': 'v1',
+                'similar_group_rank': 2,
+                'is_similar_group_representative': True,
+                'exact_duplicate_count': 0,
+            },
+        ]
 
     async def list_cluster_themes_by_business_date(self, business_date):
         _ = business_date
@@ -181,6 +228,9 @@ class GroupedSourceClusterRepository(SourceClusterRepository):
                 'similar_group_rank': 1,
                 'is_similar_group_representative': True,
                 'exact_duplicate_count': 4,
+                'article_grouping_status': 'READY',
+                'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                'article_grouping_issue_code': None,
                 'article_grouping_algorithm_version': 'v1',
             },
             {
@@ -194,6 +244,9 @@ class GroupedSourceClusterRepository(SourceClusterRepository):
                 'similar_group_rank': 1,
                 'is_similar_group_representative': False,
                 'exact_duplicate_count': 1,
+                'article_grouping_status': 'READY',
+                'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                'article_grouping_issue_code': None,
                 'article_grouping_algorithm_version': 'v1',
             },
         ]
@@ -380,6 +433,10 @@ class ExistingPageRepository:
                 'representative_origin_link': 'https://stored.example/article',
                 'representative_naver_link': None,
                 'search_document': '저장된 클러스터 문서 그대로',
+                'article_grouping_status': 'READY',
+                'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                'article_grouping_issue_code': None,
+                'article_grouping_algorithm_version': 'v1',
             }
         ]
 
@@ -399,7 +456,35 @@ class ExistingPageRepository:
                 'published_at': None,
                 'origin_link': 'https://stored.example/article',
                 'naver_link': None,
-            }
+                'similar_group_rank': 1,
+                'is_similar_group_representative': True,
+                'exact_duplicate_count': 0,
+                'article_grouping_status': 'READY',
+                'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                'article_grouping_issue_code': None,
+                'article_grouping_algorithm_version': 'v1',
+            },
+            {
+                'id': 602,
+                'page_market_id': 901,
+                'display_order': 2,
+                'processed_article_id': 4002,
+                'cluster_id': 7001,
+                'cluster_uid': 'stored-cluster-uid',
+                'cluster_title': '저장된 클러스터',
+                'title': '저장된 관련 기사',
+                'publisher_name': '저장 매체',
+                'published_at': None,
+                'origin_link': 'https://stored.example/article-2',
+                'naver_link': None,
+                'similar_group_rank': 2,
+                'is_similar_group_representative': True,
+                'exact_duplicate_count': 1,
+                'article_grouping_status': 'READY',
+                'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                'article_grouping_issue_code': None,
+                'article_grouping_algorithm_version': 'v1',
+            },
         ]
 
     async def get_page_cluster_themes(self, page_market_cluster_ids):
@@ -575,6 +660,10 @@ async def test_rebuild_uses_persisted_source_and_preserves_page_outcome():
         'representative_origin_link': 'https://stored.example/article',
         'representative_naver_link': None,
         'search_document': '저장된 클러스터 문서 그대로',
+        'article_grouping_status': 'READY',
+        'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+        'article_grouping_issue_code': None,
+        'article_grouping_algorithm_version': 'v1',
     }
     article_row = next(
         payload
@@ -593,6 +682,13 @@ async def test_rebuild_uses_persisted_source_and_preserves_page_outcome():
         'published_at': None,
         'origin_link': 'https://stored.example/article',
         'naver_link': None,
+        'similar_group_rank': 1,
+        'is_similar_group_representative': True,
+        'exact_duplicate_count': 0,
+        'article_grouping_status': 'READY',
+        'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+        'article_grouping_issue_code': None,
+        'article_grouping_algorithm_version': 'v1',
     }
 
 
@@ -1070,6 +1166,11 @@ class ThemedSourceClusterRepository:
                 'representative_origin_link': 'https://example.com/1',
                 'representative_naver_link': None,
                 'article_count': 2,
+                'article_grouping_status': 'READY',
+                'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                'article_grouping_issue_code': None,
+                'article_grouping_algorithm_version': 'v1',
+                'article_grouping_algorithm_version_count': 1,
             },
             {
                 'id': 7002,
@@ -1085,6 +1186,11 @@ class ThemedSourceClusterRepository:
                 'representative_origin_link': 'https://example.com/3',
                 'representative_naver_link': None,
                 'article_count': 1,
+                'article_grouping_status': 'READY',
+                'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                'article_grouping_issue_code': None,
+                'article_grouping_algorithm_version': 'v1',
+                'article_grouping_algorithm_version_count': 1,
             },
             {
                 'id': 7003,
@@ -1100,6 +1206,11 @@ class ThemedSourceClusterRepository:
                 'representative_origin_link': None,
                 'representative_naver_link': None,
                 'article_count': 0,
+                'article_grouping_status': 'UNAVAILABLE',
+                'article_grouping_generated_at': None,
+                'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                'article_grouping_algorithm_version': 'v1',
+                'article_grouping_algorithm_version_count': 1,
             },
         ]
 
@@ -1119,6 +1230,13 @@ class ThemedSourceClusterRepository:
                 'published_at': None,
                 'origin_link': 'https://example.com/2',
                 'naver_link': None,
+                'article_grouping_status': 'READY',
+                'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                'article_grouping_issue_code': None,
+                'article_grouping_algorithm_version': 'v1',
+                'similar_group_rank': 1,
+                'is_similar_group_representative': False,
+                'exact_duplicate_count': 1,
             },
             {
                 'market_type': 'US',
@@ -1131,6 +1249,13 @@ class ThemedSourceClusterRepository:
                 'published_at': None,
                 'origin_link': 'https://example.com/3',
                 'naver_link': None,
+                'article_grouping_status': 'READY',
+                'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                'article_grouping_issue_code': None,
+                'article_grouping_algorithm_version': 'v1',
+                'similar_group_rank': 1,
+                'is_similar_group_representative': True,
+                'exact_duplicate_count': 0,
             },
             {
                 'market_type': 'US',
@@ -1143,6 +1268,13 @@ class ThemedSourceClusterRepository:
                 'published_at': None,
                 'origin_link': 'https://example.com/1',
                 'naver_link': None,
+                'article_grouping_status': 'READY',
+                'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                'article_grouping_issue_code': None,
+                'article_grouping_algorithm_version': 'v1',
+                'similar_group_rank': 1,
+                'is_similar_group_representative': True,
+                'exact_duplicate_count': 2,
             },
         ]
 

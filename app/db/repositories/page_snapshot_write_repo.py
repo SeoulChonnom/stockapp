@@ -309,10 +309,14 @@ class PageSnapshotWriteRepository(PostgresRepository):
         )
         payload = dict(params)
         payload.setdefault('search_document', '')
-        payload.setdefault('article_grouping_status', 'UNAVAILABLE')
-        payload.setdefault('article_grouping_generated_at', None)
-        payload.setdefault('article_grouping_issue_code', 'SIMILARITY_GROUPING_FAILED')
-        payload.setdefault('article_grouping_algorithm_version', None)
+        for field in (
+            'article_grouping_status',
+            'article_grouping_generated_at',
+            'article_grouping_issue_code',
+            'article_grouping_algorithm_version',
+        ):
+            if field not in payload:
+                raise ValueError(f'{field} is required for a snapshot cluster')
         payload['tags_json'] = json.dumps(payload['tags_json'])
         result = await self.session.execute(statement, payload)
         return int(result.scalar_one())
@@ -441,9 +445,13 @@ class PageSnapshotWriteRepository(PostgresRepository):
             )
         )
         payload = dict(params)
-        payload.setdefault('similar_group_rank', None)
-        payload.setdefault('is_similar_group_representative', True)
-        payload.setdefault('exact_duplicate_count', 0)
+        for field in (
+            'similar_group_rank',
+            'is_similar_group_representative',
+            'exact_duplicate_count',
+        ):
+            if field not in payload:
+                raise ValueError(f'{field} is required for a snapshot article link')
         await self.session.execute(statement, payload)
 
 

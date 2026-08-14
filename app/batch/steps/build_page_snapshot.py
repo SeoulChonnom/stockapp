@@ -219,12 +219,14 @@ def _validate_snapshot_public_identities(
 _GROUPING_FAILED_ISSUE = 'SIMILARITY_GROUPING_FAILED'
 
 
-def _grouping_value(row: Mapping[str, Any] | object, *keys: str) -> Any:
-    for key in keys:
-        value = _row_value(row, key)
-        if value is not None:
-            return value
-    return None
+def _required_grouping_value(row: Mapping[str, Any] | object, key: str) -> Any:
+    if isinstance(row, Mapping):
+        if key not in row:
+            raise ValueError(f'{key} is missing')
+        return row[key]
+    if not hasattr(row, key):
+        raise ValueError(f'{key} is missing')
+    return getattr(row, key)
 
 
 def _cluster_article_links(
@@ -244,56 +246,27 @@ def _cluster_article_links(
 
 def _grouping_metadata(
     cluster: Mapping[str, Any], links: list[dict[str, Any]]
-) -> dict[str, Any] | None:
-    status = _grouping_value(cluster, 'article_grouping_status', 'grouping_status')
-    if status is None and links:
-        status = _grouping_value(links[0], 'article_grouping_status', 'grouping_status')
+) -> dict[str, Any]:
+    status = _required_grouping_value(cluster, 'article_grouping_status')
     if status is None:
-        # Rows created before B4 do not carry grouping metadata. Keep this
-        # compatibility branch for old fixtures; live source rows always do.
-        return None
+        raise ValueError('article grouping status is missing')
     if status not in {'READY', 'UNAVAILABLE'}:
         raise ValueError('article grouping status is invalid')
 
-    generated_at = _grouping_value(
-        cluster, 'article_grouping_generated_at', 'grouping_generated_at'
-    )
-    if generated_at is None and links:
-        generated_at = _grouping_value(
-            links[0], 'article_grouping_generated_at', 'grouping_generated_at'
-        )
-    issue_code = _grouping_value(
-        cluster, 'article_grouping_issue_code', 'grouping_issue_code'
-    )
-    if issue_code is None and links:
-        issue_code = _grouping_value(
-            links[0], 'article_grouping_issue_code', 'grouping_issue_code'
-        )
-
-    cluster_version = _grouping_value(
-        cluster,
-        'article_grouping_algorithm_version',
-        'grouping_algorithm_version',
-        'algorithm_version',
+    generated_at = _required_grouping_value(cluster, 'article_grouping_generated_at')
+    issue_code = _required_grouping_value(cluster, 'article_grouping_issue_code')
+    cluster_version = _required_grouping_value(
+        cluster, 'article_grouping_algorithm_version'
     )
     versions = {
-        version
+        _required_grouping_value(link, 'article_grouping_algorithm_version')
         for link in links
-        if (
-            version := _grouping_value(
-                link,
-                'article_grouping_algorithm_version',
-                'grouping_algorithm_version',
-                'algorithm_version',
-            )
-        )
-        is not None
     }
     if len(versions) > 1:
         raise ValueError('article grouping algorithm versions are inconsistent')
-    if cluster_version is not None and versions and cluster_version not in versions:
+    if versions and cluster_version not in versions:
         raise ValueError('article grouping algorithm version is inconsistent')
-    algorithm_version = cluster_version or next(iter(versions), None)
+    algorithm_version = cluster_version
     version_count = cluster.get('article_grouping_algorithm_version_count')
     if version_count is not None and version_count != 1 and links:
         raise ValueError('article grouping algorithm versions are inconsistent')
@@ -305,12 +278,29 @@ def _grouping_metadata(
             raise ValueError('READY article grouping metadata is inconsistent')
     elif generated_at is not None or issue_code != _GROUPING_FAILED_ISSUE:
         raise ValueError('UNAVAILABLE article grouping metadata is inconsistent')
-    return {
+    metadata = {
         'status': status,
         'generated_at': generated_at,
         'issue_code': issue_code,
         'algorithm_version': algorithm_version,
     }
+    for link in links:
+        link_status = _required_grouping_value(link, 'article_grouping_status')
+        link_generated_at = _required_grouping_value(
+            link, 'article_grouping_generated_at'
+        )
+        link_issue_code = _required_grouping_value(link, 'article_grouping_issue_code')
+        link_algorithm_version = _required_grouping_value(
+            link, 'article_grouping_algorithm_version'
+        )
+        if (
+            link_status != metadata['status']
+            or link_generated_at != metadata['generated_at']
+            or link_issue_code != metadata['issue_code']
+            or link_algorithm_version != metadata['algorithm_version']
+        ):
+            raise ValueError('article grouping metadata is inconsistent')
+    return metadata
 
 
 def _validate_source_grouping(
@@ -320,8 +310,6 @@ def _validate_source_grouping(
     for cluster in clusters:
         links = _cluster_article_links(cluster, article_links)
         metadata = _grouping_metadata(cluster, links)
-        if metadata is None:
-            continue
         article_count = cluster.get('article_count')
         if (
             isinstance(article_count, bool)
@@ -379,8 +367,7 @@ def _source_grouping_by_cluster(
     for cluster in clusters:
         links = _cluster_article_links(cluster, article_links)
         metadata = _grouping_metadata(cluster, links)
-        if metadata is not None:
-            result[int(cluster['id'])] = metadata
+        result[int(cluster['id'])] = metadata
     return result
 
 
@@ -747,18 +734,17 @@ class BuildPageSnapshotStep(BatchStep):
                     'representative_origin_link': representative_origin_link,
                     'representative_naver_link': representative_naver_link,
                 }
-                grouping = grouping_by_cluster_id.get(int(cluster['id']))
-                if grouping is not None:
-                    cluster_payload.update(
-                        {
-                            'article_grouping_status': grouping['status'],
-                            'article_grouping_generated_at': grouping['generated_at'],
-                            'article_grouping_issue_code': grouping['issue_code'],
-                            'article_grouping_algorithm_version': grouping[
-                                'algorithm_version'
-                            ],
-                        }
-                    )
+                grouping = grouping_by_cluster_id[int(cluster['id'])]
+                cluster_payload.update(
+                    {
+                        'article_grouping_status': grouping['status'],
+                        'article_grouping_generated_at': grouping['generated_at'],
+                        'article_grouping_issue_code': grouping['issue_code'],
+                        'article_grouping_algorithm_version': grouping[
+                            'algorithm_version'
+                        ],
+                    }
+                )
                 snapshot_cluster_id = await snapshot_repo.insert_page_market_cluster(
                     cluster_payload
                 )
@@ -794,13 +780,11 @@ class BuildPageSnapshotStep(BatchStep):
                         'published_at': article_link.get('published_at'),
                         'origin_link': article_link['origin_link'],
                         'naver_link': article_link.get('naver_link'),
-                        'similar_group_rank': article_link.get('similar_group_rank'),
-                        'is_similar_group_representative': article_link.get(
-                            'is_similar_group_representative', True
-                        ),
-                        'exact_duplicate_count': article_link.get(
-                            'exact_duplicate_count', 0
-                        ),
+                        'similar_group_rank': article_link['similar_group_rank'],
+                        'is_similar_group_representative': article_link[
+                            'is_similar_group_representative'
+                        ],
+                        'exact_duplicate_count': article_link['exact_duplicate_count'],
                     }
                 )
 

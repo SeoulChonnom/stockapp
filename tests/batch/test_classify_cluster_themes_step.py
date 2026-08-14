@@ -204,6 +204,11 @@ async def test_classifier_missing_fallback_becomes_one_canonical_snapshot_issue(
                     'representative_published_at': None,
                     'representative_origin_link': 'https://example.com/article',
                     'representative_naver_link': None,
+                    'article_grouping_status': 'UNAVAILABLE',
+                    'article_grouping_generated_at': None,
+                    'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                    'article_grouping_algorithm_version': 'v1',
+                    'article_grouping_algorithm_version_count': 1,
                 }
             )
 
@@ -219,6 +224,13 @@ async def test_classifier_missing_fallback_becomes_one_canonical_snapshot_issue(
                     'publisher_name': '매체',
                     'published_at': None,
                     'origin_link': 'https://example.com/article',
+                    'article_grouping_status': 'UNAVAILABLE',
+                    'article_grouping_generated_at': None,
+                    'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                    'article_grouping_algorithm_version': 'v1',
+                    'similar_group_rank': 1,
+                    'is_similar_group_representative': True,
+                    'exact_duplicate_count': 0,
                     'naver_link': None,
                 }
             ]

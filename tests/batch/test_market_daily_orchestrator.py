@@ -323,11 +323,36 @@ async def test_snapshot_theme_failure_rolls_back_page_publication_and_checkpoint
                     'representative_origin_link': 'https://example.com/source',
                     'representative_naver_link': None,
                     'article_count': 1,
+                    'article_grouping_status': 'UNAVAILABLE',
+                    'article_grouping_generated_at': None,
+                    'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                    'article_grouping_algorithm_version': 'v1',
+                    'article_grouping_algorithm_version_count': 1,
                 }
             ]
 
         async def list_cluster_article_links_by_business_date(self, _business_date):
-            return []
+            return [
+                {
+                    'market_type': 'US',
+                    'processed_article_id': 4001,
+                    'cluster_id': 7001,
+                    'cluster_uid': 'cluster-uid',
+                    'cluster_title': 'source cluster',
+                    'title': 'source article',
+                    'publisher_name': 'source publisher',
+                    'published_at': None,
+                    'origin_link': 'https://example.com/source',
+                    'naver_link': None,
+                    'article_grouping_status': 'UNAVAILABLE',
+                    'article_grouping_generated_at': None,
+                    'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                    'article_grouping_algorithm_version': 'v1',
+                    'similar_group_rank': 1,
+                    'is_similar_group_representative': True,
+                    'exact_duplicate_count': 0,
+                }
+            ]
 
         async def list_cluster_themes_by_business_date(self, _business_date):
             return []
