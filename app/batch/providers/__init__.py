@@ -10,9 +10,15 @@ from app.batch.providers.market_index_provider import (
     MarketIndexProvider,
 )
 from app.batch.providers.naver_news import NAVER_NEWS_PROVIDER_NAME, NaverNewsProvider
+from app.batch.providers.ollama_embedding_provider import (
+    EmbeddingArticle,
+    OllamaEmbeddingError,
+    OllamaEmbeddingProvider,
+)
 
 __all__ = [
     'ArticleContentProvider',
+    'EmbeddingArticle',
     'BatchLlmProvider',
     'MARKET_INDEX_TICKERS',
     'NAVER_NEWS_PROVIDER_NAME',
@@ -21,4 +27,6 @@ __all__ = [
     'THEME_CLASSIFIER_PROMPT_VERSION',
     'YFINANCE_PROVIDER_NAME',
     'MarketIndexProvider',
+    'OllamaEmbeddingError',
+    'OllamaEmbeddingProvider',
 ]

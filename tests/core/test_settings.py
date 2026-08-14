@@ -339,3 +339,56 @@ def test_settings_rejects_lease_not_longer_than_heartbeat():
             batch_worker_heartbeat_seconds=30,
             batch_worker_lease_seconds=30,
         )
+
+
+def test_settings_loads_ollama_configuration_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv('STOCKAPP_OLLAMA_BASE_URL', 'http://ollama.test:11434/')
+    monkeypatch.setenv('STOCKAPP_OLLAMA_EMBED_MODEL', 'custom-embed')
+    monkeypatch.setenv('STOCKAPP_OLLAMA_TIMEOUT_SECONDS', '12.5')
+    monkeypatch.setenv('STOCKAPP_OLLAMA_MAX_RETRIES', '1')
+    monkeypatch.setenv('STOCKAPP_SIMILARITY_INPUT_CHARS', '1024')
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.ollama_base_url == 'http://ollama.test:11434/'
+    assert settings.ollama_embed_model == 'custom-embed'
+    assert settings.ollama_timeout_seconds == 12.5
+    assert settings.ollama_max_retries == 1
+    assert settings.similarity_input_chars == 1024
+
+
+def test_settings_uses_ollama_defaults(monkeypatch: pytest.MonkeyPatch):
+    for name in (
+        'STOCKAPP_OLLAMA_BASE_URL',
+        'STOCKAPP_OLLAMA_EMBED_MODEL',
+        'STOCKAPP_OLLAMA_TIMEOUT_SECONDS',
+        'STOCKAPP_OLLAMA_MAX_RETRIES',
+        'STOCKAPP_SIMILARITY_INPUT_CHARS',
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    settings = settings_module.Settings(_env_file=None)
+
+    assert settings.ollama_base_url == 'http://localhost:11434'
+    assert settings.ollama_embed_model == 'bge-m3'
+    assert settings.ollama_timeout_seconds == 30
+    assert settings.ollama_max_retries == 2
+    assert settings.similarity_input_chars == 2048
+
+
+@pytest.mark.parametrize(
+    ('field_name', 'value'),
+    [
+        ('ollama_timeout_seconds', 0),
+        ('ollama_timeout_seconds', -1),
+        ('ollama_max_retries', -1),
+        ('ollama_max_retries', 3),
+        ('similarity_input_chars', 0),
+        ('similarity_input_chars', -1),
+    ],
+)
+def test_settings_rejects_invalid_ollama_bounds(field_name: str, value: object):
+    with pytest.raises(ValidationError, match=field_name):
+        settings_module.Settings(**{field_name: value})

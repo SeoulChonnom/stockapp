@@ -242,6 +242,38 @@ class Settings(BaseSettings):
             'market_session_data_grace_minutes',
         ),
     )
+    ollama_base_url: str = Field(
+        default='http://localhost:11434',
+        validation_alias=AliasChoices('STOCKAPP_OLLAMA_BASE_URL', 'ollama_base_url'),
+    )
+    ollama_embed_model: str = Field(
+        default='bge-m3',
+        validation_alias=AliasChoices(
+            'STOCKAPP_OLLAMA_EMBED_MODEL', 'ollama_embed_model'
+        ),
+    )
+    ollama_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_OLLAMA_TIMEOUT_SECONDS', 'ollama_timeout_seconds'
+        ),
+    )
+    ollama_max_retries: int = Field(
+        default=2,
+        ge=0,
+        le=2,
+        validation_alias=AliasChoices(
+            'STOCKAPP_OLLAMA_MAX_RETRIES', 'ollama_max_retries'
+        ),
+    )
+    similarity_input_chars: int = Field(
+        default=2048,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_SIMILARITY_INPUT_CHARS', 'similarity_input_chars'
+        ),
+    )
     llm_provider: str = Field(
         default='google-genai',
         validation_alias=AliasChoices('STOCKAPP_LLM_PROVIDER', 'llm_provider'),
