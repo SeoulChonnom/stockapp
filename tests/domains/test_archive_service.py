@@ -173,6 +173,106 @@ async def test_archive_service_rejects_more_than_ten_normalized_query_tokens():
     assert exc_info.value.status_code == 422
 
 
+@pytest.mark.anyio
+async def test_archive_service_deduplicates_trimmed_theme_codes_before_validation():
+    repository = RecordingArchiveRepository()
+    theme_repository = RecordingThemeRepository(expanded_codes=['ROOT', 'OTHER'])
+    service = ArchiveService(repository, theme_repository)
+
+    await service.list_archive(
+        from_date=None,
+        to_date=None,
+        status=None,
+        market_type=None,
+        themes=[' ROOT ', 'ROOT', 'OTHER', ' OTHER '],
+        query=None,
+        page=1,
+        size=30,
+    )
+
+    assert theme_repository.validation_calls == [['ROOT', 'OTHER']]
+    assert theme_repository.expansion_calls == [['ROOT', 'OTHER']]
+    assert repository.calls[0][1]['theme_codes'] == ['ROOT', 'OTHER']
+
+
+@pytest.mark.anyio
+async def test_archive_service_validates_normalized_query_length_and_casefolding():
+    repository = RecordingArchiveRepository()
+    service = ArchiveService(repository, RecordingThemeRepository())
+
+    await service.list_archive(
+        from_date=None,
+        to_date=None,
+        status=None,
+        market_type=None,
+        themes=None,
+        query='  ß   İ  ',
+        page=1,
+        size=30,
+    )
+
+    assert repository.calls[0][1]['query_tokens'] == ['ss', 'i\u0307']
+
+
+@pytest.mark.anyio
+async def test_archive_service_collapses_excessive_whitespace_before_length_check():
+    repository = RecordingArchiveRepository()
+    service = ArchiveService(repository, RecordingThemeRepository())
+
+    await service.list_archive(
+        from_date=None,
+        to_date=None,
+        status=None,
+        market_type=None,
+        themes=None,
+        query='\t  ab \n',
+        page=1,
+        size=30,
+    )
+
+    assert repository.calls[0][1]['query_tokens'] == ['ab']
+
+
+@pytest.mark.anyio
+async def test_archive_service_rejects_blank_normalized_query():
+    service = ArchiveService(RecordingArchiveRepository(), RecordingThemeRepository())
+
+    with pytest.raises(ValidationError) as exc_info:
+        await service.list_archive(
+            from_date=None,
+            to_date=None,
+            status=None,
+            market_type=None,
+            themes=None,
+            query='\t \n',
+            page=1,
+            size=30,
+        )
+
+    assert exc_info.value.code == 'REQUEST_VALIDATION_ERROR'
+    assert exc_info.value.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_archive_service_rejects_query_after_normalized_length_exceeds_100():
+    service = ArchiveService(RecordingArchiveRepository(), RecordingThemeRepository())
+
+    with pytest.raises(ValidationError) as exc_info:
+        await service.list_archive(
+            from_date=None,
+            to_date=None,
+            status=None,
+            market_type=None,
+            themes=None,
+            query=' '.join(['a' * 101]),
+            page=1,
+            size=30,
+        )
+
+    assert exc_info.value.code == 'REQUEST_VALIDATION_ERROR'
+    assert exc_info.value.status_code == 422
+
+
 def _theme_record(
     code: str,
     *,

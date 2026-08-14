@@ -491,10 +491,10 @@ def test_get_archive_passes_repeated_theme_market_and_query_filters(client):
     }
 
 
-def test_get_archive_rejects_more_than_ten_themes(client):
+def test_get_archive_defensively_rejects_extremely_many_raw_theme_values(client):
     response = client.get(
         '/stock/api/pages/archive',
-        params=[('theme', f'THEME_{index}') for index in range(11)],
+        params=[('theme', f'THEME_{index}') for index in range(101)],
         headers=build_test_bearer_headers('ADMIN'),
     )
 
@@ -502,15 +502,61 @@ def test_get_archive_rejects_more_than_ten_themes(client):
     assert response.json()['error']['code'] == 'REQUEST_VALIDATION_ERROR'
 
 
-def test_get_archive_rejects_query_shorter_than_two_characters(client):
+def test_get_archive_deduplicates_repeated_theme_values_before_service(client):
+    response = client.get(
+        '/stock/api/pages/archive',
+        params=[
+            ('theme', ' ROOT_A '),
+            ('theme', 'ROOT_A'),
+            ('theme', 'ROOT_B'),
+        ],
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 200
+    assert client.archive_service.list_kwargs['themes'] == [
+        ' ROOT_A ',
+        'ROOT_A',
+        'ROOT_B',
+    ]
+
+
+def test_get_archive_forwards_short_raw_query_to_service_for_normalized_validation(
+    client,
+):
     response = client.get(
         '/stock/api/pages/archive',
         params={'q': 'a'},
         headers=build_test_bearer_headers('ADMIN'),
     )
 
+    assert response.status_code == 200
+    assert client.archive_service.list_kwargs['query'] == 'a'
+
+
+def test_get_archive_accepts_raw_one_character_query_when_normalized_length_is_two(
+    client,
+):
+    response = client.get(
+        '/stock/api/pages/archive',
+        params={'q': 'ß'},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 200
+    assert client.archive_service.list_kwargs['query'] == 'ß'
+
+
+def test_get_archive_defensively_rejects_only_extremely_large_raw_query(client):
+    response = client.get(
+        '/stock/api/pages/archive',
+        params={'q': 'a' * 1_001},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
     assert response.status_code == 422
     assert response.json()['error']['code'] == 'REQUEST_VALIDATION_ERROR'
+    assert client.archive_service.list_kwargs is None
 
 
 def test_archive_openapi_documents_correlated_filter_errors(client):

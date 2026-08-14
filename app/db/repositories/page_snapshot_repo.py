@@ -669,16 +669,19 @@ class PageSnapshotRepository(PostgresRepository):
         elif market_type is not None and not normalized_query_tokens:
             clauses.append(market_scope(with_search=False))
         elif normalized_query_tokens:
-            clauses.append(
-                '('
-                + ' OR '.join(
-                    (
-                        market_scope(with_search=True),
-                        cluster_scope(with_search=True, with_theme=False),
-                    )
+            search_scopes = [
+                market_scope(with_search=True),
+                cluster_scope(with_search=True, with_theme=False),
+            ]
+            if market_type is None:
+                search_scopes.insert(
+                    0,
+                    token_clause(
+                        "LOWER(CONCAT_WS(' ', latest_public.page_title, "
+                        'latest_public.global_headline))'
+                    ),
                 )
-                + ')'
-            )
+            clauses.append(f'({" OR ".join(search_scopes)})')
 
         where = f'WHERE {" AND ".join(clauses)}' if clauses else ''
         return {'where': where, 'bindparams': params}

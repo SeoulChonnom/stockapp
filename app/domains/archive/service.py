@@ -115,17 +115,23 @@ class ArchiveService:
 def _normalize_theme_codes(themes: Sequence[str] | None) -> list[str]:
     if themes is None:
         return []
-    normalized = [theme.strip() for theme in themes]
-    if any(not theme for theme in normalized):
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for theme in themes:
+        code = theme.strip()
+        if not code:
+            raise ValidationError(
+                'REQUEST_VALIDATION_ERROR',
+                'Archive theme codes must not be blank.',
+                status_code=422,
+            )
+        if code not in seen:
+            normalized.append(code)
+            seen.add(code)
+    if len(normalized) > MAX_ARCHIVE_THEMES:
         raise ValidationError(
             'REQUEST_VALIDATION_ERROR',
-            'Archive theme codes must not be blank.',
-            status_code=422,
-        )
-    if len(normalized) != len(set(normalized)):
-        raise ValidationError(
-            'REQUEST_VALIDATION_ERROR',
-            'Archive theme codes must be unique.',
+            'At most 10 distinct archive themes may be selected.',
             status_code=422,
         )
     return normalized

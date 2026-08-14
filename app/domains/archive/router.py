@@ -69,12 +69,33 @@ async def list_archive(
     fromDate: Annotated[date | None, Query(alias='fromDate')] = None,
     toDate: Annotated[date | None, Query(alias='toDate')] = None,
     status: Annotated[ArchiveStatus | None, Query(alias='status')] = None,
-    theme: Annotated[list[str] | None, Query(alias='theme', max_length=10)] = None,
+    theme: Annotated[
+        list[str] | None,
+        Query(
+            alias='theme',
+            max_length=100,
+            description=(
+                'Repeated theme codes; values are trimmed and deduplicated, '
+                'with at most 10 distinct codes.'
+            ),
+        ),
+    ] = None,
     marketType: Annotated[
         Literal['US', 'KR'] | None,
         Query(alias='marketType'),
     ] = None,
-    q: Annotated[str | None, Query(alias='q', min_length=2, max_length=100)] = None,
+    q: Annotated[
+        str | None,
+        Query(
+            alias='q',
+            max_length=1_000,
+            description=(
+                'Search text normalized to NFC/casefold/collapsed whitespace; '
+                'the normalized value must be 2–100 characters and at most 10 '
+                'tokens.'
+            ),
+        ),
+    ] = None,
     page: Annotated[int, Query(alias='page', ge=1)] = 1,
     size: Annotated[int, Query(alias='size', ge=1, le=100)] = 30,
 ) -> ApiSuccess[ArchiveListResponse]:

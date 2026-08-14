@@ -503,6 +503,46 @@ async def test_archive_query_scope_keeps_all_q_tokens_in_one_market_or_cluster_u
 
 
 @pytest.mark.anyio
+async def test_archive_q_only_scope_includes_one_combined_page_unit():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = PageSnapshotRepository(session)
+
+    await repo.list_archive_page_headers(query_tokens=['headline', 'korean'])
+
+    sql = normalize_sql(session.statements[0]).lower()
+    assert (
+        "lower(concat_ws(' ', latest_public.page_title, "
+        'latest_public.global_headline)) ilike'
+    ) in sql
+    assert 'latest_public.page_title' in sql
+    assert 'latest_public.global_headline' in sql
+    statement_sql = str(session.statements[0]).lower()
+    page_scope = statement_sql[
+        statement_sql.index('lower(concat_ws') : statement_sql.index(' or exists')
+    ]
+    assert page_scope.count('q_token_0') == 1
+    assert page_scope.count('q_token_1') == 1
+
+
+@pytest.mark.anyio
+async def test_archive_market_and_theme_scopes_do_not_search_page_fields():
+    market_session = RecordingAsyncSession(results=[DummyResult([])])
+    theme_session = RecordingAsyncSession(results=[DummyResult([])])
+
+    await PageSnapshotRepository(market_session).list_archive_page_headers(
+        market_type='KR', query_tokens=['headline', 'korean']
+    )
+    await PageSnapshotRepository(theme_session).list_archive_page_headers(
+        theme_codes=['ROOT'], query_tokens=['headline', 'korean']
+    )
+
+    assert 'latest_public.page_title' not in str(market_session.statements[0])
+    assert 'latest_public.global_headline' not in str(market_session.statements[0])
+    assert 'latest_public.page_title' not in str(theme_session.statements[0])
+    assert 'latest_public.global_headline' not in str(theme_session.statements[0])
+
+
+@pytest.mark.anyio
 async def test_archive_theme_and_query_scope_correlates_theme_and_tokens_to_one_cluster():
     session = RecordingAsyncSession(results=[DummyResult([])])
     repo = PageSnapshotRepository(session)
