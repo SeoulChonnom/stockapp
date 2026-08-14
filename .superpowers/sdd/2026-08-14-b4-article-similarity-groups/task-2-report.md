@@ -34,8 +34,9 @@ The review-evidence rerun above is scoped to settings and the Ollama provider;
 the earlier full relevant run covered `tests/core tests/batch` with 573 passed
 before the additional cleanup-only tests were added.
 
-All provider tests use `httpx.MockTransport`; no Ollama or Gemini endpoint was
-called.
+HTTP request/payload/retry tests use `httpx.MockTransport`; response lifecycle
+tests use direct fake async clients. No real network or Ollama/Gemini endpoint
+was called.
 
 ## Review follow-up
 
