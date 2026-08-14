@@ -122,6 +122,66 @@ async def test_cluster_service_returns_cluster_detail(
 
 
 @pytest.mark.anyio
+async def test_cluster_service_reads_persisted_article_grouping(
+    cluster_repository,
+):
+    from app.db.repositories.projections import (
+        ArticleGroupingRecord,
+        ArticleGroupMemberRecord,
+        ArticleGroupRecord,
+    )
+
+    groups = tuple(
+        ArticleGroupRecord(
+            similar_group_id=8000 + index,
+            cluster_id=7001,
+            group_rank=index,
+            representative_article_id=4000 + index,
+            algorithm_version='v1',
+            generated_at=datetime(2026, 3, 18, 5, 0, tzinfo=UTC),
+            members=(
+                ArticleGroupMemberRecord(
+                    8000 + index,
+                    4000 + index,
+                    1.0,
+                    count,
+                    True,
+                    1,
+                ),
+            ),
+        )
+        for index, count in enumerate((3, 1, 0), start=1)
+    )
+    grouping = ArticleGroupingRecord(
+        status='UNAVAILABLE',
+        generated_at=None,
+        issue_code='SIMILARITY_GROUPING_FAILED',
+        algorithm_version='v1',
+        groups=groups,
+        members=tuple(group.members[0] for group in groups),
+    )
+
+    async def get_cluster_grouping(cluster_id):
+        cluster_repository.calls.append(('get_cluster_grouping', cluster_id))
+        return grouping
+
+    cluster_repository.get_cluster_grouping = get_cluster_grouping
+    service = ClustersService(cluster_repository, FakeAiSummaryRepository(None))
+
+    payload = jsonable(
+        await service.get_cluster_detail('51f0d9a0-9fc5-4f15-a4f9-62856f128683')
+    )
+
+    assert ('get_cluster_grouping', 7001) in cluster_repository.calls
+    assert [article['exactDuplicateCount'] for article in payload['articles']] == [
+        3,
+        1,
+        0,
+    ]
+    assert payload['articleGrouping']['status'] == 'UNAVAILABLE'
+
+
+@pytest.mark.anyio
 async def test_cluster_service_reads_persisted_sections_and_summary_timestamp(
     cluster_repository,
 ):

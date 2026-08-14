@@ -1349,6 +1349,171 @@ def test_unavailable_article_grouping_requires_truthful_state(
         assemble_cluster_detail_response(payload)
 
 
+def test_ready_article_grouping_requires_timestamp_and_no_issue(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['articleGrouping'] = {
+        'status': 'READY',
+        'generatedAt': None,
+        'issue': {
+            'code': 'SIMILARITY_GROUPING_FAILED',
+            'message': '유사 기사 묶음을 생성하지 못했습니다.',
+        },
+    }
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+def test_cluster_article_exact_duplicate_count_rejects_boolean(
+    sample_cluster_detail_payload,
+):
+    payload = _structured_cluster_payload(sample_cluster_detail_payload)
+    payload['articles'][0]['exactDuplicateCount'] = True
+
+    with pytest.raises(ValidationError):
+        assemble_cluster_detail_response(payload)
+
+
+def test_cluster_builder_uses_persisted_ready_grouping_with_public_ids(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    from app.db.repositories.projections import (
+        ArticleGroupingRecord,
+        ArticleGroupMemberRecord,
+        ArticleGroupRecord,
+    )
+
+    groups = (
+        ArticleGroupRecord(
+            similar_group_id=9001,
+            cluster_id=7001,
+            group_rank=1,
+            representative_article_id=4002,
+            algorithm_version='v1',
+            generated_at=datetime(2026, 3, 18, 5, 0, tzinfo=UTC),
+            members=(
+                ArticleGroupMemberRecord(9001, 4002, 0.99, 3, True, 1),
+                ArticleGroupMemberRecord(9001, 4001, 0.88, 2, False, 2),
+            ),
+        ),
+        ArticleGroupRecord(
+            similar_group_id=9002,
+            cluster_id=7001,
+            group_rank=2,
+            representative_article_id=4003,
+            algorithm_version='v1',
+            generated_at=datetime(2026, 3, 18, 5, 0, tzinfo=UTC),
+            members=(ArticleGroupMemberRecord(9002, 4003, 1.0, 0, True, 1),),
+        ),
+    )
+    grouping = ArticleGroupingRecord(
+        status='READY',
+        generated_at=datetime(2026, 3, 18, 5, 0, tzinfo=UTC),
+        issue_code=None,
+        algorithm_version='v1',
+        groups=groups,
+        members=tuple(member for group in groups for member in group.members),
+    )
+
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        article_grouping=grouping,
+    )
+
+    assert payload['articleGrouping'] == {
+        'status': 'READY',
+        'generatedAt': '2026-03-18T05:00:00Z',
+        'issue': None,
+    }
+    assert [article['similarGroupId'] for article in payload['articles']] == [
+        'sim-51f0d9a0-9fc5-4f15-a4f9-62856f128683-1',
+        'sim-51f0d9a0-9fc5-4f15-a4f9-62856f128683-1',
+        'sim-51f0d9a0-9fc5-4f15-a4f9-62856f128683-2',
+    ]
+    assert [
+        article['isSimilarGroupRepresentative'] for article in payload['articles']
+    ] == [False, True, True]
+    assert [article['exactDuplicateCount'] for article in payload['articles']] == [
+        2,
+        3,
+        0,
+    ]
+    assert payload['representativeArticle']['isSimilarGroupRepresentative'] is False
+    assert all(
+        str(article['similarGroupId']).find('900') == -1
+        for article in payload['articles']
+    )
+
+
+def test_cluster_builder_uses_persisted_unavailable_singletons_in_server_order(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    from app.db.repositories.projections import (
+        ArticleGroupingRecord,
+        ArticleGroupMemberRecord,
+        ArticleGroupRecord,
+    )
+
+    groups = tuple(
+        ArticleGroupRecord(
+            similar_group_id=9000 + index,
+            cluster_id=7001,
+            group_rank=index,
+            representative_article_id=article['id'],
+            algorithm_version='v1',
+            generated_at=datetime(2026, 3, 18, 5, 0, tzinfo=UTC),
+            members=(
+                ArticleGroupMemberRecord(
+                    9000 + index,
+                    article['id'],
+                    1.0,
+                    count,
+                    True,
+                    1,
+                ),
+            ),
+        )
+        for index, (article, count) in enumerate(
+            zip(sample_processed_article_rows, (4, 2, 1), strict=True), start=1
+        )
+    )
+    grouping = ArticleGroupingRecord(
+        status='UNAVAILABLE',
+        generated_at=None,
+        issue_code='SIMILARITY_GROUPING_FAILED',
+        algorithm_version='v1',
+        groups=groups,
+        members=tuple(group.members[0] for group in groups),
+    )
+
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        article_grouping=grouping,
+    )
+
+    assert payload['articleGrouping']['status'] == 'UNAVAILABLE'
+    assert payload['articleGrouping']['generatedAt'] is None
+    assert payload['articleGrouping']['issue']['code'] == 'SIMILARITY_GROUPING_FAILED'
+    assert [article['similarGroupId'] for article in payload['articles']] == [
+        f'sim-{sample_cluster_row["cluster_uid"]}-1',
+        f'sim-{sample_cluster_row["cluster_uid"]}-2',
+        f'sim-{sample_cluster_row["cluster_uid"]}-3',
+    ]
+    assert [article['exactDuplicateCount'] for article in payload['articles']] == [
+        4,
+        2,
+        1,
+    ]
+
+
 def test_cluster_assembler_returns_full_detail_contract(sample_cluster_detail_payload):
     structured_payload = _structured_cluster_payload(sample_cluster_detail_payload)
     payload = {

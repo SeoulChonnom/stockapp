@@ -7,6 +7,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictBool,
     StrictInt,
     field_validator,
     model_validator,
@@ -201,7 +202,7 @@ class ArticleGroupingResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     status: Literal['READY', 'UNAVAILABLE']
-    generatedAt: datetime | str | None
+    generatedAt: datetime | None
     issue: ArticleGroupingIssueResponse | None
 
     _normalize_generated_at = field_validator('generatedAt', mode='before')(
@@ -209,13 +210,16 @@ class ArticleGroupingResponse(BaseModel):
     )
 
     @model_validator(mode='after')
-    def validate_unavailable_state(self) -> Self:
-        if self.status == 'UNAVAILABLE' and (
-            self.generatedAt is not None or self.issue is None
-        ):
-            raise ValueError(
-                'UNAVAILABLE grouping requires null generatedAt and a public issue'
-            )
+    def validate_state(self) -> Self:
+        if self.status == 'UNAVAILABLE':
+            if self.generatedAt is not None or self.issue is None:
+                raise ValueError(
+                    'UNAVAILABLE grouping requires null generatedAt and a public issue'
+                )
+            return self
+
+        if self.generatedAt is None or self.issue is not None:
+            raise ValueError('READY grouping requires generatedAt and no public issue')
         return self
 
 
@@ -230,8 +234,8 @@ class ClusterArticleResponse(BaseModel):
     naverLink: str | None = None
     sourceSummary: str | None = None
     similarGroupId: str
-    isSimilarGroupRepresentative: bool
-    exactDuplicateCount: int = Field(ge=0)
+    isSimilarGroupRepresentative: StrictBool
+    exactDuplicateCount: StrictInt = Field(ge=0)
 
     _normalize_published_at = field_validator('publishedAt', mode='before')(
         _normalize_timestamp
