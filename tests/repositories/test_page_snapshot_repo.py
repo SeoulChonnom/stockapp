@@ -458,6 +458,7 @@ async def test_archive_ready_filter_excludes_latest_partial_instead_of_old_ready
     expected_cte = (
         'with latest_public as ( select distinct on (business_date) id, '
         'business_date, version_no, page_title, status, global_headline, '
+        'search_document, '
         'generated_at, partial_message from stock.market_daily_page '
         "where status in ('ready', 'partial') order by business_date desc, "
         'version_no desc, id desc )'
@@ -510,15 +511,13 @@ async def test_archive_q_only_scope_includes_one_combined_page_unit():
     await repo.list_archive_page_headers(query_tokens=['headline', 'korean'])
 
     sql = normalize_sql(session.statements[0]).lower()
-    assert (
-        "lower(concat_ws(' ', latest_public.page_title, "
-        'latest_public.global_headline)) ilike'
-    ) in sql
-    assert 'latest_public.page_title' in sql
-    assert 'latest_public.global_headline' in sql
+    assert 'latest_public.search_document ilike' in sql
+    assert 'lower(concat_ws' not in sql
     statement_sql = str(session.statements[0]).lower()
     page_scope = statement_sql[
-        statement_sql.index('lower(concat_ws') : statement_sql.index(' or exists')
+        statement_sql.index('latest_public.search_document') : statement_sql.index(
+            ' or exists'
+        )
     ]
     assert page_scope.count('q_token_0') == 1
     assert page_scope.count('q_token_1') == 1

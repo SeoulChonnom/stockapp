@@ -24,6 +24,7 @@ from app.core.public_diagnostics import (
     sanitize_public_diagnostic,
     sanitize_public_diagnostics,
 )
+from app.core.text import normalize_search_document
 from app.db.enums import AiSummaryType, EventLevel, MarketType, PageStatus
 from app.db.repositories.ai_summary_repo import AiSummaryRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
@@ -379,12 +380,15 @@ class BuildPageSnapshotStep(BatchStep):
             )
             else PageStatus.READY.value
         )
+        page_title = f'글로벌 시장 일간 요약 - {context.business_date.isoformat()}'
+        global_headline = getattr(global_headline_summary, 'title', None)
         page_id = await snapshot_repo.create_page(
             business_date=context.business_date,
             version_no=version_no,
-            page_title=f'글로벌 시장 일간 요약 - {context.business_date.isoformat()}',
+            page_title=page_title,
             status=page_status,
-            global_headline=getattr(global_headline_summary, 'title', None),
+            global_headline=global_headline,
+            search_document=normalize_search_document(page_title, global_headline),
             partial_message=context.partial_message,
             raw_news_count=context.raw_news_count,
             processed_news_count=context.processed_news_count,

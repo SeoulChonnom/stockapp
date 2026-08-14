@@ -31,6 +31,7 @@ INCREMENTAL_NEWS_MIGRATION = (
     MIGRATIONS_DIRECTORY / '20260731_07_incremental_news_collection.sql'
 )
 THEME_MIGRATION = MIGRATIONS_DIRECTORY / '20260813_08_theme_catalog_archive_search.sql'
+PAGE_SEARCH_MIGRATION = MIGRATIONS_DIRECTORY / '20260814_09_page_search_document.sql'
 
 
 def _execute_file(connection, path: Path) -> None:
@@ -1180,6 +1181,7 @@ def test_theme_catalog_has_canonical_tree_constraints_and_idempotent_seed(
         WHERE table_schema = 'stock'
           AND column_name = 'search_document'
           AND table_name IN (
+              'market_daily_page',
               'market_daily_page_market',
               'market_daily_page_market_cluster'
           )
@@ -1187,6 +1189,74 @@ def test_theme_catalog_has_canonical_tree_constraints_and_idempotent_seed(
         """
     ).fetchall()
     assert search_columns == [
+        ('market_daily_page', 'search_document'),
         ('market_daily_page_market', 'search_document'),
         ('market_daily_page_market_cluster', 'search_document'),
+    ]
+
+
+def test_page_search_document_migration_backfills_unicode_normalization(
+    postgres_connection,
+):
+    job_id = postgres_connection.execute(
+        """
+        INSERT INTO stock.batch_job (business_date, status)
+        VALUES (DATE '2026-08-14', 'SUCCESS')
+        RETURNING id
+        """
+    ).fetchone()[0]
+    postgres_connection.execute(
+        """
+        INSERT INTO stock.market_daily_page (
+            business_date,
+            version_no,
+            page_title,
+            status,
+            global_headline,
+            batch_job_id
+        )
+        VALUES
+            (
+                DATE '2026-08-14',
+                1,
+                'Straße',
+                'READY',
+                NULL,
+                %s
+            ),
+            (
+                DATE '2026-08-15',
+                1,
+                'Café',
+                'READY',
+                'CAFÉ',
+                %s
+            ),
+            (
+                DATE '2026-08-16',
+                1,
+                'İstanbul ﬁ',
+                'READY',
+                NULL,
+                %s
+            )
+        """,
+        (job_id, job_id, job_id),
+    )
+
+    _execute_file(postgres_connection, PAGE_SEARCH_MIGRATION)
+    _execute_file(postgres_connection, PAGE_SEARCH_MIGRATION)
+
+    rows = postgres_connection.execute(
+        """
+        SELECT business_date, search_document
+        FROM stock.market_daily_page
+        WHERE business_date BETWEEN DATE '2026-08-14' AND DATE '2026-08-16'
+        ORDER BY business_date
+        """
+    ).fetchall()
+    assert rows == [
+        (date(2026, 8, 14), 'strasse'),
+        (date(2026, 8, 15), 'café café'),
+        (date(2026, 8, 16), 'i̇stanbul fi'),
     ]

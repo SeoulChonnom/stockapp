@@ -845,6 +845,8 @@ CREATE TABLE market_daily_page (
     page_title TEXT NOT NULL,
     status page_status_enum NOT NULL,
     global_headline TEXT NULL,
+    -- NFC/casefold/whitespace-normalized snapshot of page_title and headline.
+    search_document TEXT NOT NULL DEFAULT '',
     partial_message TEXT NULL,
     generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     raw_news_count INTEGER NOT NULL DEFAULT 0,
@@ -874,6 +876,9 @@ CREATE INDEX idx_market_daily_page_status_generated
 
 CREATE INDEX idx_market_daily_page_batch_job
     ON market_daily_page (batch_job_id);
+
+CREATE INDEX idx_market_daily_page_search_document
+    ON market_daily_page USING GIN (search_document gin_trgm_ops);
 
 CREATE INDEX idx_market_daily_page_archive_cover
     ON market_daily_page (business_date DESC, generated_at DESC)

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import unicodedata
 from collections.abc import Sequence
 from datetime import date
 
 from app.core.exceptions import ValidationError
+from app.core.text import normalize_text
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.db.repositories.theme_repo import ThemeRepository
 from app.domains.archive.assembler import (
@@ -140,7 +140,7 @@ def _normalize_theme_codes(themes: Sequence[str] | None) -> list[str]:
 def normalize_archive_query(query: str | None) -> list[str]:
     if query is None:
         return []
-    normalized = ' '.join(unicodedata.normalize('NFC', query).casefold().split())
+    normalized = normalize_text(query)
     if not 2 <= len(normalized) <= 100:
         raise ValidationError(
             'REQUEST_VALIDATION_ERROR',

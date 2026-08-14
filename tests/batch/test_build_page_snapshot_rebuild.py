@@ -393,6 +393,7 @@ async def test_rebuild_uses_persisted_source_and_preserves_page_outcome():
         'page_title': '저장된 페이지 제목',
         'status': 'PARTIAL',
         'global_headline': '저장된 글로벌 헤드라인',
+        'search_document': '저장된 페이지 제목 저장된 글로벌 헤드라인',
         'partial_message': '기존 부분 생성 사유',
         'raw_news_count': 10,
         'processed_news_count': 6,

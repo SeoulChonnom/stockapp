@@ -497,6 +497,7 @@ class PageSnapshotRepository(PostgresRepository):
                     page_title,
                     status,
                     global_headline,
+                    search_document,
                     generated_at,
                     partial_message
                 FROM {page_table}
@@ -556,6 +557,7 @@ class PageSnapshotRepository(PostgresRepository):
                     page_title,
                     status,
                     global_headline,
+                    search_document,
                     generated_at,
                     partial_message
                 FROM {page_table}
@@ -676,10 +678,7 @@ class PageSnapshotRepository(PostgresRepository):
             if market_type is None:
                 search_scopes.insert(
                     0,
-                    token_clause(
-                        "LOWER(CONCAT_WS(' ', latest_public.page_title, "
-                        'latest_public.global_headline))'
-                    ),
+                    token_clause('latest_public.search_document'),
                 )
             clauses.append(f'({" OR ".join(search_scopes)})')
 

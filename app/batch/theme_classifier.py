@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
@@ -13,19 +12,10 @@ from app.batch.theme_rules import (
     ThemeRuleCatalog,
     load_theme_rules,
 )
+from app.core.text import normalize_text
 
 ArticleId = int | str
 ClassificationMethod = Literal['LLM', 'KEYWORD_FALLBACK']
-
-
-def normalize_text(value: str | None) -> str:
-    """NFC-compose, case-fold, and collapse whitespace in source text."""
-
-    if value is None:
-        return ''
-    if not isinstance(value, str):
-        raise TypeError('value must be a string or None')
-    return ' '.join(unicodedata.normalize('NFC', value).casefold().split())
 
 
 def _validate_optional_text(value: object, field_name: str) -> None:

@@ -11,6 +11,31 @@ from tests.support import DummyResult, RecordingAsyncSession, normalize_sql
 
 
 @pytest.mark.anyio
+async def test_create_page_persists_casefolded_nfc_search_document():
+    session = RecordingAsyncSession(results=[DummyResult([901])])
+    repo = PageSnapshotWriteRepository(session)
+
+    page_id = await repo.create_page(
+        business_date=date(2026, 8, 13),
+        version_no=1,
+        page_title='  Straße  Cafe\u0301  ',
+        status='READY',
+        global_headline='STRASSE\tRésumé',
+        search_document='strasse café strasse résumé',
+        partial_message=None,
+        raw_news_count=1,
+        processed_news_count=1,
+        cluster_count=0,
+        batch_job_id=1,
+        metadata_json={},
+    )
+
+    assert page_id == 901
+    assert 'search_document' in normalize_sql(session.statements[0])
+    assert session.parameters[0]['search_document'] == ('strasse café strasse résumé')
+
+
+@pytest.mark.anyio
 async def test_create_page_market_persists_search_document():
     session = RecordingAsyncSession(results=[DummyResult([901])])
     repo = PageSnapshotWriteRepository(session)

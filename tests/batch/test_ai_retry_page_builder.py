@@ -10,6 +10,7 @@ import pytest
 
 from app.batch.ai_retry.models import AiRetryCounts
 from app.batch.ai_retry.page_builder import AiRetryPageBuilder
+from app.core.text import normalize_search_document
 from app.db.repositories.projections import AiSummaryRecord
 
 BUSINESS_DATE = date(2026, 7, 28)
@@ -326,6 +327,9 @@ async def test_all_recovery_creates_ready_vnext_with_ai_overlay_and_cloned_links
     assert result.version_no == 4
     assert writes.page is not None
     assert writes.page['global_headline'] == 'new title GLOBAL_HEADLINE'
+    assert writes.page['search_document'] == normalize_search_document(
+        writes.page['page_title'], writes.page['global_headline']
+    )
     assert writes.markets[0]['summary_body'] == 'new body MARKET_SUMMARY:US'
     assert writes.markets[0]['expected_session_date'] == date(2026, 7, 24)
     assert writes.markets[0]['actual_index_source_date'] == date(2026, 7, 24)

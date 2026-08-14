@@ -1,6 +1,6 @@
 # B3 Task 11 — End-to-end contract gate report
 
-Status: **PASS with one documented residual limitation**
+Status: **PASS; Unicode page-search residual resolved**
 
 Commit: `test: 테마 분류 평가 및 계약 검증` (final commit hash is reported with the handoff).
 
@@ -60,7 +60,7 @@ The disposable container was `stockapp-b3-task11-pg`, bound to a random safe
 localhost port. It was removed with `docker rm -f`; a subsequent container
 listing confirmed no container with that name remains.
 
-## q-only Unicode residual
+## q-only Unicode residual (resolved in follow-up)
 
 The live probe confirmed a source-of-truth mismatch for page-only q search:
 Python normalizes `STRASSE` to `strasse`, while PostgreSQL `LOWER('Straße')`
@@ -69,12 +69,20 @@ returns `straße`; the repository therefore does not match a page titled
 already use the shared NFC/casefold/whitespace normalizer and matched in the
 probe.
 
-No locale-specific replacement or display-field mutation was made. A safe fix
-is not a small Task 11 patch because `market_daily_page` has no immutable
-normalized page search document. Ledger suggestion: add a page-level
-`search_document` snapshot column in a dedicated migration, populate it from
-the page title/headline at write time, backfill existing snapshots, and switch
-the q-only page scope to that column with migration/live regression coverage.
+The follow-up adds the immutable `market_daily_page.search_document` snapshot
+column and GIN index to the source-of-truth schema, with sequential migration
+`20260814_09_page_search_document.sql`. New, rebuild, and AI-retry writes all
+call the shared `normalize_search_document(page_title, global_headline)` helper;
+the migration backfills legacy rows with an equivalent PostgreSQL-17-compatible
+Unicode case-fold map and is safe to re-run. The q-only repository scope now
+matches only `latest_public.search_document`, while market/theme-constrained
+scopes remain unchanged.
+
+Follow-up evidence: focused Unicode/repository/migration/batch tests **127
+passed**; PostgreSQL 17 migration/idempotency/backfill **10 passed**; full
+suite **1024 passed, 12 skipped**; Ruff format/lint and relevant Pyright passed.
+The disposable repository probe was not promoted to a new tracked test in this
+follow-up review; that remains the only documented minor limitation.
 
 ## Remaining tool finding
 

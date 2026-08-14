@@ -35,6 +35,7 @@ class MarketDailyPage(Base):
         Enum(PageStatus, name='page_status_enum')
     )
     global_headline: Mapped[str | None] = mapped_column(Text)
+    search_document: Mapped[str] = mapped_column(Text)
     partial_message: Mapped[str | None] = mapped_column(Text)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     raw_news_count: Mapped[int] = mapped_column(Integer)

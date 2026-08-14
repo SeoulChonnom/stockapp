@@ -8,6 +8,7 @@ from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import metadata_string_list
 from app.batch.snapshot_contract import require_snapshot_cluster_id
 from app.batch.steps.page_snapshot_cloner import clone_child_rows, clone_page_markets
+from app.core.text import normalize_search_document
 from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 
@@ -114,12 +115,15 @@ async def rebuild_page_snapshot_from_persisted_page(
         )
 
     version_no = await snapshot_repo.get_next_version_no(context.business_date)
+    page_title = source_page['page_title']
+    global_headline = source_page.get('global_headline')
     page_id = await snapshot_repo.create_page(
         business_date=context.business_date,
         version_no=version_no,
-        page_title=source_page['page_title'],
+        page_title=page_title,
         status=source_page['status'],
-        global_headline=source_page.get('global_headline'),
+        global_headline=global_headline,
+        search_document=normalize_search_document(page_title, global_headline),
         partial_message=source_page.get('partial_message'),
         raw_news_count=source_page['raw_news_count'],
         processed_news_count=source_page['processed_news_count'],

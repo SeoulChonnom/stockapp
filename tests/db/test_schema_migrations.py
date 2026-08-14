@@ -7,6 +7,7 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 SCHEMA_SQL = REPOSITORY_ROOT / 'db' / 'schema_postgresql.sql'
 MIGRATIONS_DIRECTORY = REPOSITORY_ROOT / 'db' / 'migrations'
 THEME_MIGRATION = MIGRATIONS_DIRECTORY / '20260813_08_theme_catalog_archive_search.sql'
+PAGE_SEARCH_MIGRATION = MIGRATIONS_DIRECTORY / '20260814_09_page_search_document.sql'
 
 THEME_CODES = (
     'MACRO',
@@ -295,6 +296,33 @@ def test_theme_catalog_schema_has_hierarchy_constraints_and_canonical_seed():
     assert len(THEME_CODES) == 63
     for code in THEME_CODES:
         assert re.search(rf"\(\s*'{code}',", schema_sql)
+
+
+def test_page_search_document_schema_is_normalized_and_indexed():
+    schema_sql = _read_sql(SCHEMA_SQL)
+
+    assert 'search_document TEXT NOT NULL DEFAULT' in schema_sql
+    assert 'idx_market_daily_page_search_document' in schema_sql
+    assert 'market_daily_page_search_document' in schema_sql
+
+
+def test_page_search_document_migration_is_transactional_idempotent_and_backfills():
+    assert PAGE_SEARCH_MIGRATION.exists()
+    migration_sql = _read_sql(PAGE_SEARCH_MIGRATION)
+
+    assert migration_sql.startswith('BEGIN;')
+    assert migration_sql.endswith('COMMIT;')
+    assert (
+        'ADD COLUMN IF NOT EXISTS search_document TEXT NOT NULL DEFAULT'
+        in migration_sql
+    )
+    assert 'UPDATE stock.market_daily_page' in migration_sql
+    assert 'page_title' in migration_sql
+    assert 'global_headline' in migration_sql
+    assert (
+        'CREATE INDEX IF NOT EXISTS idx_market_daily_page_search_document'
+        in migration_sql
+    )
 
 
 def test_theme_migration_is_transactional_qualified_and_idempotent():

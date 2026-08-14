@@ -16,6 +16,7 @@ from app.batch.normalizers import metadata_optional_string, metadata_string_list
 from app.batch.snapshot_contract import require_snapshot_cluster_id
 from app.batch.steps.build_page_snapshot import _build_search_document
 from app.batch.steps.page_snapshot_cloner import clone_child_rows, clone_page_markets
+from app.core.text import normalize_search_document
 from app.db.enums import AiSummaryType, PageStatus
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.db.repositories.page_snapshot_write_repo import (
@@ -114,16 +115,19 @@ class AiRetryPageBuilder:
         }
 
         version_no = await write_repo.get_next_version_no(source_page['business_date'])
+        page_title = source_page['page_title']
+        global_headline = (
+            global_summary.title
+            if global_summary is not None
+            else source_page.get('global_headline')
+        )
         page_id = await write_repo.create_page(
             business_date=source_page['business_date'],
             version_no=version_no,
-            page_title=source_page['page_title'],
+            page_title=page_title,
             status=page_status,
-            global_headline=(
-                global_summary.title
-                if global_summary is not None
-                else source_page.get('global_headline')
-            ),
+            global_headline=global_headline,
+            search_document=normalize_search_document(page_title, global_headline),
             partial_message=partial_message,
             raw_news_count=source_page['raw_news_count'],
             processed_news_count=source_page['processed_news_count'],

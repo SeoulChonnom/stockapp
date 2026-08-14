@@ -8,6 +8,7 @@ from uuid import UUID
 
 import pytest  # pyright: ignore[reportMissingImports]
 
+from app.core.text import normalize_search_document
 from tests.market_context_fakes import CompleteMarketContextRepository
 from tests.support import RecordingAsyncSession, load_module
 
@@ -1351,6 +1352,12 @@ async def test_build_page_snapshot_step_sets_page_identity_and_writes_snapshot(
     call_names = [name for name, _payload in fake_snapshot_repo.calls]
     assert 'create_page' in call_names
     assert 'create_page_market' in call_names
+    page_payload = next(
+        payload for name, payload in fake_snapshot_repo.calls if name == 'create_page'
+    )
+    assert page_payload['search_document'] == normalize_search_document(
+        page_payload['page_title'], page_payload['global_headline']
+    )
     assert 'insert_page_market_cluster' in call_names
     article_link_calls = [
         payload
