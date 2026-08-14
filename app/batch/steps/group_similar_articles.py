@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from numbers import Real
 from typing import Any, cast
+from urllib.parse import quote
 
 from app.batch.article_similarity import (
     ArticleCandidate,
@@ -56,7 +57,7 @@ def build_grouping_algorithm_version(
         raise ValueError('similarity threshold must be between 0 and 1')
     selected = parameters or SimilarityParameters()
     weights = ','.join(
-        f'{value:.6g}'
+        _canonical_float(value)
         for value in (
             selected.title_weight,
             selected.full_text_weight,
@@ -67,11 +68,19 @@ def build_grouping_algorithm_version(
         )
     )
     return (
-        f'model={model.strip()};inputChars={input_chars};'
+        f'model={quote(model.strip(), safe="-._~")};inputChars={input_chars};'
         f'lexical={LEXICAL_FEATURE_VERSION};weights={weights};'
-        f'threshold={numeric_threshold:.6g};veto={VETO_VERSION};'
+        f'threshold={_canonical_float(numeric_threshold)};veto={VETO_VERSION};'
         f'grouping={GROUPING_VERSION}'
     )
+
+
+def _canonical_float(value: Any) -> str:
+    """Serialize the effective binary float without lossy decimal rounding."""
+    numeric_value = float(value)
+    if not math.isfinite(numeric_value):
+        raise ValueError('algorithm parameters must be finite')
+    return numeric_value.hex()
 
 
 class GroupSimilarArticlesStep(BatchStep):
