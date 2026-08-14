@@ -71,6 +71,24 @@ def test_group_read_and_write_projections_are_immutable_dataclasses():
             value.processed_article_id = 99  # type: ignore[misc]
 
 
+@pytest.mark.parametrize(
+    'processed_article_ids',
+    [
+        ['4001'],
+        [4001.0],
+        [True],
+        [0],
+        [-1],
+        [4001, 4001],
+    ],
+)
+def test_validate_ids_rejects_non_integer_non_positive_and_duplicate_ids(
+    processed_article_ids,
+):
+    with pytest.raises(ValueError, match='processed article IDs'):
+        ArticleGroupRepository._validate_ids(processed_article_ids)
+
+
 @pytest.mark.anyio
 async def test_exact_duplicate_counts_use_raw_mappings_only():
     session = RecordingAsyncSession(

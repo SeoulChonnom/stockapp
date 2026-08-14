@@ -219,7 +219,9 @@ class NewsClusterWriteRepository(PostgresRepository):
             FOR UPDATE
             """.format(cluster_table=qualify_db_identifier('news_cluster'))
         )
-        await self.session.execute(statement, {'cluster_id': cluster_id})
+        result = await self.session.execute(statement, {'cluster_id': cluster_id})
+        if result.mappings().one_or_none() is None:
+            raise ValueError(f'cluster {cluster_id} was not found')
 
     async def replace_cluster_themes(
         self,

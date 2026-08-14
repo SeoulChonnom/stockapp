@@ -65,7 +65,8 @@ async def test_create_cluster_bundle_inserts_cluster_and_memberships():
                         'updated_at': '2026-03-18T06:12:10+00:00',
                     }
                 ]
-            )
+            ),
+            DummyResult([{'id': 7001}]),
         ]
     )
     repo = NewsClusterWriteRepository(session)
@@ -97,7 +98,7 @@ async def test_create_cluster_bundle_inserts_cluster_and_memberships():
 
 @pytest.mark.anyio
 async def test_replace_cluster_articles_invalidates_grouping_before_membership_mutation():
-    session = RecordingAsyncSession()
+    session = RecordingAsyncSession(results=[DummyResult([{'id': 7001}])])
     repo = NewsClusterWriteRepository(session)
 
     await repo.replace_cluster_articles(
@@ -127,6 +128,19 @@ async def test_replace_cluster_articles_invalidates_grouping_before_membership_m
         'status': 'UNAVAILABLE',
         'issue_code': 'SIMILARITY_GROUPING_FAILED',
     }
+    assert session.commits == 0
+
+
+@pytest.mark.anyio
+async def test_replace_cluster_articles_rejects_missing_cluster_before_empty_replace():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = NewsClusterWriteRepository(session)
+
+    with pytest.raises(ValueError, match='cluster 7001'):
+        await repo.replace_cluster_articles(7001, [])
+
+    assert len(session.statements) == 1
+    assert session.parameters[0] == {'cluster_id': 7001}
     assert session.commits == 0
 
 

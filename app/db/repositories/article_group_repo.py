@@ -534,8 +534,11 @@ class ArticleGroupRepository(PostgresRepository):
 
     @staticmethod
     def _validate_ids(ids: Sequence[int]) -> list[int]:
-        result = [int(value) for value in ids]
-        if any(value <= 0 for value in result) or len(result) != len(set(result)):
+        result = list(ids)
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            for value in result
+        ) or len(result) != len(set(result)):
             raise ValueError('processed article IDs must be unique positive integers')
         return result
 

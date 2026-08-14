@@ -21,7 +21,7 @@
 - Review RED coverage added first for multi-group `RETURNING`, lock order,
   count coverage/types, algorithm version, score bounds, and cross-cluster
   joins.
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/repositories -q` -> **137
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/repositories -q` -> **144
   passed**.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/batch tests/domains -q` ->
   **719 passed**, 2 dependency warnings.
@@ -48,3 +48,8 @@ untracked.
   rollback after a partial replacement insert. The disposable
   `stockapp-task5-pg17` container was removed after the run; the focused live
   set passed **8 tests**.
+
+- Finalized strict processed-ID validation: only positive non-boolean Python
+  integers are accepted, and duplicates remain rejected before SQL execution.
+  Parent-lock reads now inspect the returned row and reject nonexistent
+  clusters before even an empty membership replacement.
