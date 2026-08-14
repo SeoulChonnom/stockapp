@@ -55,28 +55,33 @@ class ClusterRepository(PostgresRepository):
         statement = text(
             """
             SELECT
-                {cluster_article_table}.cluster_id,
-                {cluster_article_table}.processed_article_id,
-                {cluster_article_table}.article_rank,
-                {group_table}.group_rank AS similar_group_rank,
-                {member_table}.is_representative AS is_similar_group_representative,
-                {member_table}.exact_duplicate_count,
-                {member_table}.similarity_score,
-                {cluster_table}.article_grouping_status,
-                {cluster_table}.article_grouping_generated_at,
-                {cluster_table}.article_grouping_issue_code,
-                {group_table}.algorithm_version AS article_grouping_algorithm_version
-            FROM {cluster_article_table}
-            JOIN {cluster_table}
-              ON {cluster_table}.id = {cluster_article_table}.cluster_id
-            LEFT JOIN {member_table}
-              ON {member_table}.processed_article_id = {cluster_article_table}.processed_article_id
-            LEFT JOIN {group_table}
-              ON {group_table}.id = {member_table}.similar_group_id
-             AND {group_table}.cluster_id = {cluster_article_table}.cluster_id
-            WHERE {cluster_article_table}.cluster_id = :cluster_id
-            ORDER BY {cluster_article_table}.article_rank ASC,
-                     {cluster_article_table}.processed_article_id ASC
+                ca.cluster_id,
+                ca.processed_article_id,
+                ca.article_rank,
+                sg.group_rank AS similar_group_rank,
+                sga.is_representative AS is_similar_group_representative,
+                sga.exact_duplicate_count,
+                sga.similarity_score,
+                c.article_grouping_status,
+                c.article_grouping_generated_at,
+                c.article_grouping_issue_code,
+                sg.algorithm_version AS article_grouping_algorithm_version
+            FROM {cluster_article_table} AS ca
+            JOIN {cluster_table} AS c
+              ON c.id = ca.cluster_id
+            LEFT JOIN {member_table} AS sga
+              ON sga.processed_article_id = ca.processed_article_id
+             AND EXISTS (
+                 SELECT 1
+                 FROM {group_table} AS sg_scope
+                 WHERE sg_scope.id = sga.similar_group_id
+                   AND sg_scope.cluster_id = ca.cluster_id
+             )
+            LEFT JOIN {group_table} AS sg
+              ON sg.id = sga.similar_group_id
+             AND sg.cluster_id = ca.cluster_id
+            WHERE ca.cluster_id = :cluster_id
+            ORDER BY ca.article_rank ASC, ca.processed_article_id ASC
             """.format(
                 cluster_article_table=qualify_db_identifier('news_cluster_article'),
                 cluster_table=qualify_db_identifier('news_cluster'),

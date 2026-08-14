@@ -143,6 +143,7 @@ class NewsClusterWriteRepository(PostgresRepository):
         cluster_id: int,
         memberships: list[NewsClusterArticleCreateParams],
     ) -> None:
+        await self._lock_cluster_parent(cluster_id)
         delete_statement = text(
             """
             DELETE FROM {cluster_article_table}
@@ -179,6 +180,18 @@ class NewsClusterWriteRepository(PostgresRepository):
                         'article_rank': membership.article_rank,
                     },
                 )
+
+    async def _lock_cluster_parent(self, cluster_id: int) -> None:
+        """Acquire the parent lock used by grouping replacement."""
+        statement = text(
+            """
+            SELECT id
+            FROM {cluster_table}
+            WHERE id = :cluster_id
+            FOR UPDATE
+            """.format(cluster_table=qualify_db_identifier('news_cluster'))
+        )
+        await self.session.execute(statement, {'cluster_id': cluster_id})
 
     async def replace_cluster_themes(
         self,
