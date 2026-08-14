@@ -1552,7 +1552,7 @@ async def test_build_page_snapshot_drops_malformed_market_metadata_fields():
                     'summary_short': '반도체 강세가 지수를 견인했다.',
                     'tags_json': [],
                     'representative_article_id': 4001,
-                    'article_count': 0,
+                    'article_count': 1,
                     'article_grouping_status': 'UNAVAILABLE',
                     'article_grouping_generated_at': None,
                     'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
@@ -1563,7 +1563,27 @@ async def test_build_page_snapshot_drops_malformed_market_metadata_fields():
 
         async def list_cluster_article_links_by_business_date(self, business_date):
             _ = business_date
-            return []
+            return [
+                {
+                    'cluster_id': 7001,
+                    'cluster_uid': '51f0d9a0-9fc5-4f15-a4f9-62856f128683',
+                    'market_type': 'US',
+                    'processed_article_id': 4001,
+                    'cluster_title': '엔비디아 강세',
+                    'title': '엔비디아 급등',
+                    'publisher_name': '매일경제',
+                    'published_at': None,
+                    'origin_link': 'https://example.com/article1',
+                    'naver_link': None,
+                    'article_grouping_status': 'UNAVAILABLE',
+                    'article_grouping_generated_at': None,
+                    'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                    'article_grouping_algorithm_version': 'v1',
+                    'similar_group_rank': 1,
+                    'is_similar_group_representative': True,
+                    'exact_duplicate_count': 0,
+                }
+            ]
 
         async def list_cluster_themes_by_business_date(self, business_date):
             _ = business_date
@@ -1631,6 +1651,9 @@ async def test_build_page_snapshot_drops_malformed_market_metadata_fields():
 
         async def insert_page_market_cluster_themes(self, page_cluster_id, themes):
             _ = (page_cluster_id, themes)
+
+        async def insert_page_article_link(self, params):
+            _ = params
 
     snapshot_repo = RecordingSnapshotRepo(RecordingAsyncSession())
     repository = EventRepository(session=RecordingAsyncSession(), events=[])

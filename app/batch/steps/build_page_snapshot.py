@@ -229,18 +229,90 @@ def _required_grouping_value(row: Mapping[str, Any] | object, key: str) -> Any:
     return getattr(row, key)
 
 
+def _source_cluster_id(value: Any, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f'{field} must be a positive integer')
+    return value
+
+
+def _source_cluster_text(value: Any, *, field: str) -> str:
+    if value is None:
+        raise ValueError(f'{field} is missing')
+    normalized = value if isinstance(value, str) else str(value)
+    if not normalized.strip():
+        raise ValueError(f'{field} is missing')
+    return normalized
+
+
+def _source_cluster_identity(
+    cluster: Mapping[str, Any],
+) -> tuple[int, str, str]:
+    return (
+        _source_cluster_id(cluster.get('id'), field='cluster id'),
+        _source_cluster_text(cluster.get('cluster_uid'), field='cluster uid'),
+        _source_cluster_text(cluster.get('market_type'), field='cluster market'),
+    )
+
+
+def _source_cluster_links_by_id(
+    clusters: list[dict[str, Any]], article_links: list[dict[str, Any]]
+) -> dict[int, list[dict[str, Any]]]:
+    clusters_by_id: dict[int, tuple[int, str, str]] = {}
+    clusters_by_uid: dict[str, tuple[int, str, str]] = {}
+    links_by_id: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for cluster in clusters:
+        identity = _source_cluster_identity(cluster)
+        cluster_id, cluster_uid, _market_type = identity
+        if cluster_id in clusters_by_id:
+            raise ValueError('source clusters contain duplicate IDs')
+        if cluster_uid in clusters_by_uid:
+            raise ValueError('source clusters contain duplicate UIDs')
+        clusters_by_id[cluster_id] = identity
+        clusters_by_uid[cluster_uid] = identity
+
+    seen_article_ids: dict[int, int] = {}
+    for article_link in article_links:
+        link_id = _source_cluster_id(
+            article_link.get('cluster_id'), field='article link cluster id'
+        )
+        link_uid = _source_cluster_text(
+            article_link.get('cluster_uid'), field='article link cluster uid'
+        )
+        link_market = _source_cluster_text(
+            article_link.get('market_type'), field='article link market'
+        )
+        cluster_identity = clusters_by_id.get(link_id)
+        uid_identity = clusters_by_uid.get(link_uid)
+        if cluster_identity is None or uid_identity is None:
+            raise ValueError('article link references an unknown source cluster')
+        if cluster_identity != uid_identity:
+            raise ValueError('article link cluster ID and UID are inconsistent')
+        if link_market != cluster_identity[2]:
+            raise ValueError('article link market does not match source cluster')
+        article_id = article_link.get('processed_article_id')
+        if (
+            isinstance(article_id, bool)
+            or not isinstance(article_id, int)
+            or article_id <= 0
+        ):
+            raise ValueError('article grouping membership is invalid')
+        if article_id in seen_article_ids:
+            raise ValueError('article grouping membership is duplicated')
+        seen_article_ids[article_id] = link_id
+        links_by_id[link_id].append(article_link)
+    return links_by_id
+
+
 def _cluster_article_links(
     cluster: Mapping[str, Any], article_links: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     cluster_id = cluster.get('id')
-    by_id = [link for link in article_links if link.get('cluster_id') == cluster_id]
-    if by_id:
-        return by_id
-    cluster_uid = cluster.get('cluster_uid')
+    cluster_uid = str(cluster.get('cluster_uid'))
     return [
         link
         for link in article_links
-        if cluster_uid is not None and str(link.get('cluster_uid')) == str(cluster_uid)
+        if link.get('cluster_id') == cluster_id
+        and str(link.get('cluster_uid')) == cluster_uid
     ]
 
 
@@ -258,10 +330,17 @@ def _grouping_metadata(
     cluster_version = _required_grouping_value(
         cluster, 'article_grouping_algorithm_version'
     )
-    versions = {
-        _required_grouping_value(link, 'article_grouping_algorithm_version')
-        for link in links
-    }
+    if not isinstance(cluster_version, str) or not cluster_version.strip():
+        raise ValueError('article grouping algorithm version is missing')
+    link_versions: list[str] = []
+    for link in links:
+        link_version = _required_grouping_value(
+            link, 'article_grouping_algorithm_version'
+        )
+        if not isinstance(link_version, str) or not link_version.strip():
+            raise ValueError('article grouping algorithm version is missing')
+        link_versions.append(link_version)
+    versions = set(link_versions)
     if len(versions) > 1:
         raise ValueError('article grouping algorithm versions are inconsistent')
     if versions and cluster_version not in versions:
@@ -270,14 +349,14 @@ def _grouping_metadata(
     version_count = cluster.get('article_grouping_algorithm_version_count')
     if version_count is not None and version_count != 1 and links:
         raise ValueError('article grouping algorithm versions are inconsistent')
-    if not isinstance(algorithm_version, str) or not algorithm_version.strip():
-        raise ValueError('article grouping algorithm version is missing')
 
     if status == 'READY':
         if generated_at is None or issue_code is not None:
             raise ValueError('READY article grouping metadata is inconsistent')
     elif generated_at is not None or issue_code != _GROUPING_FAILED_ISSUE:
         raise ValueError('UNAVAILABLE article grouping metadata is inconsistent')
+    if not links:
+        raise ValueError('article grouping membership is missing')
     metadata = {
         'status': status,
         'generated_at': generated_at,
@@ -307,8 +386,10 @@ def _validate_source_grouping(
     clusters: list[dict[str, Any]], article_links: list[dict[str, Any]]
 ) -> None:
     """Validate persisted source groups before any snapshot row is inserted."""
+    links_by_cluster_id = _source_cluster_links_by_id(clusters, article_links)
     for cluster in clusters:
-        links = _cluster_article_links(cluster, article_links)
+        cluster_id = _source_cluster_id(cluster.get('id'), field='cluster id')
+        links = links_by_cluster_id[cluster_id]
         metadata = _grouping_metadata(cluster, links)
         article_count = cluster.get('article_count')
         if (
@@ -364,10 +445,12 @@ def _source_grouping_by_cluster(
     clusters: list[dict[str, Any]], article_links: list[dict[str, Any]]
 ) -> dict[int, dict[str, Any]]:
     result: dict[int, dict[str, Any]] = {}
+    links_by_cluster_id = _source_cluster_links_by_id(clusters, article_links)
     for cluster in clusters:
-        links = _cluster_article_links(cluster, article_links)
+        cluster_id = _source_cluster_id(cluster.get('id'), field='cluster id')
+        links = links_by_cluster_id[cluster_id]
         metadata = _grouping_metadata(cluster, links)
-        result[int(cluster['id'])] = metadata
+        result[cluster_id] = metadata
     return result
 
 

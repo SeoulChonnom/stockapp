@@ -36,6 +36,7 @@ def test_source_ready_grouping_rejects_missing_article_membership():
                 {
                     'id': 7001,
                     'cluster_uid': 'cluster-uid',
+                    'market_type': 'US',
                     'article_count': 2,
                     'representative_article_id': 4001,
                     'article_grouping_status': 'READY',
@@ -47,6 +48,8 @@ def test_source_ready_grouping_rejects_missing_article_membership():
             [
                 {
                     'cluster_id': 7001,
+                    'cluster_uid': 'cluster-uid',
+                    'market_type': 'US',
                     'processed_article_id': 4001,
                     'similar_group_rank': 1,
                     'is_similar_group_representative': True,
@@ -66,6 +69,7 @@ def test_source_unavailable_grouping_requires_singletons_and_preserves_counts():
             {
                 'id': 7001,
                 'cluster_uid': 'cluster-uid',
+                'market_type': 'US',
                 'article_count': 2,
                 'article_grouping_status': 'UNAVAILABLE',
                 'article_grouping_generated_at': None,
@@ -76,6 +80,8 @@ def test_source_unavailable_grouping_requires_singletons_and_preserves_counts():
         [
             {
                 'cluster_id': 7001,
+                'cluster_uid': 'cluster-uid',
+                'market_type': 'US',
                 'processed_article_id': 4001,
                 'similar_group_rank': 1,
                 'is_similar_group_representative': True,
@@ -87,6 +93,8 @@ def test_source_unavailable_grouping_requires_singletons_and_preserves_counts():
             },
             {
                 'cluster_id': 7001,
+                'cluster_uid': 'cluster-uid',
+                'market_type': 'US',
                 'processed_article_id': 4002,
                 'similar_group_rank': 2,
                 'is_similar_group_representative': True,
@@ -98,6 +106,83 @@ def test_source_unavailable_grouping_requires_singletons_and_preserves_counts():
             },
         ],
     )
+
+
+def _valid_grouping_projection() -> tuple[list[dict], list[dict]]:
+    cluster = {
+        'id': 7001,
+        'cluster_uid': 'cluster-uid',
+        'market_type': 'US',
+        'article_count': 1,
+        'article_grouping_status': 'READY',
+        'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+        'article_grouping_issue_code': None,
+        'article_grouping_algorithm_version': 'v1',
+    }
+    link = {
+        'cluster_id': 7001,
+        'cluster_uid': 'cluster-uid',
+        'market_type': 'US',
+        'processed_article_id': 4001,
+        'similar_group_rank': 1,
+        'is_similar_group_representative': True,
+        'exact_duplicate_count': 0,
+        'article_grouping_status': 'READY',
+        'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+        'article_grouping_issue_code': None,
+        'article_grouping_algorithm_version': 'v1',
+    }
+    return [cluster], [link]
+
+
+@pytest.mark.parametrize(
+    'mutation,expected_message',
+    [
+        ('duplicate_cluster_id', 'duplicate IDs'),
+        ('duplicate_cluster_uid', 'duplicate UIDs'),
+        ('mismatched_link_identity', 'ID and UID'),
+        ('unknown_link_cluster', 'unknown source cluster'),
+        ('cross_market_link', 'market does not match'),
+        ('empty_membership', 'membership is missing'),
+        ('blank_cluster_version', 'algorithm version is missing'),
+        ('blank_link_version', 'algorithm version is missing'),
+        ('mixed_link_versions', 'algorithm versions are inconsistent'),
+    ],
+)
+def test_source_grouping_rejects_adversarial_identity_and_metadata_projections(
+    mutation, expected_message
+):
+    clusters, links = _valid_grouping_projection()
+    if mutation == 'duplicate_cluster_id':
+        clusters.append({**clusters[0], 'cluster_uid': 'other-uid'})
+    elif mutation == 'duplicate_cluster_uid':
+        clusters.append({**clusters[0], 'id': 7002})
+    elif mutation == 'mismatched_link_identity':
+        links[0]['cluster_uid'] = 'other-uid'
+        clusters.append({**clusters[0], 'id': 7002, 'cluster_uid': 'other-uid'})
+    elif mutation == 'unknown_link_cluster':
+        links[0]['cluster_id'] = 9999
+    elif mutation == 'cross_market_link':
+        links[0]['market_type'] = 'KR'
+    elif mutation == 'empty_membership':
+        links.clear()
+        clusters[0]['article_count'] = 0
+    elif mutation == 'blank_cluster_version':
+        clusters[0]['article_grouping_algorithm_version'] = ' '
+    elif mutation == 'blank_link_version':
+        links[0]['article_grouping_algorithm_version'] = ''
+    elif mutation == 'mixed_link_versions':
+        links.append(
+            {
+                **links[0],
+                'processed_article_id': 4002,
+                'article_grouping_algorithm_version': 'v2',
+            }
+        )
+        clusters[0]['article_count'] = 2
+
+    with pytest.raises(ValueError, match=expected_message):
+        build_module._validate_source_grouping(clusters, links)
 
 
 KEY_POINTS = [
@@ -1199,13 +1284,13 @@ class ThemedSourceClusterRepository:
                 'title': '한국 시장 클러스터',
                 'summary_short': '한국 시장 요약',
                 'tags_json': [],
-                'representative_article_id': None,
-                'representative_title': None,
-                'representative_publisher_name': None,
+                'representative_article_id': 4004,
+                'representative_title': '한국 시장 기사',
+                'representative_publisher_name': '한국경제',
                 'representative_published_at': None,
                 'representative_origin_link': None,
                 'representative_naver_link': None,
-                'article_count': 0,
+                'article_count': 1,
                 'article_grouping_status': 'UNAVAILABLE',
                 'article_grouping_generated_at': None,
                 'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
@@ -1275,6 +1360,25 @@ class ThemedSourceClusterRepository:
                 'similar_group_rank': 1,
                 'is_similar_group_representative': True,
                 'exact_duplicate_count': 2,
+            },
+            {
+                'market_type': 'KR',
+                'processed_article_id': 4004,
+                'cluster_id': 7003,
+                'cluster_uid': 'cluster-uid-3',
+                'cluster_title': '한국 시장 클러스터',
+                'title': '한국 시장 기사',
+                'publisher_name': '한국경제',
+                'published_at': None,
+                'origin_link': 'https://example.com/4',
+                'naver_link': None,
+                'article_grouping_status': 'UNAVAILABLE',
+                'article_grouping_generated_at': None,
+                'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                'article_grouping_algorithm_version': 'v1',
+                'similar_group_rank': 1,
+                'is_similar_group_representative': True,
+                'exact_duplicate_count': 0,
             },
         ]
 
