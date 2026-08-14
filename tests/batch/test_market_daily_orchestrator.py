@@ -40,6 +40,9 @@ def test_market_daily_orchestrator_places_theme_classification_after_clusters():
         step_codes.index('BUILD_CLUSTERS') + 1
     )
     assert step_codes.index('CLASSIFY_CLUSTER_THEMES') == (
+        step_codes.index('GROUP_SIMILAR_ARTICLES') - 1
+    )
+    assert step_codes.index('GROUP_SIMILAR_ARTICLES') == (
         step_codes.index('COLLECT_MARKET_INDICES') - 1
     )
 

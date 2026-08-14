@@ -21,6 +21,7 @@ from app.batch.steps import (
     DedupeArticlesStep,
     FinalizeJobStep,
     GenerateAiSummariesStep,
+    GroupSimilarArticlesStep,
     PrepareMarketContextsStep,
 )
 from app.batch.steps.base import BatchStep
@@ -46,6 +47,7 @@ class MarketDailyBatchOrchestrator:
             DedupeArticlesStep(),
             BuildClustersStep(),
             ClassifyClusterThemesStep(),
+            GroupSimilarArticlesStep(),
             CollectMarketIndicesStep(),
             GenerateAiSummariesStep(),
             BuildPageSnapshotStep(),
