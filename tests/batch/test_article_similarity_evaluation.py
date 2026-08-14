@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import httpx
 import pytest
 
 from app.batch.article_similarity import SimilarityParameters
+from app.batch.steps.group_similar_articles import build_grouping_algorithm_version
 from scripts.calibrate_article_similarity import (
     ArticleText,
     PairRecord,
@@ -26,6 +28,7 @@ def _pair(
     pair_id: str,
     label: str,
     *,
+    family: str | None = None,
     left_title: str = '삼성전자 실적 발표',
     right_title: str = '삼성전자 분기 실적 발표',
 ) -> PairRecord:
@@ -33,6 +36,7 @@ def _pair(
         pair_id=pair_id,
         market='KR',
         label=cast(PairLabel, label),
+        event_family_id=family or f'{label.lower()}-{pair_id}',
         left=ArticleText(
             article_id=f'{pair_id}-left',
             title=left_title,
@@ -68,6 +72,48 @@ def test_hash_split_is_stratified_stable_and_disjoint() -> None:
     for label in ('SAME_EVENT', 'OTHER_EVENT', 'HARD_NEGATIVE'):
         assert sum(item.label == label for item in first.calibration) == 7
         assert sum(item.label == label for item in first.holdout) == 3
+
+
+def test_family_split_keeps_each_event_family_in_one_partition() -> None:
+    pairs = tuple(
+        _pair(
+            f'{label.lower()}-{family}-{index}',
+            label,
+            family=f'{label.lower()}-family-{family}',
+        )
+        for label in ('SAME_EVENT', 'OTHER_EVENT', 'HARD_NEGATIVE')
+        for family in range(1, 5)
+        for index in range(2)
+    )
+
+    split = split_dataset(pairs)
+    assignment = {item.event_family_id: 'calibration' for item in split.calibration}
+    assignment.update({item.event_family_id: 'holdout' for item in split.holdout})
+
+    assert len(assignment) == 12
+    assert all(
+        len(
+            {
+                'calibration' if item in split.calibration else 'holdout'
+                for item in pairs
+                if item.event_family_id == family
+            }
+        )
+        == 1
+        for family in assignment
+    )
+    assert all(
+        len(
+            {
+                item.event_family_id
+                for item in partition
+                if item.label == label and item.market == 'KR'
+            }
+        )
+        >= 1
+        for partition in (split.calibration, split.holdout)
+        for label in ('SAME_EVENT', 'OTHER_EVENT', 'HARD_NEGATIVE')
+    )
 
 
 def test_mock_embedding_depends_only_on_normalized_text_not_label() -> None:
@@ -197,6 +243,24 @@ def test_production_threshold_matches_mock_holdout_selection() -> None:
     assert SIMILARITY_THRESHOLD == pytest.approx(0.45)
 
 
+def test_calibration_uses_the_production_algorithm_version_builder() -> None:
+    parameters = SimilarityParameters()
+
+    assert build_grouping_algorithm_version(
+        model='mock-bge-m3',
+        input_chars=2048,
+        parameters=parameters,
+        threshold=0.45,
+    ) == (
+        'format=similarity-v2;model=mock-bge-m3;inputChars=2048;'
+        'lexical=lexical-v1;'
+        'weights=0x1.999999999999ap-3,0x1.3333333333333p-2,'
+        '0x1.3333333333333p-2,0x1.999999999999ap-3,'
+        '0x1.3333333333333p-1,0x1.999999999999ap-2;'
+        'threshold=0x1.ccccccccccccdp-2;veto=veto-v1;grouping=complete-link-v1'
+    )
+
+
 @pytest.mark.anyio
 async def test_mock_transport_round_trip_never_uses_real_network() -> None:
     from scripts.calibrate_article_similarity import MockEmbeddingTransport
@@ -219,6 +283,14 @@ async def test_mock_transport_round_trip_never_uses_real_network() -> None:
     assert len(response.json()['embeddings']) == 2
     assert transport.request_count == 1
     assert transport.last_model == 'mock-bge-m3'
+
+
+@pytest.mark.anyio
+async def test_mock_mode_rejects_injected_provider() -> None:
+    from scripts.calibrate_article_similarity import run_calibration
+
+    with pytest.raises(ValueError, match='mock mode does not accept a provider'):
+        await run_calibration(mode='mock', provider=cast(Any, object()))
 
 
 @pytest.mark.anyio
@@ -246,4 +318,106 @@ async def test_mock_calibration_artifacts_are_consistent_and_non_production(
     assert 'NOT COLLECTED (mock mode)' in report_path.read_text(encoding='utf-8')
     assert 'production `bge-m3` model quality' in report_path.read_text(
         encoding='utf-8'
+    )
+
+
+def test_committed_artifact_recomputes_without_running_the_writer() -> None:
+    from scripts.calibrate_article_similarity import (
+        _dataset_hash,
+        _default_scores,
+        _gates,
+        _grouping_determinism_rate,
+        _implementation_sha256,
+        evaluate_metrics,
+    )
+
+    dataset_path = Path('tests/fixtures/article_similarity_pairs.json')
+    result_path = Path('docs/evaluations/2026-08-13-article-similarity.json')
+    dataset = json.loads(dataset_path.read_text(encoding='utf-8'))
+    result = json.loads(result_path.read_text(encoding='utf-8'))
+    pairs = load_dataset(dataset_path)
+    split = split_dataset(pairs)
+
+    assert _dataset_hash(dataset) == result['dataset_sha256']
+    assert result['split_assignment_sha256'] == split.assignment_sha256
+    assert result['split_assignments'] == list(split.assignments)
+    assert all(
+        len(
+            {
+                assignment['split']
+                for assignment in result['split_assignments']
+                if assignment['event_family_id'] == family
+            }
+        )
+        == 1
+        for family in {item.event_family_id for item in pairs}
+    )
+    assert result['calibration_pair_count'] == len(split.calibration)
+    assert result['holdout_pair_count'] == len(split.holdout)
+    assert result['algorithm_version'] == build_grouping_algorithm_version(
+        model='mock-bge-m3',
+        input_chars=2048,
+        parameters=SimilarityParameters(**result['selected_parameters']),
+        threshold=result['selected_threshold'],
+    )
+    vectors = {
+        article.article_id: mock_embedding(f'{article.title} {article.summary}')
+        for pair in pairs
+        for article in (pair.left, pair.right)
+    }
+    parameters = SimilarityParameters(**result['selected_parameters'])
+    scores, vetoes = _default_scores(split.holdout, vectors, parameters)
+    holdout = evaluate_metrics(
+        split.holdout,
+        scores=scores,
+        threshold=result['selected_threshold'],
+        vetoes=vetoes,
+    )
+    holdout = dataclass_replace(
+        holdout,
+        determinism_rate=_grouping_determinism_rate(
+            parameters=parameters,
+            threshold=result['selected_threshold'],
+            runs=result['determinism_runs'],
+        ),
+    )
+    assert result['holdout_metrics'] == holdout.to_dict()
+    assert result['gates'] == _gates(
+        holdout, result['runtime_p95_seconds'], mode='mock'
+    )
+    assert result['embedding_algorithm_sha256'] == _implementation_sha256()
+    assert result['mode'] == 'mock'
+    assert result['passed'] is True
+    assert result['gates'] == {
+        'precision_ge_95_percent': True,
+        'same_event_recall_ge_85_percent': True,
+        'other_event_false_merge_le_3_percent': True,
+        'hard_negative_false_merge_zero': True,
+        'determinism_100_percent': True,
+        'mock_pipeline_p95_le_30_seconds': True,
+    }
+
+
+def test_determinism_helper_requires_multi_article_cases() -> None:
+    from app.batch.article_similarity import group_similar_articles
+    from scripts.calibrate_article_similarity import _determinism_cases
+
+    cases = _determinism_cases()
+
+    assert cases
+    assert min(len(case) for case in cases) >= 3
+    assert len(cases) >= 2
+    chain_result = group_similar_articles(
+        cases[0], threshold=0.45, parameters=SimilarityParameters()
+    )
+    hard_result = group_similar_articles(
+        cases[1], threshold=0.45, parameters=SimilarityParameters()
+    )
+    assert [
+        [member.processed_article_id for member in group.members]
+        for group in chain_result.groups
+    ] == [[1001, 1002], [1003]]
+    assert all(
+        not ({1001, 1004} <= {member.processed_article_id for member in group.members})
+        for group in hard_result.groups
     )

@@ -1,6 +1,6 @@
 {
-  "algorithm_version": "complete-link-v1;lexical-v1;veto-v1",
-  "bge_m3_model_digest": "NOT_COLLECTED (mock mode)",
+  "algorithm_version": "format=similarity-v2;model=mock-bge-m3;inputChars=2048;lexical=lexical-v1;weights=0x1.999999999999ap-3,0x1.3333333333333p-2,0x1.3333333333333p-2,0x1.999999999999ap-3,0x1.3333333333333p-1,0x1.999999999999ap-2;threshold=0x1.ccccccccccccdp-2;veto=veto-v1;grouping=complete-link-v1",
+  "bge_m3_model_digest": "NOT_COLLECTED BY THIS SCRIPT",
   "calibration_metrics": {
     "determinism_rate": 0.0,
     "hard_negative_count": 56,
@@ -10,16 +10,22 @@
     "other_event_false_merge_count": 0,
     "other_event_false_merge_rate": 0.0,
     "pair_precision": 1.0,
-    "predicted_positive_count": 112,
-    "same_event_count": 112,
+    "predicted_positive_count": 110,
+    "same_event_count": 110,
     "same_event_recall": 1.0,
-    "true_positive_count": 112
+    "true_positive_count": 110
   },
-  "calibration_pair_count": 224,
-  "dataset_schema_version": "article-similarity-pairs-v1",
-  "dataset_sha256": "1eac122304c274f5b8279ae1abc7a47c03cf5a6641409094b9100101369895dd",
+  "calibration_pair_count": 222,
+  "dataset_curation": "repository-curated mock limited-title-summary fixture; deterministic event-family templates with fixture labels",
+  "dataset_schema_version": "article-similarity-pairs-v2",
+  "dataset_sha256": "86b9006e1f613e0709f2a1519db805faba68de9a4f1d0b4a32480009a930e783",
+  "determinism_case_count": 2,
+  "determinism_check_count": 90,
+  "determinism_min_articles": 3,
+  "determinism_runs": 3,
+  "elapsed_seconds": 3.183107416029088,
   "embedding_algorithm": "mock-token-hash-v1",
-  "embedding_algorithm_sha256": "d4c43fd72cbb39b37a51695df5d316c7cda977ca3528428b95dab912c3419134",
+  "embedding_algorithm_sha256": "a957ff624c17f16f4d64a1e97114971471c50ed04cb2ec90d21b91be0c6c8875",
   "gates": {
     "determinism_100_percent": true,
     "hard_negative_false_merge_zero": true,
@@ -38,18 +44,23 @@
     "other_event_false_merge_count": 0,
     "other_event_false_merge_rate": 0.0,
     "pair_precision": 1.0,
-    "predicted_positive_count": 48,
-    "same_event_count": 48,
+    "predicted_positive_count": 50,
+    "same_event_count": 50,
     "same_event_recall": 1.0,
-    "true_positive_count": 48
+    "true_positive_count": 50
   },
-  "holdout_pair_count": 96,
+  "holdout_pair_count": 98,
+  "input_chars": 2048,
   "mode": "mock",
-  "ollama_version": "NOT_COLLECTED (mock mode)",
+  "model": "mock-bge-m3",
+  "ollama_version": "NOT_COLLECTED BY THIS SCRIPT",
   "passed": true,
-  "runtime_evidence_scope": "mock-pipeline-only; non-production model/network latency evidence",
-  "runtime_p95_seconds": 2.559740733052604,
-  "schema_version": "article-similarity-calibration-result-v1",
+  "provider": "httpx.MockTransport",
+  "runtime_cluster_count": 2,
+  "runtime_evidence_scope": "mock-full-pipeline-per-cluster; non-production evidence",
+  "runtime_p95_seconds": 0.0007335417612921447,
+  "runtime_sample_count": 6,
+  "schema_version": "article-similarity-calibration-result-v2",
   "selected_parameters": {
     "dense_weight": 0.6,
     "full_text_weight": 0.3,
@@ -59,5 +70,2247 @@
     "title_weight": 0.2
   },
   "selected_threshold": 0.45,
-  "split_assignment_sha256": "0cffc017c2e3ffe6a03de76064c7006b15f406c09167a7bd2bb54475448469f4"
+  "split_assignment_sha256": "a3f31157a2a0ffe7fa2409cd1daf77c93f69110290940519da052eb0cd46f5c5",
+  "split_assignments": [
+    {
+      "event_family_id": "kr-hard-01-a",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-01-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-01-a",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-01-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-01-a",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-01-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-01-b",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-01-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-hard-01-b",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-01-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-hard-02-a",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-02-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-02-a",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-02-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-02-a",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-02-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-02-b",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-02-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-02-b",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-02-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-03",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-03-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-03",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-03-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-03",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-03-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-03",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-03-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-03",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-03-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-04",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-04-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-04",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-04-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-04",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-04-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-04",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-04-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-04",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-04-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-05",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-05-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-05",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-05-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-05",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-05-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-05",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-05-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-05",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-05-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-06",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-06-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-hard-06",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-06-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-hard-06",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-06-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-hard-06",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-06-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-hard-06",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-06-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-hard-07",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-07-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-07",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-07-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-07",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-07-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-07",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-07-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-07",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-07-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-hard-08",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-08-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-hard-08",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-08-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-hard-08",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-08-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-hard-08",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-08-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-hard-08",
+      "label": "HARD_NEGATIVE",
+      "market": "KR",
+      "pair_id": "kr-hard-08-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-01-a",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-01-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-01-a",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-01-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-01-a",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-01-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-01-b",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-01-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-01-b",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-01-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-02-a",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-02-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-02-a",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-02-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-02-a",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-02-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-02-b",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-02-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-02-b",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-02-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-03",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-03-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-03",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-03-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-03",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-03-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-03",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-03-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-03",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-03-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-04",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-04-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-04",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-04-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-04",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-04-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-04",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-04-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-04",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-04-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-05",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-05-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-05",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-05-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-05",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-05-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-05",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-05-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-05",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-05-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-06",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-06-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-06",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-06-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-06",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-06-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-06",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-06-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-06",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-06-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-07",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-07-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-07",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-07-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-07",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-07-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-07",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-07-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-07",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-07-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-other-08",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-08-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-08",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-08-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-08",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-08-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-08",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-08-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-other-08",
+      "label": "OTHER_EVENT",
+      "market": "KR",
+      "pair_id": "kr-other-08-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-01-a",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-01-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-01-a",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-01-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-01-a",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-01-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-01-a",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-01-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-01-a",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-01-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-01-b",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-01-06",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-01-b",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-01-07",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-01-b",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-01-08",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-01-b",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-01-09",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-01-b",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-01-10",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-02-a",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-02-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-02-a",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-02-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-02-a",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-02-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-02-a",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-02-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-02-a",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-02-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-02-b",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-02-06",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-02-b",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-02-07",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-02-b",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-02-08",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-02-b",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-02-09",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-02-b",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-02-10",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-03",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-03-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-03",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-03-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-03",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-03-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-03",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-03-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-03",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-03-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-03",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-03-06",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-03",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-03-07",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-03",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-03-08",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-03",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-03-09",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-03",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-03-10",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-04",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-04-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-04",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-04-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-04",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-04-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-04",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-04-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-04",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-04-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-04",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-04-06",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-04",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-04-07",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-04",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-04-08",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-04",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-04-09",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-04",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-04-10",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-05",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-05-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-05",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-05-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-05",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-05-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-05",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-05-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-05",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-05-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-05",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-05-06",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-05",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-05-07",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-05",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-05-08",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-05",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-05-09",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-05",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-05-10",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "kr-same-06",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-06-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-06",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-06-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-06",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-06-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-06",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-06-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-06",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-06-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-06",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-06-06",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-06",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-06-07",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-06",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-06-08",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-06",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-06-09",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-06",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-06-10",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-07",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-07-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-07",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-07-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-07",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-07-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-07",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-07-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-07",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-07-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-07",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-07-06",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-07",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-07-07",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-07",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-07-08",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-07",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-07-09",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-07",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-07-10",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-08",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-08-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-08",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-08-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-08",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-08-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-08",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-08-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-08",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-08-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-08",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-08-06",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-08",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-08-07",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-08",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-08-08",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-08",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-08-09",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "kr-same-08",
+      "label": "SAME_EVENT",
+      "market": "KR",
+      "pair_id": "kr-same-08-10",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-01-a",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-01-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-01-a",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-01-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-01-a",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-01-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-01-b",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-01-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-01-b",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-01-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-02-a",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-02-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-02-a",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-02-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-02-a",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-02-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-02-b",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-02-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-02-b",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-02-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-03",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-03-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-03",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-03-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-03",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-03-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-03",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-03-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-03",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-03-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-04",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-04-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-04",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-04-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-04",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-04-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-04",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-04-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-04",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-04-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-05",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-05-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-05",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-05-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-05",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-05-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-05",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-05-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-05",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-05-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-06",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-06-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-06",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-06-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-06",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-06-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-06",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-06-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-06",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-06-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-hard-07",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-07-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-07",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-07-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-07",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-07-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-07",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-07-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-07",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-07-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-08",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-08-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-08",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-08-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-08",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-08-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-08",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-08-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-hard-08",
+      "label": "HARD_NEGATIVE",
+      "market": "US",
+      "pair_id": "us-hard-08-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-01-a",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-01-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-01-a",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-01-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-01-a",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-01-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-01-b",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-01-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-01-b",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-01-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-02-a",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-02-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-02-a",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-02-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-02-a",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-02-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-02-b",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-02-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-02-b",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-02-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-03",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-03-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-03",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-03-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-03",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-03-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-03",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-03-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-03",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-03-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-04",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-04-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-04",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-04-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-04",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-04-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-04",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-04-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-04",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-04-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-05",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-05-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-05",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-05-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-05",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-05-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-05",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-05-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-05",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-05-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-other-06",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-06-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-06",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-06-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-06",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-06-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-06",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-06-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-06",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-06-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-07",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-07-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-07",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-07-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-07",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-07-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-07",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-07-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-07",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-07-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-08",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-08-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-08",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-08-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-08",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-08-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-08",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-08-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-other-08",
+      "label": "OTHER_EVENT",
+      "market": "US",
+      "pair_id": "us-other-08-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-01-a",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-01-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-01-a",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-01-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-01-a",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-01-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-01-a",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-01-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-01-a",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-01-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-01-b",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-01-06",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-01-b",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-01-07",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-01-b",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-01-08",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-01-b",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-01-09",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-01-b",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-01-10",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-02-a",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-02-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-02-a",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-02-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-02-a",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-02-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-02-a",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-02-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-02-a",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-02-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-02-b",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-02-06",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-02-b",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-02-07",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-02-b",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-02-08",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-02-b",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-02-09",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-02-b",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-02-10",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-03",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-03-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-03",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-03-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-03",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-03-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-03",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-03-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-03",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-03-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-03",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-03-06",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-03",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-03-07",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-03",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-03-08",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-03",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-03-09",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-03",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-03-10",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-04",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-04-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-04",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-04-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-04",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-04-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-04",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-04-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-04",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-04-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-04",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-04-06",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-04",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-04-07",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-04",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-04-08",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-04",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-04-09",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-04",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-04-10",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-05",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-05-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-05",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-05-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-05",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-05-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-05",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-05-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-05",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-05-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-05",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-05-06",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-05",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-05-07",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-05",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-05-08",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-05",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-05-09",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-05",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-05-10",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-06",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-06-01",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-06",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-06-02",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-06",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-06-03",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-06",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-06-04",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-06",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-06-05",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-06",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-06-06",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-06",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-06-07",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-06",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-06-08",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-06",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-06-09",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-06",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-06-10",
+      "split": "holdout"
+    },
+    {
+      "event_family_id": "us-same-07",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-07-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-07",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-07-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-07",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-07-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-07",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-07-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-07",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-07-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-07",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-07-06",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-07",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-07-07",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-07",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-07-08",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-07",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-07-09",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-07",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-07-10",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-08",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-08-01",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-08",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-08-02",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-08",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-08-03",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-08",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-08-04",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-08",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-08-05",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-08",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-08-06",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-08",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-08-07",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-08",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-08-08",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-08",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-08-09",
+      "split": "calibration"
+    },
+    {
+      "event_family_id": "us-same-08",
+      "label": "SAME_EVENT",
+      "market": "US",
+      "pair_id": "us-same-08-10",
+      "split": "calibration"
+    }
+  ]
 }

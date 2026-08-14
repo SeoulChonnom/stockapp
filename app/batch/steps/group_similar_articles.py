@@ -32,6 +32,7 @@ SIMILARITY_THRESHOLD = 0.45
 LEXICAL_FEATURE_VERSION = 'lexical-v1'
 VETO_VERSION = 'veto-v1'
 GROUPING_VERSION = 'complete-link-v1'
+ALGORITHM_VERSION_FORMAT = 'similarity-v2'
 
 _EXPECTED_CLUSTER_ERRORS = (OllamaEmbeddingError, ValueError, TypeError)
 
@@ -68,6 +69,7 @@ def build_grouping_algorithm_version(
         )
     )
     return (
+        f'format={ALGORITHM_VERSION_FORMAT};'
         f'model={quote(model.strip(), safe="-._~")};inputChars={input_chars};'
         f'lexical={LEXICAL_FEATURE_VERSION};weights={weights};'
         f'threshold={_canonical_float(numeric_threshold)};veto={VETO_VERSION};'
@@ -406,6 +408,7 @@ def _required_text(value: object, *, field: str) -> str:
 
 
 __all__ = [
+    'ALGORITHM_VERSION_FORMAT',
     'GROUP_SIMILAR_ARTICLES',
     'GROUPING_VERSION',
     'GroupSimilarArticlesStep',

@@ -1,6 +1,6 @@
 {
-  "schema_version": "article-similarity-pairs-v1",
-  "curation": "limited-title-summary-curated-pairs",
+  "schema_version": "article-similarity-pairs-v2",
+  "curation": "repository-curated mock limited-title-summary fixture; deterministic event-family templates with fixture labels",
   "pairs": [
     {
       "pair_id": "kr-same-01-01",
@@ -15,7 +15,9 @@
         "article_id": "kr-same-01-01-right",
         "title": "삼성전자 분기 실적 2026-02-02 소식",
         "summary": "영업이익 101억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-01-02",
@@ -30,7 +32,9 @@
         "article_id": "kr-same-01-02-right",
         "title": "삼성전자 분기 실적 2026-03-03 소식",
         "summary": "영업이익 102억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-01-03",
@@ -45,7 +49,9 @@
         "article_id": "kr-same-01-03-right",
         "title": "삼성전자 분기 실적 2026-04-04 소식",
         "summary": "영업이익 103억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-01-04",
@@ -60,7 +66,9 @@
         "article_id": "kr-same-01-04-right",
         "title": "삼성전자 분기 실적 2026-05-05 소식",
         "summary": "영업이익 104억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-01-05",
@@ -75,7 +83,9 @@
         "article_id": "kr-same-01-05-right",
         "title": "삼성전자 분기 실적 2026-06-06 소식",
         "summary": "영업이익 105억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-01-06",
@@ -90,7 +100,9 @@
         "article_id": "kr-same-01-06-right",
         "title": "삼성전자 분기 실적 2026-07-07 소식",
         "summary": "영업이익 106억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-01-07",
@@ -105,7 +117,9 @@
         "article_id": "kr-same-01-07-right",
         "title": "삼성전자 분기 실적 2026-08-08 소식",
         "summary": "영업이익 107억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-01-08",
@@ -120,7 +134,9 @@
         "article_id": "kr-same-01-08-right",
         "title": "삼성전자 분기 실적 2026-01-09 소식",
         "summary": "영업이익 108억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-01-09",
@@ -135,7 +151,9 @@
         "article_id": "kr-same-01-09-right",
         "title": "삼성전자 분기 실적 2026-02-10 소식",
         "summary": "영업이익 109억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-01-10",
@@ -150,7 +168,9 @@
         "article_id": "kr-same-01-10-right",
         "title": "삼성전자 분기 실적 2026-03-11 소식",
         "summary": "영업이익 110억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-01-01",
@@ -165,7 +185,9 @@
         "article_id": "kr-other-01-01-right",
         "title": "현대차 전기차 투자 일정",
         "summary": "생산능력 231억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-01-02",
@@ -180,7 +202,9 @@
         "article_id": "kr-other-01-02-right",
         "title": "현대차 전기차 투자 일정",
         "summary": "생산능력 232억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-01-03",
@@ -195,7 +219,9 @@
         "article_id": "kr-other-01-03-right",
         "title": "현대차 전기차 투자 일정",
         "summary": "생산능력 233억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-01-04",
@@ -210,7 +236,9 @@
         "article_id": "kr-other-01-04-right",
         "title": "현대차 전기차 투자 일정",
         "summary": "생산능력 234억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-01-05",
@@ -225,7 +253,9 @@
         "article_id": "kr-other-01-05-right",
         "title": "현대차 전기차 투자 일정",
         "summary": "생산능력 235억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-hard-01-01",
@@ -241,7 +271,8 @@
         "article_id": "kr-hard-01-01-right",
         "title": "삼성전자 분기 실적 실적",
         "summary": "영업이익 190억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-01-a"
     },
     {
       "pair_id": "kr-hard-01-02",
@@ -257,7 +288,8 @@
         "article_id": "kr-hard-01-02-right",
         "title": "삼성전자 분기 실적 실적",
         "summary": "영업이익 190억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-01-a"
     },
     {
       "pair_id": "kr-hard-01-03",
@@ -273,7 +305,8 @@
         "article_id": "kr-hard-01-03-right",
         "title": "삼성전자 분기 실적 2026-08-04 발표",
         "summary": "영업이익 200억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-01-a"
     },
     {
       "pair_id": "kr-hard-01-04",
@@ -289,7 +322,8 @@
         "article_id": "kr-hard-01-04-right",
         "title": "삼성전자 분기 실적 2026-08-05 발표",
         "summary": "영업이익 200억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-01-b"
     },
     {
       "pair_id": "kr-hard-01-05",
@@ -305,7 +339,8 @@
         "article_id": "kr-hard-01-05-right",
         "title": "삼성전자 분기 실적 하락",
         "summary": "영업이익 전망 하락"
-      }
+      },
+      "event_family_id": "kr-hard-01-b"
     },
     {
       "pair_id": "kr-same-02-01",
@@ -320,7 +355,9 @@
         "article_id": "kr-same-02-01-right",
         "title": "현대차 전기차 투자 2026-02-02 소식",
         "summary": "생산능력 108억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-02-02",
@@ -335,7 +372,9 @@
         "article_id": "kr-same-02-02-right",
         "title": "현대차 전기차 투자 2026-03-03 소식",
         "summary": "생산능력 109억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-02-03",
@@ -350,7 +389,9 @@
         "article_id": "kr-same-02-03-right",
         "title": "현대차 전기차 투자 2026-04-04 소식",
         "summary": "생산능력 110억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-02-04",
@@ -365,7 +406,9 @@
         "article_id": "kr-same-02-04-right",
         "title": "현대차 전기차 투자 2026-05-05 소식",
         "summary": "생산능력 111억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-02-05",
@@ -380,7 +423,9 @@
         "article_id": "kr-same-02-05-right",
         "title": "현대차 전기차 투자 2026-06-06 소식",
         "summary": "생산능력 112억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-02-06",
@@ -395,7 +440,9 @@
         "article_id": "kr-same-02-06-right",
         "title": "현대차 전기차 투자 2026-07-07 소식",
         "summary": "생산능력 113억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-02-07",
@@ -410,7 +457,9 @@
         "article_id": "kr-same-02-07-right",
         "title": "현대차 전기차 투자 2026-08-08 소식",
         "summary": "생산능력 114억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-02-08",
@@ -425,7 +474,9 @@
         "article_id": "kr-same-02-08-right",
         "title": "현대차 전기차 투자 2026-01-09 소식",
         "summary": "생산능력 115억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-02-09",
@@ -440,7 +491,9 @@
         "article_id": "kr-same-02-09-right",
         "title": "현대차 전기차 투자 2026-02-10 소식",
         "summary": "생산능력 116억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-02-10",
@@ -455,7 +508,9 @@
         "article_id": "kr-same-02-10-right",
         "title": "현대차 전기차 투자 2026-03-11 소식",
         "summary": "생산능력 117억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-02-01",
@@ -470,7 +525,9 @@
         "article_id": "kr-other-02-01-right",
         "title": "SK하이닉스 메모리 수요 일정",
         "summary": "반도체 출하 232억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-02-02",
@@ -485,7 +542,9 @@
         "article_id": "kr-other-02-02-right",
         "title": "SK하이닉스 메모리 수요 일정",
         "summary": "반도체 출하 233억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-02-03",
@@ -500,7 +559,9 @@
         "article_id": "kr-other-02-03-right",
         "title": "SK하이닉스 메모리 수요 일정",
         "summary": "반도체 출하 234억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-02-04",
@@ -515,7 +576,9 @@
         "article_id": "kr-other-02-04-right",
         "title": "SK하이닉스 메모리 수요 일정",
         "summary": "반도체 출하 235억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-02-05",
@@ -530,7 +593,9 @@
         "article_id": "kr-other-02-05-right",
         "title": "SK하이닉스 메모리 수요 일정",
         "summary": "반도체 출하 236억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-hard-02-01",
@@ -546,7 +611,8 @@
         "article_id": "kr-hard-02-01-right",
         "title": "현대차 전기차 투자 실적",
         "summary": "생산능력 191억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-02-a"
     },
     {
       "pair_id": "kr-hard-02-02",
@@ -562,7 +628,8 @@
         "article_id": "kr-hard-02-02-right",
         "title": "현대차 전기차 투자 실적",
         "summary": "생산능력 191억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-02-a"
     },
     {
       "pair_id": "kr-hard-02-03",
@@ -578,7 +645,8 @@
         "article_id": "kr-hard-02-03-right",
         "title": "현대차 전기차 투자 2026-08-04 발표",
         "summary": "생산능력 201억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-02-a"
     },
     {
       "pair_id": "kr-hard-02-04",
@@ -594,7 +662,8 @@
         "article_id": "kr-hard-02-04-right",
         "title": "현대차 전기차 투자 2026-08-05 발표",
         "summary": "생산능력 201억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-02-b"
     },
     {
       "pair_id": "kr-hard-02-05",
@@ -610,7 +679,8 @@
         "article_id": "kr-hard-02-05-right",
         "title": "현대차 전기차 투자 하락",
         "summary": "생산능력 전망 하락"
-      }
+      },
+      "event_family_id": "kr-hard-02-b"
     },
     {
       "pair_id": "kr-same-03-01",
@@ -625,7 +695,9 @@
         "article_id": "kr-same-03-01-right",
         "title": "SK하이닉스 메모리 수요 2026-02-02 소식",
         "summary": "반도체 출하 115억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-03-02",
@@ -640,7 +712,9 @@
         "article_id": "kr-same-03-02-right",
         "title": "SK하이닉스 메모리 수요 2026-03-03 소식",
         "summary": "반도체 출하 116억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-03-03",
@@ -655,7 +729,9 @@
         "article_id": "kr-same-03-03-right",
         "title": "SK하이닉스 메모리 수요 2026-04-04 소식",
         "summary": "반도체 출하 117억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-03-04",
@@ -670,7 +746,9 @@
         "article_id": "kr-same-03-04-right",
         "title": "SK하이닉스 메모리 수요 2026-05-05 소식",
         "summary": "반도체 출하 118억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-03-05",
@@ -685,7 +763,9 @@
         "article_id": "kr-same-03-05-right",
         "title": "SK하이닉스 메모리 수요 2026-06-06 소식",
         "summary": "반도체 출하 119억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-03-06",
@@ -700,7 +780,9 @@
         "article_id": "kr-same-03-06-right",
         "title": "SK하이닉스 메모리 수요 2026-07-07 소식",
         "summary": "반도체 출하 120억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-03-07",
@@ -715,7 +797,9 @@
         "article_id": "kr-same-03-07-right",
         "title": "SK하이닉스 메모리 수요 2026-08-08 소식",
         "summary": "반도체 출하 121억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-03-08",
@@ -730,7 +814,9 @@
         "article_id": "kr-same-03-08-right",
         "title": "SK하이닉스 메모리 수요 2026-01-09 소식",
         "summary": "반도체 출하 122억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-03-09",
@@ -745,7 +831,9 @@
         "article_id": "kr-same-03-09-right",
         "title": "SK하이닉스 메모리 수요 2026-02-10 소식",
         "summary": "반도체 출하 123억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-03-10",
@@ -760,7 +848,9 @@
         "article_id": "kr-same-03-10-right",
         "title": "SK하이닉스 메모리 수요 2026-03-11 소식",
         "summary": "반도체 출하 124억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-03-01",
@@ -775,7 +865,9 @@
         "article_id": "kr-other-03-01-right",
         "title": "한국은행 기준금리 결정 일정",
         "summary": "기준금리 233억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-03-02",
@@ -790,7 +882,9 @@
         "article_id": "kr-other-03-02-right",
         "title": "한국은행 기준금리 결정 일정",
         "summary": "기준금리 234억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-03-03",
@@ -805,7 +899,9 @@
         "article_id": "kr-other-03-03-right",
         "title": "한국은행 기준금리 결정 일정",
         "summary": "기준금리 235억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-03-04",
@@ -820,7 +916,9 @@
         "article_id": "kr-other-03-04-right",
         "title": "한국은행 기준금리 결정 일정",
         "summary": "기준금리 236억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-03-05",
@@ -835,7 +933,9 @@
         "article_id": "kr-other-03-05-right",
         "title": "한국은행 기준금리 결정 일정",
         "summary": "기준금리 237억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-hard-03-01",
@@ -851,7 +951,8 @@
         "article_id": "kr-hard-03-01-right",
         "title": "SK하이닉스 메모리 수요 실적",
         "summary": "반도체 출하 192억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-03"
     },
     {
       "pair_id": "kr-hard-03-02",
@@ -867,7 +968,8 @@
         "article_id": "kr-hard-03-02-right",
         "title": "SK하이닉스 메모리 수요 실적",
         "summary": "반도체 출하 192억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-03"
     },
     {
       "pair_id": "kr-hard-03-03",
@@ -883,7 +985,8 @@
         "article_id": "kr-hard-03-03-right",
         "title": "SK하이닉스 메모리 수요 2026-08-04 발표",
         "summary": "반도체 출하 202억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-03"
     },
     {
       "pair_id": "kr-hard-03-04",
@@ -899,7 +1002,8 @@
         "article_id": "kr-hard-03-04-right",
         "title": "SK하이닉스 메모리 수요 2026-08-05 발표",
         "summary": "반도체 출하 202억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-03"
     },
     {
       "pair_id": "kr-hard-03-05",
@@ -915,7 +1019,8 @@
         "article_id": "kr-hard-03-05-right",
         "title": "SK하이닉스 메모리 수요 하락",
         "summary": "반도체 출하 전망 하락"
-      }
+      },
+      "event_family_id": "kr-hard-03"
     },
     {
       "pair_id": "kr-same-04-01",
@@ -930,7 +1035,9 @@
         "article_id": "kr-same-04-01-right",
         "title": "한국은행 기준금리 결정 2026-02-02 소식",
         "summary": "기준금리 122억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-04-02",
@@ -945,7 +1052,9 @@
         "article_id": "kr-same-04-02-right",
         "title": "한국은행 기준금리 결정 2026-03-03 소식",
         "summary": "기준금리 123억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-04-03",
@@ -960,7 +1069,9 @@
         "article_id": "kr-same-04-03-right",
         "title": "한국은행 기준금리 결정 2026-04-04 소식",
         "summary": "기준금리 124억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-04-04",
@@ -975,7 +1086,9 @@
         "article_id": "kr-same-04-04-right",
         "title": "한국은행 기준금리 결정 2026-05-05 소식",
         "summary": "기준금리 125억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-04-05",
@@ -990,7 +1103,9 @@
         "article_id": "kr-same-04-05-right",
         "title": "한국은행 기준금리 결정 2026-06-06 소식",
         "summary": "기준금리 126억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-04-06",
@@ -1005,7 +1120,9 @@
         "article_id": "kr-same-04-06-right",
         "title": "한국은행 기준금리 결정 2026-07-07 소식",
         "summary": "기준금리 127억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-04-07",
@@ -1020,7 +1137,9 @@
         "article_id": "kr-same-04-07-right",
         "title": "한국은행 기준금리 결정 2026-08-08 소식",
         "summary": "기준금리 128억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-04-08",
@@ -1035,7 +1154,9 @@
         "article_id": "kr-same-04-08-right",
         "title": "한국은행 기준금리 결정 2026-01-09 소식",
         "summary": "기준금리 129억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-04-09",
@@ -1050,7 +1171,9 @@
         "article_id": "kr-same-04-09-right",
         "title": "한국은행 기준금리 결정 2026-02-10 소식",
         "summary": "기준금리 130억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-04-10",
@@ -1065,7 +1188,9 @@
         "article_id": "kr-same-04-10-right",
         "title": "한국은행 기준금리 결정 2026-03-11 소식",
         "summary": "기준금리 131억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-04-01",
@@ -1080,7 +1205,9 @@
         "article_id": "kr-other-04-01-right",
         "title": "카카오 플랫폼 규제 일정",
         "summary": "이용자 보호 234억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-04-02",
@@ -1095,7 +1222,9 @@
         "article_id": "kr-other-04-02-right",
         "title": "카카오 플랫폼 규제 일정",
         "summary": "이용자 보호 235억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-04-03",
@@ -1110,7 +1239,9 @@
         "article_id": "kr-other-04-03-right",
         "title": "카카오 플랫폼 규제 일정",
         "summary": "이용자 보호 236억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-04-04",
@@ -1125,7 +1256,9 @@
         "article_id": "kr-other-04-04-right",
         "title": "카카오 플랫폼 규제 일정",
         "summary": "이용자 보호 237억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-04-05",
@@ -1140,7 +1273,9 @@
         "article_id": "kr-other-04-05-right",
         "title": "카카오 플랫폼 규제 일정",
         "summary": "이용자 보호 238억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-hard-04-01",
@@ -1156,7 +1291,8 @@
         "article_id": "kr-hard-04-01-right",
         "title": "한국은행 기준금리 결정 실적",
         "summary": "기준금리 193억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-04"
     },
     {
       "pair_id": "kr-hard-04-02",
@@ -1172,7 +1308,8 @@
         "article_id": "kr-hard-04-02-right",
         "title": "한국은행 기준금리 결정 실적",
         "summary": "기준금리 193억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-04"
     },
     {
       "pair_id": "kr-hard-04-03",
@@ -1188,7 +1325,8 @@
         "article_id": "kr-hard-04-03-right",
         "title": "한국은행 기준금리 결정 2026-08-04 발표",
         "summary": "기준금리 203억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-04"
     },
     {
       "pair_id": "kr-hard-04-04",
@@ -1204,7 +1342,8 @@
         "article_id": "kr-hard-04-04-right",
         "title": "한국은행 기준금리 결정 2026-08-05 발표",
         "summary": "기준금리 203억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-04"
     },
     {
       "pair_id": "kr-hard-04-05",
@@ -1220,7 +1359,8 @@
         "article_id": "kr-hard-04-05-right",
         "title": "한국은행 기준금리 결정 하락",
         "summary": "기준금리 전망 하락"
-      }
+      },
+      "event_family_id": "kr-hard-04"
     },
     {
       "pair_id": "kr-same-05-01",
@@ -1235,7 +1375,9 @@
         "article_id": "kr-same-05-01-right",
         "title": "카카오 플랫폼 규제 2026-02-02 소식",
         "summary": "이용자 보호 129억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-05-02",
@@ -1250,7 +1392,9 @@
         "article_id": "kr-same-05-02-right",
         "title": "카카오 플랫폼 규제 2026-03-03 소식",
         "summary": "이용자 보호 130억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-05-03",
@@ -1265,7 +1409,9 @@
         "article_id": "kr-same-05-03-right",
         "title": "카카오 플랫폼 규제 2026-04-04 소식",
         "summary": "이용자 보호 131억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-05-04",
@@ -1280,7 +1426,9 @@
         "article_id": "kr-same-05-04-right",
         "title": "카카오 플랫폼 규제 2026-05-05 소식",
         "summary": "이용자 보호 132억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-05-05",
@@ -1295,7 +1443,9 @@
         "article_id": "kr-same-05-05-right",
         "title": "카카오 플랫폼 규제 2026-06-06 소식",
         "summary": "이용자 보호 133억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-05-06",
@@ -1310,7 +1460,9 @@
         "article_id": "kr-same-05-06-right",
         "title": "카카오 플랫폼 규제 2026-07-07 소식",
         "summary": "이용자 보호 134억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-05-07",
@@ -1325,7 +1477,9 @@
         "article_id": "kr-same-05-07-right",
         "title": "카카오 플랫폼 규제 2026-08-08 소식",
         "summary": "이용자 보호 135억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-05-08",
@@ -1340,7 +1494,9 @@
         "article_id": "kr-same-05-08-right",
         "title": "카카오 플랫폼 규제 2026-01-09 소식",
         "summary": "이용자 보호 136억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-05-09",
@@ -1355,7 +1511,9 @@
         "article_id": "kr-same-05-09-right",
         "title": "카카오 플랫폼 규제 2026-02-10 소식",
         "summary": "이용자 보호 137억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-05-10",
@@ -1370,7 +1528,9 @@
         "article_id": "kr-same-05-10-right",
         "title": "카카오 플랫폼 규제 2026-03-11 소식",
         "summary": "이용자 보호 138억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-05-01",
@@ -1385,7 +1545,9 @@
         "article_id": "kr-other-05-01-right",
         "title": "포스코 철강 수출 일정",
         "summary": "수출 물량 235억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-05-02",
@@ -1400,7 +1562,9 @@
         "article_id": "kr-other-05-02-right",
         "title": "포스코 철강 수출 일정",
         "summary": "수출 물량 236억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-05-03",
@@ -1415,7 +1579,9 @@
         "article_id": "kr-other-05-03-right",
         "title": "포스코 철강 수출 일정",
         "summary": "수출 물량 237억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-05-04",
@@ -1430,7 +1596,9 @@
         "article_id": "kr-other-05-04-right",
         "title": "포스코 철강 수출 일정",
         "summary": "수출 물량 238억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-05-05",
@@ -1445,7 +1613,9 @@
         "article_id": "kr-other-05-05-right",
         "title": "포스코 철강 수출 일정",
         "summary": "수출 물량 239억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-hard-05-01",
@@ -1461,7 +1631,8 @@
         "article_id": "kr-hard-05-01-right",
         "title": "카카오 플랫폼 규제 실적",
         "summary": "이용자 보호 194억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-05"
     },
     {
       "pair_id": "kr-hard-05-02",
@@ -1477,7 +1648,8 @@
         "article_id": "kr-hard-05-02-right",
         "title": "카카오 플랫폼 규제 실적",
         "summary": "이용자 보호 194억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-05"
     },
     {
       "pair_id": "kr-hard-05-03",
@@ -1493,7 +1665,8 @@
         "article_id": "kr-hard-05-03-right",
         "title": "카카오 플랫폼 규제 2026-08-04 발표",
         "summary": "이용자 보호 204억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-05"
     },
     {
       "pair_id": "kr-hard-05-04",
@@ -1509,7 +1682,8 @@
         "article_id": "kr-hard-05-04-right",
         "title": "카카오 플랫폼 규제 2026-08-05 발표",
         "summary": "이용자 보호 204억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-05"
     },
     {
       "pair_id": "kr-hard-05-05",
@@ -1525,7 +1699,8 @@
         "article_id": "kr-hard-05-05-right",
         "title": "카카오 플랫폼 규제 하락",
         "summary": "이용자 보호 전망 하락"
-      }
+      },
+      "event_family_id": "kr-hard-05"
     },
     {
       "pair_id": "kr-same-06-01",
@@ -1540,7 +1715,9 @@
         "article_id": "kr-same-06-01-right",
         "title": "포스코 철강 수출 2026-02-02 소식",
         "summary": "수출 물량 136억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-06-02",
@@ -1555,7 +1732,9 @@
         "article_id": "kr-same-06-02-right",
         "title": "포스코 철강 수출 2026-03-03 소식",
         "summary": "수출 물량 137억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-06-03",
@@ -1570,7 +1749,9 @@
         "article_id": "kr-same-06-03-right",
         "title": "포스코 철강 수출 2026-04-04 소식",
         "summary": "수출 물량 138억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-06-04",
@@ -1585,7 +1766,9 @@
         "article_id": "kr-same-06-04-right",
         "title": "포스코 철강 수출 2026-05-05 소식",
         "summary": "수출 물량 139억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-06-05",
@@ -1600,7 +1783,9 @@
         "article_id": "kr-same-06-05-right",
         "title": "포스코 철강 수출 2026-06-06 소식",
         "summary": "수출 물량 140억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-06-06",
@@ -1615,7 +1800,9 @@
         "article_id": "kr-same-06-06-right",
         "title": "포스코 철강 수출 2026-07-07 소식",
         "summary": "수출 물량 141억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-06-07",
@@ -1630,7 +1817,9 @@
         "article_id": "kr-same-06-07-right",
         "title": "포스코 철강 수출 2026-08-08 소식",
         "summary": "수출 물량 142억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-06-08",
@@ -1645,7 +1834,9 @@
         "article_id": "kr-same-06-08-right",
         "title": "포스코 철강 수출 2026-01-09 소식",
         "summary": "수출 물량 143억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-06-09",
@@ -1660,7 +1851,9 @@
         "article_id": "kr-same-06-09-right",
         "title": "포스코 철강 수출 2026-02-10 소식",
         "summary": "수출 물량 144억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-06-10",
@@ -1675,7 +1868,9 @@
         "article_id": "kr-same-06-10-right",
         "title": "포스코 철강 수출 2026-03-11 소식",
         "summary": "수출 물량 145억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-06-01",
@@ -1690,7 +1885,9 @@
         "article_id": "kr-other-06-01-right",
         "title": "셀트리온 신약 승인 일정",
         "summary": "임상 환자 236억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-06-02",
@@ -1705,7 +1902,9 @@
         "article_id": "kr-other-06-02-right",
         "title": "셀트리온 신약 승인 일정",
         "summary": "임상 환자 237억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-06-03",
@@ -1720,7 +1919,9 @@
         "article_id": "kr-other-06-03-right",
         "title": "셀트리온 신약 승인 일정",
         "summary": "임상 환자 238억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-06-04",
@@ -1735,7 +1936,9 @@
         "article_id": "kr-other-06-04-right",
         "title": "셀트리온 신약 승인 일정",
         "summary": "임상 환자 239억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-06-05",
@@ -1750,7 +1953,9 @@
         "article_id": "kr-other-06-05-right",
         "title": "셀트리온 신약 승인 일정",
         "summary": "임상 환자 240억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-hard-06-01",
@@ -1766,7 +1971,8 @@
         "article_id": "kr-hard-06-01-right",
         "title": "포스코 철강 수출 실적",
         "summary": "수출 물량 195억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-06"
     },
     {
       "pair_id": "kr-hard-06-02",
@@ -1782,7 +1988,8 @@
         "article_id": "kr-hard-06-02-right",
         "title": "포스코 철강 수출 실적",
         "summary": "수출 물량 195억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-06"
     },
     {
       "pair_id": "kr-hard-06-03",
@@ -1798,7 +2005,8 @@
         "article_id": "kr-hard-06-03-right",
         "title": "포스코 철강 수출 2026-08-04 발표",
         "summary": "수출 물량 205억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-06"
     },
     {
       "pair_id": "kr-hard-06-04",
@@ -1814,7 +2022,8 @@
         "article_id": "kr-hard-06-04-right",
         "title": "포스코 철강 수출 2026-08-05 발표",
         "summary": "수출 물량 205억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-06"
     },
     {
       "pair_id": "kr-hard-06-05",
@@ -1830,7 +2039,8 @@
         "article_id": "kr-hard-06-05-right",
         "title": "포스코 철강 수출 하락",
         "summary": "수출 물량 전망 하락"
-      }
+      },
+      "event_family_id": "kr-hard-06"
     },
     {
       "pair_id": "kr-same-07-01",
@@ -1845,7 +2055,9 @@
         "article_id": "kr-same-07-01-right",
         "title": "셀트리온 신약 승인 2026-02-02 소식",
         "summary": "임상 환자 143억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-07-02",
@@ -1860,7 +2072,9 @@
         "article_id": "kr-same-07-02-right",
         "title": "셀트리온 신약 승인 2026-03-03 소식",
         "summary": "임상 환자 144억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-07-03",
@@ -1875,7 +2089,9 @@
         "article_id": "kr-same-07-03-right",
         "title": "셀트리온 신약 승인 2026-04-04 소식",
         "summary": "임상 환자 145억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-07-04",
@@ -1890,7 +2106,9 @@
         "article_id": "kr-same-07-04-right",
         "title": "셀트리온 신약 승인 2026-05-05 소식",
         "summary": "임상 환자 146억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-07-05",
@@ -1905,7 +2123,9 @@
         "article_id": "kr-same-07-05-right",
         "title": "셀트리온 신약 승인 2026-06-06 소식",
         "summary": "임상 환자 147억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-07-06",
@@ -1920,7 +2140,9 @@
         "article_id": "kr-same-07-06-right",
         "title": "셀트리온 신약 승인 2026-07-07 소식",
         "summary": "임상 환자 148억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-07-07",
@@ -1935,7 +2157,9 @@
         "article_id": "kr-same-07-07-right",
         "title": "셀트리온 신약 승인 2026-08-08 소식",
         "summary": "임상 환자 149억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-07-08",
@@ -1950,7 +2174,9 @@
         "article_id": "kr-same-07-08-right",
         "title": "셀트리온 신약 승인 2026-01-09 소식",
         "summary": "임상 환자 150억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-07-09",
@@ -1965,7 +2191,9 @@
         "article_id": "kr-same-07-09-right",
         "title": "셀트리온 신약 승인 2026-02-10 소식",
         "summary": "임상 환자 151억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-07-10",
@@ -1980,7 +2208,9 @@
         "article_id": "kr-same-07-10-right",
         "title": "셀트리온 신약 승인 2026-03-11 소식",
         "summary": "임상 환자 152억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-07-01",
@@ -1995,7 +2225,9 @@
         "article_id": "kr-other-07-01-right",
         "title": "네이버 AI 서비스 일정",
         "summary": "검색 이용자 237억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-07-02",
@@ -2010,7 +2242,9 @@
         "article_id": "kr-other-07-02-right",
         "title": "네이버 AI 서비스 일정",
         "summary": "검색 이용자 238억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-07-03",
@@ -2025,7 +2259,9 @@
         "article_id": "kr-other-07-03-right",
         "title": "네이버 AI 서비스 일정",
         "summary": "검색 이용자 239억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-07-04",
@@ -2040,7 +2276,9 @@
         "article_id": "kr-other-07-04-right",
         "title": "네이버 AI 서비스 일정",
         "summary": "검색 이용자 240억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-07-05",
@@ -2055,7 +2293,9 @@
         "article_id": "kr-other-07-05-right",
         "title": "네이버 AI 서비스 일정",
         "summary": "검색 이용자 241억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-hard-07-01",
@@ -2071,7 +2311,8 @@
         "article_id": "kr-hard-07-01-right",
         "title": "셀트리온 신약 승인 실적",
         "summary": "임상 환자 196억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-07"
     },
     {
       "pair_id": "kr-hard-07-02",
@@ -2087,7 +2328,8 @@
         "article_id": "kr-hard-07-02-right",
         "title": "셀트리온 신약 승인 실적",
         "summary": "임상 환자 196억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-07"
     },
     {
       "pair_id": "kr-hard-07-03",
@@ -2103,7 +2345,8 @@
         "article_id": "kr-hard-07-03-right",
         "title": "셀트리온 신약 승인 2026-08-04 발표",
         "summary": "임상 환자 206억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-07"
     },
     {
       "pair_id": "kr-hard-07-04",
@@ -2119,7 +2362,8 @@
         "article_id": "kr-hard-07-04-right",
         "title": "셀트리온 신약 승인 2026-08-05 발표",
         "summary": "임상 환자 206억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-07"
     },
     {
       "pair_id": "kr-hard-07-05",
@@ -2135,7 +2379,8 @@
         "article_id": "kr-hard-07-05-right",
         "title": "셀트리온 신약 승인 하락",
         "summary": "임상 환자 전망 하락"
-      }
+      },
+      "event_family_id": "kr-hard-07"
     },
     {
       "pair_id": "kr-same-08-01",
@@ -2150,7 +2395,9 @@
         "article_id": "kr-same-08-01-right",
         "title": "네이버 AI 서비스 2026-02-02 소식",
         "summary": "검색 이용자 150억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-08-02",
@@ -2165,7 +2412,9 @@
         "article_id": "kr-same-08-02-right",
         "title": "네이버 AI 서비스 2026-03-03 소식",
         "summary": "검색 이용자 151억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-08-03",
@@ -2180,7 +2429,9 @@
         "article_id": "kr-same-08-03-right",
         "title": "네이버 AI 서비스 2026-04-04 소식",
         "summary": "검색 이용자 152억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-08-04",
@@ -2195,7 +2446,9 @@
         "article_id": "kr-same-08-04-right",
         "title": "네이버 AI 서비스 2026-05-05 소식",
         "summary": "검색 이용자 153억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-08-05",
@@ -2210,7 +2463,9 @@
         "article_id": "kr-same-08-05-right",
         "title": "네이버 AI 서비스 2026-06-06 소식",
         "summary": "검색 이용자 154억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-08-06",
@@ -2225,7 +2480,9 @@
         "article_id": "kr-same-08-06-right",
         "title": "네이버 AI 서비스 2026-07-07 소식",
         "summary": "검색 이용자 155억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-08-07",
@@ -2240,7 +2497,9 @@
         "article_id": "kr-same-08-07-right",
         "title": "네이버 AI 서비스 2026-08-08 소식",
         "summary": "검색 이용자 156억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-08-08",
@@ -2255,7 +2514,9 @@
         "article_id": "kr-same-08-08-right",
         "title": "네이버 AI 서비스 2026-01-09 소식",
         "summary": "검색 이용자 157억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-08-09",
@@ -2270,7 +2531,9 @@
         "article_id": "kr-same-08-09-right",
         "title": "네이버 AI 서비스 2026-02-10 소식",
         "summary": "검색 이용자 158억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-same-08-10",
@@ -2285,7 +2548,9 @@
         "article_id": "kr-same-08-10-right",
         "title": "네이버 AI 서비스 2026-03-11 소식",
         "summary": "검색 이용자 159억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "kr-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-08-01",
@@ -2300,7 +2565,9 @@
         "article_id": "kr-other-08-01-right",
         "title": "삼성전자 분기 실적 일정",
         "summary": "영업이익 238억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-08-02",
@@ -2315,7 +2582,9 @@
         "article_id": "kr-other-08-02-right",
         "title": "삼성전자 분기 실적 일정",
         "summary": "영업이익 239억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-08-03",
@@ -2330,7 +2599,9 @@
         "article_id": "kr-other-08-03-right",
         "title": "삼성전자 분기 실적 일정",
         "summary": "영업이익 240억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-08-04",
@@ -2345,7 +2616,9 @@
         "article_id": "kr-other-08-04-right",
         "title": "삼성전자 분기 실적 일정",
         "summary": "영업이익 241억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-other-08-05",
@@ -2360,7 +2633,9 @@
         "article_id": "kr-other-08-05-right",
         "title": "삼성전자 분기 실적 일정",
         "summary": "영업이익 242억원 시장 전망"
-      }
+      },
+      "event_family_id": "kr-other-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "kr-hard-08-01",
@@ -2376,7 +2651,8 @@
         "article_id": "kr-hard-08-01-right",
         "title": "네이버 AI 서비스 실적",
         "summary": "검색 이용자 197억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-08"
     },
     {
       "pair_id": "kr-hard-08-02",
@@ -2392,7 +2668,8 @@
         "article_id": "kr-hard-08-02-right",
         "title": "네이버 AI 서비스 실적",
         "summary": "검색 이용자 197억원 증가"
-      }
+      },
+      "event_family_id": "kr-hard-08"
     },
     {
       "pair_id": "kr-hard-08-03",
@@ -2408,7 +2685,8 @@
         "article_id": "kr-hard-08-03-right",
         "title": "네이버 AI 서비스 2026-08-04 발표",
         "summary": "검색 이용자 207억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-08"
     },
     {
       "pair_id": "kr-hard-08-04",
@@ -2424,7 +2702,8 @@
         "article_id": "kr-hard-08-04-right",
         "title": "네이버 AI 서비스 2026-08-05 발표",
         "summary": "검색 이용자 207억원 일정"
-      }
+      },
+      "event_family_id": "kr-hard-08"
     },
     {
       "pair_id": "kr-hard-08-05",
@@ -2440,7 +2719,8 @@
         "article_id": "kr-hard-08-05-right",
         "title": "네이버 AI 서비스 하락",
         "summary": "검색 이용자 전망 하락"
-      }
+      },
+      "event_family_id": "kr-hard-08"
     },
     {
       "pair_id": "us-same-01-01",
@@ -2455,7 +2735,9 @@
         "article_id": "us-same-01-01-right",
         "title": "Apple quarterly earnings 2026-02-02 소식",
         "summary": "revenue 101억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-01-02",
@@ -2470,7 +2752,9 @@
         "article_id": "us-same-01-02-right",
         "title": "Apple quarterly earnings 2026-03-03 소식",
         "summary": "revenue 102억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-01-03",
@@ -2485,7 +2769,9 @@
         "article_id": "us-same-01-03-right",
         "title": "Apple quarterly earnings 2026-04-04 소식",
         "summary": "revenue 103억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-01-04",
@@ -2500,7 +2786,9 @@
         "article_id": "us-same-01-04-right",
         "title": "Apple quarterly earnings 2026-05-05 소식",
         "summary": "revenue 104억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-01-05",
@@ -2515,7 +2803,9 @@
         "article_id": "us-same-01-05-right",
         "title": "Apple quarterly earnings 2026-06-06 소식",
         "summary": "revenue 105억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-01-06",
@@ -2530,7 +2820,9 @@
         "article_id": "us-same-01-06-right",
         "title": "Apple quarterly earnings 2026-07-07 소식",
         "summary": "revenue 106억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-01-07",
@@ -2545,7 +2837,9 @@
         "article_id": "us-same-01-07-right",
         "title": "Apple quarterly earnings 2026-08-08 소식",
         "summary": "revenue 107억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-01-08",
@@ -2560,7 +2854,9 @@
         "article_id": "us-same-01-08-right",
         "title": "Apple quarterly earnings 2026-01-09 소식",
         "summary": "revenue 108억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-01-09",
@@ -2575,7 +2871,9 @@
         "article_id": "us-same-01-09-right",
         "title": "Apple quarterly earnings 2026-02-10 소식",
         "summary": "revenue 109억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-01-10",
@@ -2590,7 +2888,9 @@
         "article_id": "us-same-01-10-right",
         "title": "Apple quarterly earnings 2026-03-11 소식",
         "summary": "revenue 110억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-01-01",
@@ -2605,7 +2905,9 @@
         "article_id": "us-other-01-01-right",
         "title": "Tesla vehicle deliveries 일정",
         "summary": "deliveries 231억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-01-02",
@@ -2620,7 +2922,9 @@
         "article_id": "us-other-01-02-right",
         "title": "Tesla vehicle deliveries 일정",
         "summary": "deliveries 232억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-01-03",
@@ -2635,7 +2939,9 @@
         "article_id": "us-other-01-03-right",
         "title": "Tesla vehicle deliveries 일정",
         "summary": "deliveries 233억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-01-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-01-04",
@@ -2650,7 +2956,9 @@
         "article_id": "us-other-01-04-right",
         "title": "Tesla vehicle deliveries 일정",
         "summary": "deliveries 234억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-01-05",
@@ -2665,7 +2973,9 @@
         "article_id": "us-other-01-05-right",
         "title": "Tesla vehicle deliveries 일정",
         "summary": "deliveries 235억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-01-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-hard-01-01",
@@ -2681,7 +2991,8 @@
         "article_id": "us-hard-01-01-right",
         "title": "Apple quarterly earnings 실적",
         "summary": "revenue 190억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-01-a"
     },
     {
       "pair_id": "us-hard-01-02",
@@ -2697,7 +3008,8 @@
         "article_id": "us-hard-01-02-right",
         "title": "Apple quarterly earnings 실적",
         "summary": "revenue 190억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-01-a"
     },
     {
       "pair_id": "us-hard-01-03",
@@ -2713,7 +3025,8 @@
         "article_id": "us-hard-01-03-right",
         "title": "Apple quarterly earnings 2026-08-04 발표",
         "summary": "revenue 200억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-01-a"
     },
     {
       "pair_id": "us-hard-01-04",
@@ -2729,7 +3042,8 @@
         "article_id": "us-hard-01-04-right",
         "title": "Apple quarterly earnings 2026-08-05 발표",
         "summary": "revenue 200억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-01-b"
     },
     {
       "pair_id": "us-hard-01-05",
@@ -2745,7 +3059,8 @@
         "article_id": "us-hard-01-05-right",
         "title": "Apple quarterly earnings fall",
         "summary": "revenue 전망 fall"
-      }
+      },
+      "event_family_id": "us-hard-01-b"
     },
     {
       "pair_id": "us-same-02-01",
@@ -2760,7 +3075,9 @@
         "article_id": "us-same-02-01-right",
         "title": "Tesla vehicle deliveries 2026-02-02 소식",
         "summary": "deliveries 108억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-02-02",
@@ -2775,7 +3092,9 @@
         "article_id": "us-same-02-02-right",
         "title": "Tesla vehicle deliveries 2026-03-03 소식",
         "summary": "deliveries 109억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-02-03",
@@ -2790,7 +3109,9 @@
         "article_id": "us-same-02-03-right",
         "title": "Tesla vehicle deliveries 2026-04-04 소식",
         "summary": "deliveries 110억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-02-04",
@@ -2805,7 +3126,9 @@
         "article_id": "us-same-02-04-right",
         "title": "Tesla vehicle deliveries 2026-05-05 소식",
         "summary": "deliveries 111억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-02-05",
@@ -2820,7 +3143,9 @@
         "article_id": "us-same-02-05-right",
         "title": "Tesla vehicle deliveries 2026-06-06 소식",
         "summary": "deliveries 112억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-02-06",
@@ -2835,7 +3160,9 @@
         "article_id": "us-same-02-06-right",
         "title": "Tesla vehicle deliveries 2026-07-07 소식",
         "summary": "deliveries 113억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-02-07",
@@ -2850,7 +3177,9 @@
         "article_id": "us-same-02-07-right",
         "title": "Tesla vehicle deliveries 2026-08-08 소식",
         "summary": "deliveries 114억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-02-08",
@@ -2865,7 +3194,9 @@
         "article_id": "us-same-02-08-right",
         "title": "Tesla vehicle deliveries 2026-01-09 소식",
         "summary": "deliveries 115억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-02-09",
@@ -2880,7 +3211,9 @@
         "article_id": "us-same-02-09-right",
         "title": "Tesla vehicle deliveries 2026-02-10 소식",
         "summary": "deliveries 116억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-02-10",
@@ -2895,7 +3228,9 @@
         "article_id": "us-same-02-10-right",
         "title": "Tesla vehicle deliveries 2026-03-11 소식",
         "summary": "deliveries 117억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-02-01",
@@ -2910,7 +3245,9 @@
         "article_id": "us-other-02-01-right",
         "title": "Nvidia chip demand 일정",
         "summary": "data-center sales 232억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-02-02",
@@ -2925,7 +3262,9 @@
         "article_id": "us-other-02-02-right",
         "title": "Nvidia chip demand 일정",
         "summary": "data-center sales 233억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-02-03",
@@ -2940,7 +3279,9 @@
         "article_id": "us-other-02-03-right",
         "title": "Nvidia chip demand 일정",
         "summary": "data-center sales 234억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-02-a",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-02-04",
@@ -2955,7 +3296,9 @@
         "article_id": "us-other-02-04-right",
         "title": "Nvidia chip demand 일정",
         "summary": "data-center sales 235억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-02-05",
@@ -2970,7 +3313,9 @@
         "article_id": "us-other-02-05-right",
         "title": "Nvidia chip demand 일정",
         "summary": "data-center sales 236억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-02-b",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-hard-02-01",
@@ -2986,7 +3331,8 @@
         "article_id": "us-hard-02-01-right",
         "title": "Tesla vehicle deliveries 실적",
         "summary": "deliveries 191억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-02-a"
     },
     {
       "pair_id": "us-hard-02-02",
@@ -3002,7 +3348,8 @@
         "article_id": "us-hard-02-02-right",
         "title": "Tesla vehicle deliveries 실적",
         "summary": "deliveries 191억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-02-a"
     },
     {
       "pair_id": "us-hard-02-03",
@@ -3018,7 +3365,8 @@
         "article_id": "us-hard-02-03-right",
         "title": "Tesla vehicle deliveries 2026-08-04 발표",
         "summary": "deliveries 201억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-02-a"
     },
     {
       "pair_id": "us-hard-02-04",
@@ -3034,7 +3382,8 @@
         "article_id": "us-hard-02-04-right",
         "title": "Tesla vehicle deliveries 2026-08-05 발표",
         "summary": "deliveries 201억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-02-b"
     },
     {
       "pair_id": "us-hard-02-05",
@@ -3050,7 +3399,8 @@
         "article_id": "us-hard-02-05-right",
         "title": "Tesla vehicle deliveries fall",
         "summary": "deliveries 전망 fall"
-      }
+      },
+      "event_family_id": "us-hard-02-b"
     },
     {
       "pair_id": "us-same-03-01",
@@ -3065,7 +3415,9 @@
         "article_id": "us-same-03-01-right",
         "title": "Nvidia chip demand 2026-02-02 소식",
         "summary": "data-center sales 115억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-03-02",
@@ -3080,7 +3432,9 @@
         "article_id": "us-same-03-02-right",
         "title": "Nvidia chip demand 2026-03-03 소식",
         "summary": "data-center sales 116억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-03-03",
@@ -3095,7 +3449,9 @@
         "article_id": "us-same-03-03-right",
         "title": "Nvidia chip demand 2026-04-04 소식",
         "summary": "data-center sales 117억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-03-04",
@@ -3110,7 +3466,9 @@
         "article_id": "us-same-03-04-right",
         "title": "Nvidia chip demand 2026-05-05 소식",
         "summary": "data-center sales 118억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-03-05",
@@ -3125,7 +3483,9 @@
         "article_id": "us-same-03-05-right",
         "title": "Nvidia chip demand 2026-06-06 소식",
         "summary": "data-center sales 119억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-03-06",
@@ -3140,7 +3500,9 @@
         "article_id": "us-same-03-06-right",
         "title": "Nvidia chip demand 2026-07-07 소식",
         "summary": "data-center sales 120억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-03-07",
@@ -3155,7 +3517,9 @@
         "article_id": "us-same-03-07-right",
         "title": "Nvidia chip demand 2026-08-08 소식",
         "summary": "data-center sales 121억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-03-08",
@@ -3170,7 +3534,9 @@
         "article_id": "us-same-03-08-right",
         "title": "Nvidia chip demand 2026-01-09 소식",
         "summary": "data-center sales 122억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-03-09",
@@ -3185,7 +3551,9 @@
         "article_id": "us-same-03-09-right",
         "title": "Nvidia chip demand 2026-02-10 소식",
         "summary": "data-center sales 123억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-03-10",
@@ -3200,7 +3568,9 @@
         "article_id": "us-same-03-10-right",
         "title": "Nvidia chip demand 2026-03-11 소식",
         "summary": "data-center sales 124억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-03-01",
@@ -3215,7 +3585,9 @@
         "article_id": "us-other-03-01-right",
         "title": "Federal Reserve rate decision 일정",
         "summary": "policy rate 233억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-03-02",
@@ -3230,7 +3602,9 @@
         "article_id": "us-other-03-02-right",
         "title": "Federal Reserve rate decision 일정",
         "summary": "policy rate 234억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-03-03",
@@ -3245,7 +3619,9 @@
         "article_id": "us-other-03-03-right",
         "title": "Federal Reserve rate decision 일정",
         "summary": "policy rate 235억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-03-04",
@@ -3260,7 +3636,9 @@
         "article_id": "us-other-03-04-right",
         "title": "Federal Reserve rate decision 일정",
         "summary": "policy rate 236억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-03-05",
@@ -3275,7 +3653,9 @@
         "article_id": "us-other-03-05-right",
         "title": "Federal Reserve rate decision 일정",
         "summary": "policy rate 237억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-03",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-hard-03-01",
@@ -3291,7 +3671,8 @@
         "article_id": "us-hard-03-01-right",
         "title": "Nvidia chip demand 실적",
         "summary": "data-center sales 192억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-03"
     },
     {
       "pair_id": "us-hard-03-02",
@@ -3307,7 +3688,8 @@
         "article_id": "us-hard-03-02-right",
         "title": "Nvidia chip demand 실적",
         "summary": "data-center sales 192억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-03"
     },
     {
       "pair_id": "us-hard-03-03",
@@ -3323,7 +3705,8 @@
         "article_id": "us-hard-03-03-right",
         "title": "Nvidia chip demand 2026-08-04 발표",
         "summary": "data-center sales 202억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-03"
     },
     {
       "pair_id": "us-hard-03-04",
@@ -3339,7 +3722,8 @@
         "article_id": "us-hard-03-04-right",
         "title": "Nvidia chip demand 2026-08-05 발표",
         "summary": "data-center sales 202억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-03"
     },
     {
       "pair_id": "us-hard-03-05",
@@ -3355,7 +3739,8 @@
         "article_id": "us-hard-03-05-right",
         "title": "Nvidia chip demand fall",
         "summary": "data-center sales 전망 fall"
-      }
+      },
+      "event_family_id": "us-hard-03"
     },
     {
       "pair_id": "us-same-04-01",
@@ -3370,7 +3755,9 @@
         "article_id": "us-same-04-01-right",
         "title": "Federal Reserve rate decision 2026-02-02 소식",
         "summary": "policy rate 122억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-04-02",
@@ -3385,7 +3772,9 @@
         "article_id": "us-same-04-02-right",
         "title": "Federal Reserve rate decision 2026-03-03 소식",
         "summary": "policy rate 123억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-04-03",
@@ -3400,7 +3789,9 @@
         "article_id": "us-same-04-03-right",
         "title": "Federal Reserve rate decision 2026-04-04 소식",
         "summary": "policy rate 124억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-04-04",
@@ -3415,7 +3806,9 @@
         "article_id": "us-same-04-04-right",
         "title": "Federal Reserve rate decision 2026-05-05 소식",
         "summary": "policy rate 125억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-04-05",
@@ -3430,7 +3823,9 @@
         "article_id": "us-same-04-05-right",
         "title": "Federal Reserve rate decision 2026-06-06 소식",
         "summary": "policy rate 126억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-04-06",
@@ -3445,7 +3840,9 @@
         "article_id": "us-same-04-06-right",
         "title": "Federal Reserve rate decision 2026-07-07 소식",
         "summary": "policy rate 127억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-04-07",
@@ -3460,7 +3857,9 @@
         "article_id": "us-same-04-07-right",
         "title": "Federal Reserve rate decision 2026-08-08 소식",
         "summary": "policy rate 128억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-04-08",
@@ -3475,7 +3874,9 @@
         "article_id": "us-same-04-08-right",
         "title": "Federal Reserve rate decision 2026-01-09 소식",
         "summary": "policy rate 129억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-04-09",
@@ -3490,7 +3891,9 @@
         "article_id": "us-same-04-09-right",
         "title": "Federal Reserve rate decision 2026-02-10 소식",
         "summary": "policy rate 130억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-04-10",
@@ -3505,7 +3908,9 @@
         "article_id": "us-same-04-10-right",
         "title": "Federal Reserve rate decision 2026-03-11 소식",
         "summary": "policy rate 131억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-04-01",
@@ -3520,7 +3925,9 @@
         "article_id": "us-other-04-01-right",
         "title": "Amazon cloud expansion 일정",
         "summary": "cloud revenue 234억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-04-02",
@@ -3535,7 +3942,9 @@
         "article_id": "us-other-04-02-right",
         "title": "Amazon cloud expansion 일정",
         "summary": "cloud revenue 235억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-04-03",
@@ -3550,7 +3959,9 @@
         "article_id": "us-other-04-03-right",
         "title": "Amazon cloud expansion 일정",
         "summary": "cloud revenue 236억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-04-04",
@@ -3565,7 +3976,9 @@
         "article_id": "us-other-04-04-right",
         "title": "Amazon cloud expansion 일정",
         "summary": "cloud revenue 237억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-04-05",
@@ -3580,7 +3993,9 @@
         "article_id": "us-other-04-05-right",
         "title": "Amazon cloud expansion 일정",
         "summary": "cloud revenue 238억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-04",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-hard-04-01",
@@ -3596,7 +4011,8 @@
         "article_id": "us-hard-04-01-right",
         "title": "Federal Reserve rate decision 실적",
         "summary": "policy rate 193억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-04"
     },
     {
       "pair_id": "us-hard-04-02",
@@ -3612,7 +4028,8 @@
         "article_id": "us-hard-04-02-right",
         "title": "Federal Reserve rate decision 실적",
         "summary": "policy rate 193억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-04"
     },
     {
       "pair_id": "us-hard-04-03",
@@ -3628,7 +4045,8 @@
         "article_id": "us-hard-04-03-right",
         "title": "Federal Reserve rate decision 2026-08-04 발표",
         "summary": "policy rate 203억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-04"
     },
     {
       "pair_id": "us-hard-04-04",
@@ -3644,7 +4062,8 @@
         "article_id": "us-hard-04-04-right",
         "title": "Federal Reserve rate decision 2026-08-05 발표",
         "summary": "policy rate 203억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-04"
     },
     {
       "pair_id": "us-hard-04-05",
@@ -3660,7 +4079,8 @@
         "article_id": "us-hard-04-05-right",
         "title": "Federal Reserve rate decision fall",
         "summary": "policy rate 전망 fall"
-      }
+      },
+      "event_family_id": "us-hard-04"
     },
     {
       "pair_id": "us-same-05-01",
@@ -3675,7 +4095,9 @@
         "article_id": "us-same-05-01-right",
         "title": "Amazon cloud expansion 2026-02-02 소식",
         "summary": "cloud revenue 129억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-05-02",
@@ -3690,7 +4112,9 @@
         "article_id": "us-same-05-02-right",
         "title": "Amazon cloud expansion 2026-03-03 소식",
         "summary": "cloud revenue 130억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-05-03",
@@ -3705,7 +4129,9 @@
         "article_id": "us-same-05-03-right",
         "title": "Amazon cloud expansion 2026-04-04 소식",
         "summary": "cloud revenue 131억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-05-04",
@@ -3720,7 +4146,9 @@
         "article_id": "us-same-05-04-right",
         "title": "Amazon cloud expansion 2026-05-05 소식",
         "summary": "cloud revenue 132억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-05-05",
@@ -3735,7 +4163,9 @@
         "article_id": "us-same-05-05-right",
         "title": "Amazon cloud expansion 2026-06-06 소식",
         "summary": "cloud revenue 133억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-05-06",
@@ -3750,7 +4180,9 @@
         "article_id": "us-same-05-06-right",
         "title": "Amazon cloud expansion 2026-07-07 소식",
         "summary": "cloud revenue 134억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-05-07",
@@ -3765,7 +4197,9 @@
         "article_id": "us-same-05-07-right",
         "title": "Amazon cloud expansion 2026-08-08 소식",
         "summary": "cloud revenue 135억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-05-08",
@@ -3780,7 +4214,9 @@
         "article_id": "us-same-05-08-right",
         "title": "Amazon cloud expansion 2026-01-09 소식",
         "summary": "cloud revenue 136억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-05-09",
@@ -3795,7 +4231,9 @@
         "article_id": "us-same-05-09-right",
         "title": "Amazon cloud expansion 2026-02-10 소식",
         "summary": "cloud revenue 137억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-05-10",
@@ -3810,7 +4248,9 @@
         "article_id": "us-same-05-10-right",
         "title": "Amazon cloud expansion 2026-03-11 소식",
         "summary": "cloud revenue 138억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-05-01",
@@ -3825,7 +4265,9 @@
         "article_id": "us-other-05-01-right",
         "title": "Microsoft AI service launch 일정",
         "summary": "enterprise users 235억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-05-02",
@@ -3840,7 +4282,9 @@
         "article_id": "us-other-05-02-right",
         "title": "Microsoft AI service launch 일정",
         "summary": "enterprise users 236억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-05-03",
@@ -3855,7 +4299,9 @@
         "article_id": "us-other-05-03-right",
         "title": "Microsoft AI service launch 일정",
         "summary": "enterprise users 237억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-05-04",
@@ -3870,7 +4316,9 @@
         "article_id": "us-other-05-04-right",
         "title": "Microsoft AI service launch 일정",
         "summary": "enterprise users 238억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-05-05",
@@ -3885,7 +4333,9 @@
         "article_id": "us-other-05-05-right",
         "title": "Microsoft AI service launch 일정",
         "summary": "enterprise users 239억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-05",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-hard-05-01",
@@ -3901,7 +4351,8 @@
         "article_id": "us-hard-05-01-right",
         "title": "Amazon cloud expansion 실적",
         "summary": "cloud revenue 194억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-05"
     },
     {
       "pair_id": "us-hard-05-02",
@@ -3917,7 +4368,8 @@
         "article_id": "us-hard-05-02-right",
         "title": "Amazon cloud expansion 실적",
         "summary": "cloud revenue 194억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-05"
     },
     {
       "pair_id": "us-hard-05-03",
@@ -3933,7 +4385,8 @@
         "article_id": "us-hard-05-03-right",
         "title": "Amazon cloud expansion 2026-08-04 발표",
         "summary": "cloud revenue 204억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-05"
     },
     {
       "pair_id": "us-hard-05-04",
@@ -3949,7 +4402,8 @@
         "article_id": "us-hard-05-04-right",
         "title": "Amazon cloud expansion 2026-08-05 발표",
         "summary": "cloud revenue 204억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-05"
     },
     {
       "pair_id": "us-hard-05-05",
@@ -3965,7 +4419,8 @@
         "article_id": "us-hard-05-05-right",
         "title": "Amazon cloud expansion fall",
         "summary": "cloud revenue 전망 fall"
-      }
+      },
+      "event_family_id": "us-hard-05"
     },
     {
       "pair_id": "us-same-06-01",
@@ -3980,7 +4435,9 @@
         "article_id": "us-same-06-01-right",
         "title": "Microsoft AI service launch 2026-02-02 소식",
         "summary": "enterprise users 136억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-06-02",
@@ -3995,7 +4452,9 @@
         "article_id": "us-same-06-02-right",
         "title": "Microsoft AI service launch 2026-03-03 소식",
         "summary": "enterprise users 137억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-06-03",
@@ -4010,7 +4469,9 @@
         "article_id": "us-same-06-03-right",
         "title": "Microsoft AI service launch 2026-04-04 소식",
         "summary": "enterprise users 138억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-06-04",
@@ -4025,7 +4486,9 @@
         "article_id": "us-same-06-04-right",
         "title": "Microsoft AI service launch 2026-05-05 소식",
         "summary": "enterprise users 139억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-06-05",
@@ -4040,7 +4503,9 @@
         "article_id": "us-same-06-05-right",
         "title": "Microsoft AI service launch 2026-06-06 소식",
         "summary": "enterprise users 140억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-06-06",
@@ -4055,7 +4520,9 @@
         "article_id": "us-same-06-06-right",
         "title": "Microsoft AI service launch 2026-07-07 소식",
         "summary": "enterprise users 141억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-06-07",
@@ -4070,7 +4537,9 @@
         "article_id": "us-same-06-07-right",
         "title": "Microsoft AI service launch 2026-08-08 소식",
         "summary": "enterprise users 142억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-06-08",
@@ -4085,7 +4554,9 @@
         "article_id": "us-same-06-08-right",
         "title": "Microsoft AI service launch 2026-01-09 소식",
         "summary": "enterprise users 143억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-06-09",
@@ -4100,7 +4571,9 @@
         "article_id": "us-same-06-09-right",
         "title": "Microsoft AI service launch 2026-02-10 소식",
         "summary": "enterprise users 144억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-06-10",
@@ -4115,7 +4588,9 @@
         "article_id": "us-same-06-10-right",
         "title": "Microsoft AI service launch 2026-03-11 소식",
         "summary": "enterprise users 145억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-06-01",
@@ -4130,7 +4605,9 @@
         "article_id": "us-other-06-01-right",
         "title": "Boeing aircraft orders 일정",
         "summary": "aircraft deliveries 236억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-06-02",
@@ -4145,7 +4622,9 @@
         "article_id": "us-other-06-02-right",
         "title": "Boeing aircraft orders 일정",
         "summary": "aircraft deliveries 237억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-06-03",
@@ -4160,7 +4639,9 @@
         "article_id": "us-other-06-03-right",
         "title": "Boeing aircraft orders 일정",
         "summary": "aircraft deliveries 238억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-06-04",
@@ -4175,7 +4656,9 @@
         "article_id": "us-other-06-04-right",
         "title": "Boeing aircraft orders 일정",
         "summary": "aircraft deliveries 239억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-06-05",
@@ -4190,7 +4673,9 @@
         "article_id": "us-other-06-05-right",
         "title": "Boeing aircraft orders 일정",
         "summary": "aircraft deliveries 240억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-06",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-hard-06-01",
@@ -4206,7 +4691,8 @@
         "article_id": "us-hard-06-01-right",
         "title": "Microsoft AI service launch 실적",
         "summary": "enterprise users 195억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-06"
     },
     {
       "pair_id": "us-hard-06-02",
@@ -4222,7 +4708,8 @@
         "article_id": "us-hard-06-02-right",
         "title": "Microsoft AI service launch 실적",
         "summary": "enterprise users 195억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-06"
     },
     {
       "pair_id": "us-hard-06-03",
@@ -4238,7 +4725,8 @@
         "article_id": "us-hard-06-03-right",
         "title": "Microsoft AI service launch 2026-08-04 발표",
         "summary": "enterprise users 205억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-06"
     },
     {
       "pair_id": "us-hard-06-04",
@@ -4254,7 +4742,8 @@
         "article_id": "us-hard-06-04-right",
         "title": "Microsoft AI service launch 2026-08-05 발표",
         "summary": "enterprise users 205억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-06"
     },
     {
       "pair_id": "us-hard-06-05",
@@ -4270,7 +4759,8 @@
         "article_id": "us-hard-06-05-right",
         "title": "Microsoft AI service launch fall",
         "summary": "enterprise users 전망 fall"
-      }
+      },
+      "event_family_id": "us-hard-06"
     },
     {
       "pair_id": "us-same-07-01",
@@ -4285,7 +4775,9 @@
         "article_id": "us-same-07-01-right",
         "title": "Boeing aircraft orders 2026-02-02 소식",
         "summary": "aircraft deliveries 143억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-07-02",
@@ -4300,7 +4792,9 @@
         "article_id": "us-same-07-02-right",
         "title": "Boeing aircraft orders 2026-03-03 소식",
         "summary": "aircraft deliveries 144억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-07-03",
@@ -4315,7 +4809,9 @@
         "article_id": "us-same-07-03-right",
         "title": "Boeing aircraft orders 2026-04-04 소식",
         "summary": "aircraft deliveries 145억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-07-04",
@@ -4330,7 +4826,9 @@
         "article_id": "us-same-07-04-right",
         "title": "Boeing aircraft orders 2026-05-05 소식",
         "summary": "aircraft deliveries 146억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-07-05",
@@ -4345,7 +4843,9 @@
         "article_id": "us-same-07-05-right",
         "title": "Boeing aircraft orders 2026-06-06 소식",
         "summary": "aircraft deliveries 147억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-07-06",
@@ -4360,7 +4860,9 @@
         "article_id": "us-same-07-06-right",
         "title": "Boeing aircraft orders 2026-07-07 소식",
         "summary": "aircraft deliveries 148억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-07-07",
@@ -4375,7 +4877,9 @@
         "article_id": "us-same-07-07-right",
         "title": "Boeing aircraft orders 2026-08-08 소식",
         "summary": "aircraft deliveries 149억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-07-08",
@@ -4390,7 +4894,9 @@
         "article_id": "us-same-07-08-right",
         "title": "Boeing aircraft orders 2026-01-09 소식",
         "summary": "aircraft deliveries 150억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-07-09",
@@ -4405,7 +4911,9 @@
         "article_id": "us-same-07-09-right",
         "title": "Boeing aircraft orders 2026-02-10 소식",
         "summary": "aircraft deliveries 151억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-07-10",
@@ -4420,7 +4928,9 @@
         "article_id": "us-same-07-10-right",
         "title": "Boeing aircraft orders 2026-03-11 소식",
         "summary": "aircraft deliveries 152억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-07-01",
@@ -4435,7 +4945,9 @@
         "article_id": "us-other-07-01-right",
         "title": "Exxon Mobil oil production 일정",
         "summary": "daily output 237억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-07-02",
@@ -4450,7 +4962,9 @@
         "article_id": "us-other-07-02-right",
         "title": "Exxon Mobil oil production 일정",
         "summary": "daily output 238억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-07-03",
@@ -4465,7 +4979,9 @@
         "article_id": "us-other-07-03-right",
         "title": "Exxon Mobil oil production 일정",
         "summary": "daily output 239억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-07-04",
@@ -4480,7 +4996,9 @@
         "article_id": "us-other-07-04-right",
         "title": "Exxon Mobil oil production 일정",
         "summary": "daily output 240억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-07-05",
@@ -4495,7 +5013,9 @@
         "article_id": "us-other-07-05-right",
         "title": "Exxon Mobil oil production 일정",
         "summary": "daily output 241억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-07",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-hard-07-01",
@@ -4511,7 +5031,8 @@
         "article_id": "us-hard-07-01-right",
         "title": "Boeing aircraft orders 실적",
         "summary": "aircraft deliveries 196억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-07"
     },
     {
       "pair_id": "us-hard-07-02",
@@ -4527,7 +5048,8 @@
         "article_id": "us-hard-07-02-right",
         "title": "Boeing aircraft orders 실적",
         "summary": "aircraft deliveries 196억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-07"
     },
     {
       "pair_id": "us-hard-07-03",
@@ -4543,7 +5065,8 @@
         "article_id": "us-hard-07-03-right",
         "title": "Boeing aircraft orders 2026-08-04 발표",
         "summary": "aircraft deliveries 206억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-07"
     },
     {
       "pair_id": "us-hard-07-04",
@@ -4559,7 +5082,8 @@
         "article_id": "us-hard-07-04-right",
         "title": "Boeing aircraft orders 2026-08-05 발표",
         "summary": "aircraft deliveries 206억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-07"
     },
     {
       "pair_id": "us-hard-07-05",
@@ -4575,7 +5099,8 @@
         "article_id": "us-hard-07-05-right",
         "title": "Boeing aircraft orders fall",
         "summary": "aircraft deliveries 전망 fall"
-      }
+      },
+      "event_family_id": "us-hard-07"
     },
     {
       "pair_id": "us-same-08-01",
@@ -4590,7 +5115,9 @@
         "article_id": "us-same-08-01-right",
         "title": "Exxon Mobil oil production 2026-02-02 소식",
         "summary": "daily output 150억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-08-02",
@@ -4605,7 +5132,9 @@
         "article_id": "us-same-08-02-right",
         "title": "Exxon Mobil oil production 2026-03-03 소식",
         "summary": "daily output 151억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-08-03",
@@ -4620,7 +5149,9 @@
         "article_id": "us-same-08-03-right",
         "title": "Exxon Mobil oil production 2026-04-04 소식",
         "summary": "daily output 152억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-08-04",
@@ -4635,7 +5166,9 @@
         "article_id": "us-same-08-04-right",
         "title": "Exxon Mobil oil production 2026-05-05 소식",
         "summary": "daily output 153억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-08-05",
@@ -4650,7 +5183,9 @@
         "article_id": "us-same-08-05-right",
         "title": "Exxon Mobil oil production 2026-06-06 소식",
         "summary": "daily output 154억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-08-06",
@@ -4665,7 +5200,9 @@
         "article_id": "us-same-08-06-right",
         "title": "Exxon Mobil oil production 2026-07-07 소식",
         "summary": "daily output 155억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-08-07",
@@ -4680,7 +5217,9 @@
         "article_id": "us-same-08-07-right",
         "title": "Exxon Mobil oil production 2026-08-08 소식",
         "summary": "daily output 156억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-08-08",
@@ -4695,7 +5234,9 @@
         "article_id": "us-same-08-08-right",
         "title": "Exxon Mobil oil production 2026-01-09 소식",
         "summary": "daily output 157억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-08-09",
@@ -4710,7 +5251,9 @@
         "article_id": "us-same-08-09-right",
         "title": "Exxon Mobil oil production 2026-02-10 소식",
         "summary": "daily output 158억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-same-08-10",
@@ -4725,7 +5268,9 @@
         "article_id": "us-same-08-10-right",
         "title": "Exxon Mobil oil production 2026-03-11 소식",
         "summary": "daily output 159억원 늘어 전망 웃돌아"
-      }
+      },
+      "event_family_id": "us-same-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-08-01",
@@ -4740,7 +5285,9 @@
         "article_id": "us-other-08-01-right",
         "title": "Apple quarterly earnings 일정",
         "summary": "revenue 238억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-08-02",
@@ -4755,7 +5302,9 @@
         "article_id": "us-other-08-02-right",
         "title": "Apple quarterly earnings 일정",
         "summary": "revenue 239억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-08-03",
@@ -4770,7 +5319,9 @@
         "article_id": "us-other-08-03-right",
         "title": "Apple quarterly earnings 일정",
         "summary": "revenue 240억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-08-04",
@@ -4785,7 +5336,9 @@
         "article_id": "us-other-08-04-right",
         "title": "Apple quarterly earnings 일정",
         "summary": "revenue 241억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-other-08-05",
@@ -4800,7 +5353,9 @@
         "article_id": "us-other-08-05-right",
         "title": "Apple quarterly earnings 일정",
         "summary": "revenue 242억원 시장 전망"
-      }
+      },
+      "event_family_id": "us-other-08",
+      "hard_negative_type": null
     },
     {
       "pair_id": "us-hard-08-01",
@@ -4816,7 +5371,8 @@
         "article_id": "us-hard-08-01-right",
         "title": "Exxon Mobil oil production 실적",
         "summary": "daily output 197억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-08"
     },
     {
       "pair_id": "us-hard-08-02",
@@ -4832,7 +5388,8 @@
         "article_id": "us-hard-08-02-right",
         "title": "Exxon Mobil oil production 실적",
         "summary": "daily output 197억원 증가"
-      }
+      },
+      "event_family_id": "us-hard-08"
     },
     {
       "pair_id": "us-hard-08-03",
@@ -4848,7 +5405,8 @@
         "article_id": "us-hard-08-03-right",
         "title": "Exxon Mobil oil production 2026-08-04 발표",
         "summary": "daily output 207억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-08"
     },
     {
       "pair_id": "us-hard-08-04",
@@ -4864,7 +5422,8 @@
         "article_id": "us-hard-08-04-right",
         "title": "Exxon Mobil oil production 2026-08-05 발표",
         "summary": "daily output 207억원 일정"
-      }
+      },
+      "event_family_id": "us-hard-08"
     },
     {
       "pair_id": "us-hard-08-05",
@@ -4880,8 +5439,9 @@
         "article_id": "us-hard-08-05-right",
         "title": "Exxon Mobil oil production fall",
         "summary": "daily output 전망 fall"
-      }
+      },
+      "event_family_id": "us-hard-08"
     }
   ],
-  "dataset_sha256": "1eac122304c274f5b8279ae1abc7a47c03cf5a6641409094b9100101369895dd"
+  "dataset_sha256": "86b9006e1f613e0709f2a1519db805faba68de9a4f1d0b4a32480009a930e783"
 }

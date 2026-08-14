@@ -11,16 +11,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import itertools
 import json
 import math
 import re
-import statistics
 import sys
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from dataclasses import replace as dataclass_replace
+from datetime import UTC, datetime
 from numbers import Real
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -41,6 +42,7 @@ from app.batch.providers.ollama_embedding_provider import (
     EmbeddingArticle,
     OllamaEmbeddingProvider,
 )
+from app.batch.steps.group_similar_articles import build_grouping_algorithm_version
 from app.core.settings import Settings
 from app.core.text import normalize_text
 
@@ -49,8 +51,7 @@ REPORT_PATH = Path('docs/evaluations/2026-08-13-article-similarity.md')
 RESULT_PATH = Path('docs/evaluations/2026-08-13-article-similarity.json')
 MOCK_EMBEDDING_ALGORITHM = 'mock-token-hash-v1'
 MOCK_EMBEDDING_DIMENSION = 48
-DATASET_SCHEMA_VERSION = 'article-similarity-pairs-v1'
-GROUPING_ALGORITHM_VERSION = 'complete-link-v1;lexical-v1;veto-v1'
+DATASET_SCHEMA_VERSION = 'article-similarity-pairs-v2'
 LABELS = frozenset({'SAME_EVENT', 'OTHER_EVENT', 'HARD_NEGATIVE'})
 
 
@@ -70,6 +71,7 @@ class PairRecord:
     pair_id: str
     market: Literal['KR', 'US']
     label: Literal['SAME_EVENT', 'OTHER_EVENT', 'HARD_NEGATIVE']
+    event_family_id: str
     left: ArticleText
     right: ArticleText
     hard_negative_type: str | None = None
@@ -82,6 +84,7 @@ class DatasetSplit:
     calibration: tuple[PairRecord, ...]
     holdout: tuple[PairRecord, ...]
     assignment_sha256: str
+    assignments: tuple[dict[str, str], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,87 +159,182 @@ def load_dataset(path: Path = DATASET_PATH) -> tuple[PairRecord, ...]:
     """Load and validate limited-text labeled pairs without network access."""
 
     payload = json.loads(path.read_text(encoding='utf-8'))
-    if not isinstance(payload, dict) or not isinstance(payload.get('pairs'), list):
+    expected_root_keys = {
+        'schema_version',
+        'curation',
+        'pairs',
+        'dataset_sha256',
+    }
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != expected_root_keys
+        or payload.get('schema_version') != DATASET_SCHEMA_VERSION
+        or not isinstance(payload.get('curation'), str)
+        or not payload['curation'].strip()
+        or not isinstance(payload.get('pairs'), list)
+    ):
         raise ValueError('dataset must contain a pairs list')
     declared_hash = payload.get('dataset_sha256')
     if declared_hash != _dataset_hash(payload):
         raise ValueError('dataset hash does not match canonical content')
     records: list[PairRecord] = []
     seen_ids: set[str] = set()
+    seen_article_ids: set[str] = set()
+    expected_pair_keys = {
+        'pair_id',
+        'market',
+        'label',
+        'event_family_id',
+        'left',
+        'right',
+        'hard_negative_type',
+    }
+    expected_article_keys = {'article_id', 'title', 'summary'}
+    hard_negative_types = {'numeric', 'date', 'direction'}
     for raw in payload['pairs']:
-        if not isinstance(raw, dict):
+        if not isinstance(raw, dict) or set(raw) != expected_pair_keys:
             raise ValueError('dataset pair must be an object')
         pair_id = raw.get('pair_id')
         market = raw.get('market')
         label = raw.get('label')
+        event_family_id = raw.get('event_family_id')
         if (
             not isinstance(pair_id, str)
-            or not pair_id
+            or not pair_id.strip()
             or pair_id in seen_ids
             or market not in {'KR', 'US'}
             or label not in LABELS
+            or not isinstance(event_family_id, str)
+            or not event_family_id.strip()
         ):
             raise ValueError('dataset pair has invalid or duplicate identity/label')
         left = raw.get('left')
         right = raw.get('right')
-        if not isinstance(left, dict) or not isinstance(right, dict):
+        if (
+            not isinstance(left, dict)
+            or not isinstance(right, dict)
+            or set(left) != expected_article_keys
+            or set(right) != expected_article_keys
+        ):
             raise ValueError('dataset pair requires left and right article objects')
         hard_type = raw.get('hard_negative_type')
-        if label == 'HARD_NEGATIVE' and not isinstance(hard_type, str):
+        if label == 'HARD_NEGATIVE' and hard_type not in hard_negative_types:
             raise ValueError('hard negatives require hard_negative_type')
         if label != 'HARD_NEGATIVE' and hard_type is not None:
             raise ValueError('only hard negatives may have hard_negative_type')
+        parsed_left = _article_from_payload(left)
+        parsed_right = _article_from_payload(right)
+        if (
+            parsed_left.article_id in seen_article_ids
+            or parsed_right.article_id in seen_article_ids
+            or parsed_left.article_id == parsed_right.article_id
+        ):
+            raise ValueError('article IDs must be globally unique')
         records.append(
             PairRecord(
                 pair_id=pair_id,
                 market=market,
                 label=label,
-                left=_article_from_payload(left),
-                right=_article_from_payload(right),
+                event_family_id=event_family_id,
+                left=parsed_left,
+                right=parsed_right,
                 hard_negative_type=hard_type,
             )
         )
         seen_ids.add(pair_id)
+        seen_article_ids.update((parsed_left.article_id, parsed_right.article_id))
     if len(records) < 300:
         raise ValueError('calibration dataset must contain at least 300 pairs')
     if {record.market for record in records} != {'KR', 'US'}:
         raise ValueError('calibration dataset must cover KR and US markets')
     if {record.label for record in records} != LABELS:
         raise ValueError('calibration dataset must contain all required labels')
+    for label in LABELS:
+        for market in ('KR', 'US'):
+            families = {
+                record.event_family_id
+                for record in records
+                if record.label == label and record.market == market
+            }
+            if len(families) < 2:
+                raise ValueError(
+                    'each label and market needs at least two event families'
+                )
     return tuple(records)
 
 
 def split_dataset(pairs: Iterable[PairRecord]) -> DatasetSplit:
-    """Freeze a 70/30 stratified split using only pair-ID hashes.
+    """Freeze a 70/30 label/market split without crossing event families.
 
-    Sorting each label bucket by ``sha256(pair_id)`` and taking the first
-    rounded 70 percent makes the split independent of fixture ordering while
-    preserving exact per-label proportions for ordinary dataset sizes.
+    Event families are sorted by a hash of their label, market, and family ID;
+    whole families, rather than individual pairs, are then assigned to the
+    calibration or holdout side.  This prevents near-duplicate pairs from
+    leaking across the split while retaining deterministic label/market
+    stratification.
     """
 
-    buckets: dict[str, list[PairRecord]] = defaultdict(list)
+    buckets: dict[tuple[str, str], dict[str, list[PairRecord]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for pair in pairs:
-        buckets[pair.label].append(pair)
+        buckets[(pair.label, pair.market)][pair.event_family_id].append(pair)
     calibration: list[PairRecord] = []
     holdout: list[PairRecord] = []
     assignments: list[dict[str, str]] = []
-    for label in sorted(buckets):
-        ordered = sorted(
-            buckets[label],
-            key=lambda pair: hashlib.sha256(pair.pair_id.encode()).hexdigest(),
+    for label, market in sorted(buckets):
+        families = buckets[(label, market)]
+        ordered_families = sorted(
+            families,
+            key=lambda family: hashlib.sha256(
+                f'{label}:{market}:{family}'.encode()
+            ).hexdigest(),
         )
-        calibration_count = round(len(ordered) * 0.7)
-        for index, pair in enumerate(ordered):
-            target = 'calibration' if index < calibration_count else 'holdout'
-            (calibration if target == 'calibration' else holdout).append(pair)
-            assignments.append({'pair_id': pair.pair_id, 'split': target})
+        calibration_families = _select_calibration_families(ordered_families, families)
+        for family in ordered_families:
+            target = 'calibration' if family in calibration_families else 'holdout'
+            for pair in sorted(families[family], key=lambda item: item.pair_id):
+                (calibration if target == 'calibration' else holdout).append(pair)
+                assignments.append(
+                    {
+                        'pair_id': pair.pair_id,
+                        'event_family_id': pair.event_family_id,
+                        'label': pair.label,
+                        'market': pair.market,
+                        'split': target,
+                    }
+                )
     assignments.sort(key=lambda item: item['pair_id'])
     assignment_hash = hashlib.sha256(_canonical_json(assignments).encode()).hexdigest()
     return DatasetSplit(
         tuple(sorted(calibration, key=lambda item: item.pair_id)),
         tuple(sorted(holdout, key=lambda item: item.pair_id)),
         assignment_hash,
+        tuple(assignments),
     )
+
+
+def _select_calibration_families(
+    ordered_families: Sequence[str], families: Mapping[str, Sequence[PairRecord]]
+) -> set[str]:
+    """Select whole families closest to 70%, breaking ties by hash order."""
+
+    if len(ordered_families) < 2:
+        raise ValueError('at least two event families are required per bucket')
+    target = round(sum(len(families[family]) for family in ordered_families) * 0.7)
+    options: list[tuple[int, ...]] = []
+    for count in range(1, len(ordered_families)):
+        options.extend(itertools.combinations(range(len(ordered_families)), count))
+    selected_indexes = min(
+        options,
+        key=lambda indexes: (
+            abs(
+                sum(len(families[ordered_families[index]]) for index in indexes)
+                - target
+            ),
+            indexes,
+        ),
+    )
+    return {ordered_families[index] for index in selected_indexes}
 
 
 _TOKEN_RE = re.compile(r'[0-9A-Za-z가-힣]+')
@@ -261,6 +359,12 @@ def mock_embedding(text: str, label: str | None = None) -> list[float]:
         vector[second] += sign * 0.5
     norm = math.sqrt(math.fsum(value * value for value in vector))
     return [value / norm for value in vector] if norm else vector
+
+
+def _implementation_sha256() -> str:
+    """Hash the checked-in implementation bytes used by the mock evaluator."""
+
+    return hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()
 
 
 class MockEmbeddingTransport:
@@ -387,8 +491,10 @@ def grid_search(
         key=lambda candidate: (
             -candidate[2].pair_precision,
             -candidate[2].same_event_recall,
-            candidate[2].other_event_false_merge_rate,
-            candidate[2].hard_negative_false_merge_rate,
+            candidate[2].other_event_false_merge_count
+            + candidate[2].hard_negative_false_merge_count,
+            candidate[2].hard_negative_false_merge_count,
+            candidate[2].other_event_false_merge_count,
             _parameter_key(candidate[0], candidate[1]),
         ),
     )
@@ -443,40 +549,122 @@ def _stable_article_id(article_id: str) -> int:
     return value or 1
 
 
-def _grouping_determinism_rate(
-    pairs: Sequence[PairRecord],
-    vectors: Mapping[str, Sequence[float]],
+def _determinism_cases() -> tuple[tuple[ArticleCandidate, ...], ...]:
+    """Return multi-article chain and contradiction cases for grouping audits."""
+
+    first_time = datetime(2026, 8, 14, 12, tzinfo=UTC)
+    chain = (
+        ArticleCandidate(
+            processed_article_id=1001,
+            canonical_title='alpha event',
+            source_summary='alpha revenue update',
+            published_at=first_time,
+            vector=cast(tuple[Real, ...], (1.0, 0.0)),
+        ),
+        ArticleCandidate(
+            processed_article_id=1002,
+            canonical_title='alpha beta event',
+            source_summary='alpha beta revenue update',
+            published_at=first_time,
+            vector=cast(tuple[Real, ...], (0.8, 0.6)),
+        ),
+        ArticleCandidate(
+            processed_article_id=1003,
+            canonical_title='beta event',
+            source_summary='beta revenue update',
+            published_at=first_time,
+            vector=cast(tuple[Real, ...], (0.0, 1.0)),
+        ),
+    )
+    hard = (
+        dataclass_replace(chain[0], source_summary='alpha revenue 10억원 증가'),
+        *chain[1:],
+        ArticleCandidate(
+            processed_article_id=1004,
+            canonical_title='alpha event',
+            source_summary='alpha revenue 11억원 증가',
+            published_at=first_time,
+            vector=cast(tuple[Real, ...], (1.0, 0.0)),
+        ),
+    )
+    return chain, hard
+
+
+def _grouping_determinism_checks(
+    cases: Sequence[Sequence[ArticleCandidate]],
     parameters: SimilarityParameters,
     threshold: float,
-) -> float:
-    """Compare repeated grouping with reversed input order for every pair."""
+    *,
+    runs: int = 3,
+) -> tuple[int, int]:
+    """Run complete-link grouping repeatedly across every input permutation."""
 
-    if not pairs:
-        return 1.0
     matches = 0
-    for pair in pairs:
-        candidates = (
-            ArticleCandidate(
-                processed_article_id=_stable_article_id(pair.left.article_id),
-                canonical_title=pair.left.title,
-                source_summary=pair.left.summary,
-                vector=cast(tuple[Real, ...], tuple(vectors[pair.left.article_id])),
-            ),
-            ArticleCandidate(
-                processed_article_id=_stable_article_id(pair.right.article_id),
-                canonical_title=pair.right.title,
-                source_summary=pair.right.summary,
-                vector=cast(tuple[Real, ...], tuple(vectors[pair.right.article_id])),
-            ),
-        )
-        first = group_similar_articles(
-            candidates, threshold=threshold, parameters=parameters
+    checks = 0
+    for case in cases:
+        permutations = tuple(itertools.permutations(case))
+        expected = group_similar_articles(
+            case, threshold=threshold, parameters=parameters
         ).to_dict()
-        second = group_similar_articles(
-            tuple(reversed(candidates)), threshold=threshold, parameters=parameters
-        ).to_dict()
-        matches += first == second
-    return matches / len(pairs)
+        for _ in range(runs):
+            for permutation in permutations:
+                actual = group_similar_articles(
+                    permutation, threshold=threshold, parameters=parameters
+                ).to_dict()
+                matches += actual == expected
+                checks += 1
+    return matches, checks
+
+
+def _grouping_determinism_rate(
+    cases: Sequence[Sequence[ArticleCandidate]] | None = None,
+    parameters: SimilarityParameters | None = None,
+    threshold: float = 0.45,
+    *,
+    runs: int = 3,
+) -> float:
+    """Return repeated multi-article grouping agreement across permutations."""
+
+    selected_cases = cases or _determinism_cases()
+    matches, checks = _grouping_determinism_checks(
+        selected_cases, parameters or SimilarityParameters(), threshold, runs=runs
+    )
+    return matches / checks if checks else 1.0
+
+
+async def _measure_cluster_runtime_samples(
+    provider: OllamaEmbeddingProvider,
+    cases: Sequence[Sequence[ArticleCandidate]],
+    parameters: SimilarityParameters,
+    threshold: float,
+    *,
+    runs: int = 3,
+) -> list[float]:
+    """Measure full mock/provider embed + score + group time per cluster run."""
+
+    samples: list[float] = []
+    for _ in range(runs):
+        for case in cases:
+            inputs = [
+                EmbeddingArticle(
+                    canonical_title=article.canonical_title,
+                    source_summary=article.source_summary,
+                )
+                for article in case
+            ]
+            started = time.perf_counter()
+            vectors = await provider.embed_articles(inputs)
+            if len(vectors) != len(case):
+                raise ValueError('runtime embedding count mismatch')
+            candidates = [
+                dataclass_replace(article, vector=tuple(vectors[index]))
+                for index, article in enumerate(case)
+            ]
+            group_similar_articles(
+                candidates, threshold=threshold, parameters=parameters
+            )
+            samples.append(time.perf_counter() - started)
+    return samples
 
 
 async def _embed_pairs(
@@ -497,16 +685,44 @@ async def _embed_pairs(
     return dict(zip(article_ids, vectors, strict=True))
 
 
-def _gates(metrics: EvaluationMetrics, runtime_p95_seconds: float) -> dict[str, bool]:
-    return {
+def _percentile(values: Sequence[float], percentile: float) -> float:
+    """Return an interpolated percentile from non-empty runtime samples."""
+
+    if not values:
+        raise ValueError('runtime samples must not be empty')
+    if not 0.0 <= percentile <= 1.0:
+        raise ValueError('percentile must be between 0 and 1')
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * percentile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+
+def _gates(
+    metrics: EvaluationMetrics,
+    runtime_p95_seconds: float,
+    *,
+    mode: Literal['mock', 'live'],
+) -> dict[str, bool]:
+    gates = {
         'precision_ge_95_percent': metrics.pair_precision >= 0.95,
         'same_event_recall_ge_85_percent': metrics.same_event_recall >= 0.85,
         'other_event_false_merge_le_3_percent': metrics.other_event_false_merge_rate
         <= 0.03,
         'hard_negative_false_merge_zero': metrics.hard_negative_false_merge_rate == 0.0,
         'determinism_100_percent': metrics.determinism_rate == 1.0,
-        'mock_pipeline_p95_le_30_seconds': runtime_p95_seconds <= 30.0,
     }
+    runtime_gate = (
+        'mock_pipeline_p95_le_30_seconds'
+        if mode == 'mock'
+        else 'live_pipeline_p95_le_30_seconds'
+    )
+    gates[runtime_gate] = runtime_p95_seconds <= 30.0
+    return gates
 
 
 def _build_report(result: Mapping[str, Any]) -> str:
@@ -514,16 +730,36 @@ def _build_report(result: Mapping[str, Any]) -> str:
     holdout = result['holdout_metrics']
     gates = result['gates']
     gate_text = 'PASS' if result['passed'] else 'FAIL'
+    if mode == 'mock':
+        evidence_lines = [
+            'This artifact validates the calibration contract and pipeline with a repository-curated mock fixture using deterministic mock embeddings through `httpx.MockTransport`.',
+            'It is not evidence of production `bge-m3` model quality, Ollama runtime, host latency, Ollama version, or model digest.',
+            f'- Mock algorithm: `{result["embedding_algorithm"]}`; implementation source SHA-256: `{result["embedding_algorithm_sha256"]}`.',
+            f'- Mock full-pipeline per-cluster p95: `{result["runtime_p95_seconds"]:.6f}s` (non-production; model/network latency evidence only for the mock transport).',
+            '- Ollama version: **NOT COLLECTED (mock mode)**.',
+            '- `bge-m3` model digest: **NOT COLLECTED (mock mode)**.',
+            '- Production-host p95: **NOT MEASURED**.',
+        ]
+    else:
+        evidence_lines = [
+            'This run used the configured Ollama `/api/embed` provider; no mock-model quality claim is made.',
+            f'- Provider: `{result["provider"]}`; model: `{result["model"]}`; input cap: `{result["input_chars"]}` characters.',
+            f'- Live per-cluster p95: `{result["runtime_p95_seconds"]:.6f}s` (operator-run measurement).',
+            '- Ollama version: **NOT COLLECTED BY THIS SCRIPT**.',
+            '- `bge-m3` model digest: **NOT COLLECTED BY THIS SCRIPT**.',
+        ]
     lines = [
         '# Article similarity calibration (Task 7)',
         '',
         f'- Overall gate: **{gate_text}** (mode: `{mode}`).',
         f'- Dataset SHA-256: `{result["dataset_sha256"]}`.',
         f'- Labeled pairs: `{result["calibration_pair_count"] + result["holdout_pair_count"]}` (`{result["calibration_pair_count"]}` calibration / `{result["holdout_pair_count"]}` holdout).',
-        f'- Split assignment SHA-256: `{result["split_assignment_sha256"]}` (70% calibration / 30% holdout, frozen by pair-ID hash).',
+        f'- Split assignment SHA-256: `{result["split_assignment_sha256"]}` (70% calibration / 30% holdout by label/market/family hash; families never cross partitions).',
         f'- Grid candidates: `{result["grid_candidate_count"]}`; search was run on calibration pairs only.',
         f'- Selected parameters: `{json.dumps(result["selected_parameters"], sort_keys=True)}`; threshold `{result["selected_threshold"]}`.',
         f'- Grouping algorithm version: `{result["algorithm_version"]}`.',
+        f'- Determinism audit: `{result["determinism_check_count"]}` checks across `{result["determinism_case_count"]}` multi-article clusters, `{result["determinism_runs"]}` runs, and all input permutations.',
+        f'- Runtime samples: `{result["runtime_sample_count"]}` per-cluster full-pipeline measurements across `{result["runtime_cluster_count"]}` clusters.',
         '',
         '## Holdout gates',
         '',
@@ -535,13 +771,7 @@ def _build_report(result: Mapping[str, Any]) -> str:
         '',
         '## Evidence boundary',
         '',
-        'This artifact validates the calibration contract and pipeline using deterministic mock embeddings through `httpx.MockTransport`.',
-        'It is not evidence of production `bge-m3` model quality, Ollama runtime, host latency, Ollama version, or model digest.',
-        f'- Mock algorithm: `{result["embedding_algorithm"]}`; algorithm hash: `{result["embedding_algorithm_sha256"]}`.',
-        f'- Mock pipeline p95: `{result["runtime_p95_seconds"]:.6f}s` (non-production; model/network latency excluded).',
-        '- Ollama version: **NOT COLLECTED (mock mode)**.',
-        '- `bge-m3` model digest: **NOT COLLECTED (mock mode)**.',
-        '- Production-host p95: **NOT MEASURED**.',
+        *evidence_lines,
         '',
         '## Gate detail',
         '',
@@ -550,8 +780,8 @@ def _build_report(result: Mapping[str, Any]) -> str:
     lines.extend(
         [
             '',
-            'The selected `SimilarityParameters` are provisional for this mock calibration and are frozen in production code only because the recorded mock holdout gate passed.',
-            'Run the explicitly opted-in `--live` mode separately before treating them as evidence about the configured production model.',
+            'Grid tie-break order is precision, SAME_EVENT recall, total false merges, HARD_NEGATIVE false merges, OTHER_EVENT false merges, then canonical parameter order; contradiction vetoes are applied during calibration and holdout.',
+            'The selected `SimilarityParameters` are provisional for the repository-curated mock fixture and must not be treated as production-model evidence.',
             '',
         ]
     )
@@ -568,13 +798,21 @@ async def run_calibration(
     mock_transport: MockEmbeddingTransport | None = None,
 ) -> CalibrationResult:
     """Run calibration, with a single holdout evaluation after grid selection."""
+    if mode not in {'mock', 'live'}:
+        raise ValueError('mode must be mock or live')
+    if mode == 'mock' and provider is not None:
+        raise ValueError('mock mode does not accept a provider; use mock_transport')
+    if mock_transport is not None and not isinstance(
+        mock_transport, MockEmbeddingTransport
+    ):
+        raise TypeError('mock_transport must be MockEmbeddingTransport')
 
     pairs = load_dataset(dataset_path)
     split = split_dataset(pairs)
     started = time.perf_counter()
     owned_client: httpx.AsyncClient | None = None
     transport = mock_transport
-    if provider is None and mode == 'mock':
+    if mode == 'mock':
         transport = transport or MockEmbeddingTransport()
         settings = Settings(
             _env_file=None,  # pyright: ignore[reportCallIssue]
@@ -585,112 +823,132 @@ async def run_calibration(
         )
         owned_client = httpx.AsyncClient(transport=httpx.MockTransport(transport))
         provider = OllamaEmbeddingProvider(settings, client=owned_client)
-    elif provider is None and mode == 'live':
-        provider = OllamaEmbeddingProvider(Settings())
-    elif provider is None:
-        raise ValueError('mode must be mock or live')
+    else:
+        settings = Settings()
+        provider = provider or OllamaEmbeddingProvider(settings)
+
     try:
         vectors = await _embed_pairs(pairs, provider)
+        calibration_scores: dict[
+            tuple[float, ...], tuple[dict[str, float], dict[str, bool]]
+        ] = {}
+
+        def score_provider(
+            parameters: SimilarityParameters, _threshold: float
+        ) -> Mapping[str, float]:
+            key = _parameter_key(parameters, _threshold)
+            if key not in calibration_scores:
+                calibration_scores[key] = _default_scores(
+                    split.calibration, vectors, parameters
+                )
+            scores, vetoes = calibration_scores[key]
+            return {
+                pair_id: score if not vetoes.get(pair_id, False) else 0.0
+                for pair_id, score in scores.items()
+            }
+
+        grid = grid_search(
+            split.calibration,
+            score_provider=score_provider,
+            lexical_weight_grid=_default_lexical_grid(),
+            dense_lexical_grid=((0.6, 0.4), (0.7, 0.3), (0.8, 0.2)),
+            threshold_grid=(0.45, 0.55, 0.65, 0.75, 0.80, 0.85, 0.90),
+        )
+        holdout_scores, holdout_vetoes = _default_scores(
+            split.holdout, vectors, grid.parameters
+        )
+        holdout = evaluate_metrics(
+            split.holdout,
+            scores=holdout_scores,
+            threshold=grid.threshold,
+            vetoes=holdout_vetoes,
+        )
+        determinism_cases = _determinism_cases()
+        determinism_matches, determinism_checks = _grouping_determinism_checks(
+            determinism_cases, grid.parameters, grid.threshold, runs=3
+        )
+        holdout = dataclass_replace(
+            holdout,
+            determinism_rate=(
+                determinism_matches / determinism_checks if determinism_checks else 0.0
+            ),
+        )
+        runtime_samples = await _measure_cluster_runtime_samples(
+            provider,
+            determinism_cases,
+            grid.parameters,
+            grid.threshold,
+            runs=3,
+        )
+        runtime_p95 = _percentile(runtime_samples, 0.95)
+        algorithm_version = build_grouping_algorithm_version(
+            model=settings.ollama_embed_model,
+            input_chars=settings.similarity_input_chars,
+            parameters=grid.parameters,
+            threshold=grid.threshold,
+        )
+        dataset_payload = json.loads(dataset_path.read_text(encoding='utf-8'))
+        gates = _gates(holdout, runtime_p95, mode=mode)
+        result_payload: dict[str, Any] = {
+            'schema_version': 'article-similarity-calibration-result-v2',
+            'mode': mode,
+            'provider': 'httpx.MockTransport'
+            if mode == 'mock'
+            else 'ollama:/api/embed',
+            'model': settings.ollama_embed_model,
+            'input_chars': settings.similarity_input_chars,
+            'dataset_sha256': dataset_payload['dataset_sha256'],
+            'dataset_schema_version': DATASET_SCHEMA_VERSION,
+            'dataset_curation': dataset_payload['curation'],
+            'algorithm_version': algorithm_version,
+            'split_assignment_sha256': split.assignment_sha256,
+            'split_assignments': list(split.assignments),
+            'calibration_pair_count': len(split.calibration),
+            'holdout_pair_count': len(split.holdout),
+            'grid_candidate_count': grid.evaluated_candidate_count,
+            'selected_parameters': asdict(grid.parameters),
+            'selected_threshold': grid.threshold,
+            'calibration_metrics': grid.metrics.to_dict(),
+            'holdout_metrics': holdout.to_dict(),
+            'gates': gates,
+            'passed': all(gates.values()),
+            'embedding_algorithm': (
+                MOCK_EMBEDDING_ALGORITHM if mode == 'mock' else 'configured-ollama'
+            ),
+            'embedding_algorithm_sha256': (
+                _implementation_sha256() if mode == 'mock' else None
+            ),
+            'runtime_p95_seconds': runtime_p95,
+            'runtime_sample_count': len(runtime_samples),
+            'runtime_cluster_count': len(determinism_cases),
+            'runtime_evidence_scope': (
+                'mock-full-pipeline-per-cluster; non-production evidence'
+                if mode == 'mock'
+                else 'operator live full-pipeline per-cluster measurement'
+            ),
+            'determinism_case_count': len(determinism_cases),
+            'determinism_min_articles': min(len(case) for case in determinism_cases),
+            'determinism_runs': 3,
+            'determinism_check_count': determinism_checks,
+            'ollama_version': 'NOT_COLLECTED BY THIS SCRIPT',
+            'bge_m3_model_digest': 'NOT_COLLECTED BY THIS SCRIPT',
+            'elapsed_seconds': time.perf_counter() - started,
+        }
+        report = _build_report(result_payload)
+        if report_path is not None:
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(report, encoding='utf-8')
+        if result_path is not None:
+            result_path.parent.mkdir(parents=True, exist_ok=True)
+            result_path.write_text(
+                json.dumps(result_payload, ensure_ascii=False, indent=2, sort_keys=True)
+                + '\n',
+                encoding='utf-8',
+            )
+        return CalibrationResult(result=result_payload, report=report)
     finally:
         if owned_client is not None:
             await owned_client.aclose()
-    calibration_scores: dict[
-        tuple[float, ...], tuple[dict[str, float], dict[str, bool]]
-    ] = {}
-
-    def score_provider(
-        parameters: SimilarityParameters, _threshold: float
-    ) -> Mapping[str, float]:
-        key = _parameter_key(parameters, _threshold)
-        if key not in calibration_scores:
-            calibration_scores[key] = _default_scores(
-                split.calibration, vectors, parameters
-            )
-        scores, vetoes = calibration_scores[key]
-        return {
-            pair_id: score if not vetoes.get(pair_id, False) else 0.0
-            for pair_id, score in scores.items()
-        }
-
-    grid = grid_search(
-        split.calibration,
-        score_provider=score_provider,
-        lexical_weight_grid=_default_lexical_grid(),
-        dense_lexical_grid=((0.6, 0.4), (0.7, 0.3), (0.8, 0.2)),
-        threshold_grid=(0.45, 0.55, 0.65, 0.75, 0.80, 0.85, 0.90),
-    )
-    holdout_scores, holdout_vetoes = _default_scores(
-        split.holdout, vectors, grid.parameters
-    )
-    holdout = evaluate_metrics(
-        split.holdout,
-        scores=holdout_scores,
-        threshold=grid.threshold,
-        vetoes=holdout_vetoes,
-        deterministic_runs=2,
-    )
-    elapsed = time.perf_counter() - started
-    runtime_samples = [elapsed]
-    if mode == 'mock':
-        for _ in range(4):
-            sample_started = time.perf_counter()
-            _default_scores(pairs, vectors, grid.parameters)
-            runtime_samples.append(time.perf_counter() - sample_started)
-    runtime_p95 = (
-        statistics.quantiles(runtime_samples, n=20, method='inclusive')[-1]
-        if len(runtime_samples) > 1
-        else runtime_samples[0]
-    )
-    holdout = dataclass_replace(
-        holdout,
-        determinism_rate=_grouping_determinism_rate(
-            split.holdout, vectors, grid.parameters, grid.threshold
-        ),
-    )
-    dataset_payload = json.loads(dataset_path.read_text(encoding='utf-8'))
-    algorithm_hash = hashlib.sha256(MOCK_EMBEDDING_ALGORITHM.encode()).hexdigest()
-    gates = _gates(holdout, runtime_p95)
-    result_payload: dict[str, Any] = {
-        'schema_version': 'article-similarity-calibration-result-v1',
-        'mode': mode,
-        'dataset_sha256': dataset_payload['dataset_sha256'],
-        'dataset_schema_version': DATASET_SCHEMA_VERSION,
-        'algorithm_version': GROUPING_ALGORITHM_VERSION,
-        'split_assignment_sha256': split.assignment_sha256,
-        'calibration_pair_count': len(split.calibration),
-        'holdout_pair_count': len(split.holdout),
-        'grid_candidate_count': grid.evaluated_candidate_count,
-        'selected_parameters': asdict(grid.parameters),
-        'selected_threshold': grid.threshold,
-        'calibration_metrics': grid.metrics.to_dict(),
-        'holdout_metrics': holdout.to_dict(),
-        'gates': gates,
-        'passed': all(gates.values()),
-        'embedding_algorithm': MOCK_EMBEDDING_ALGORITHM
-        if mode == 'mock'
-        else 'configured-ollama',
-        'embedding_algorithm_sha256': algorithm_hash if mode == 'mock' else None,
-        'runtime_p95_seconds': runtime_p95,
-        'runtime_evidence_scope': 'mock-pipeline-only; non-production model/network latency evidence',
-        'ollama_version': 'NOT_COLLECTED (mock mode)'
-        if mode == 'mock'
-        else 'operator-supplied',
-        'bge_m3_model_digest': 'NOT_COLLECTED (mock mode)'
-        if mode == 'mock'
-        else 'operator-supplied',
-    }
-    report = _build_report(result_payload)
-    if report_path is not None:
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(report, encoding='utf-8')
-    if result_path is not None:
-        result_path.parent.mkdir(parents=True, exist_ok=True)
-        result_path.write_text(
-            json.dumps(result_payload, ensure_ascii=False, indent=2, sort_keys=True)
-            + '\n',
-            encoding='utf-8',
-        )
-    return CalibrationResult(result=result_payload, report=report)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -1,12 +1,14 @@
 # Article similarity calibration (Task 7)
 
 - Overall gate: **PASS** (mode: `mock`).
-- Dataset SHA-256: `1eac122304c274f5b8279ae1abc7a47c03cf5a6641409094b9100101369895dd`.
-- Labeled pairs: `320` (`224` calibration / `96` holdout).
-- Split assignment SHA-256: `0cffc017c2e3ffe6a03de76064c7006b15f406c09167a7bd2bb54475448469f4` (70% calibration / 30% holdout, frozen by pair-ID hash).
+- Dataset SHA-256: `86b9006e1f613e0709f2a1519db805faba68de9a4f1d0b4a32480009a930e783`.
+- Labeled pairs: `320` (`222` calibration / `98` holdout).
+- Split assignment SHA-256: `a3f31157a2a0ffe7fa2409cd1daf77c93f69110290940519da052eb0cd46f5c5` (70% calibration / 30% holdout by label/market/family hash; families never cross partitions).
 - Grid candidates: `147`; search was run on calibration pairs only.
 - Selected parameters: `{"dense_weight": 0.6, "full_text_weight": 0.3, "lexical_weight": 0.4, "numeric_date_weight": 0.3, "ticker_name_org_weight": 0.2, "title_weight": 0.2}`; threshold `0.45`.
-- Grouping algorithm version: `complete-link-v1;lexical-v1;veto-v1`.
+- Grouping algorithm version: `format=similarity-v2;model=mock-bge-m3;inputChars=2048;lexical=lexical-v1;weights=0x1.999999999999ap-3,0x1.3333333333333p-2,0x1.3333333333333p-2,0x1.999999999999ap-3,0x1.3333333333333p-1,0x1.999999999999ap-2;threshold=0x1.ccccccccccccdp-2;veto=veto-v1;grouping=complete-link-v1`.
+- Determinism audit: `90` checks across `2` multi-article clusters, `3` runs, and all input permutations.
+- Runtime samples: `6` per-cluster full-pipeline measurements across `2` clusters.
 
 ## Holdout gates
 
@@ -18,10 +20,10 @@
 
 ## Evidence boundary
 
-This artifact validates the calibration contract and pipeline using deterministic mock embeddings through `httpx.MockTransport`.
+This artifact validates the calibration contract and pipeline with a repository-curated mock fixture using deterministic mock embeddings through `httpx.MockTransport`.
 It is not evidence of production `bge-m3` model quality, Ollama runtime, host latency, Ollama version, or model digest.
-- Mock algorithm: `mock-token-hash-v1`; algorithm hash: `d4c43fd72cbb39b37a51695df5d316c7cda977ca3528428b95dab912c3419134`.
-- Mock pipeline p95: `2.559741s` (non-production; model/network latency excluded).
+- Mock algorithm: `mock-token-hash-v1`; implementation source SHA-256: `a957ff624c17f16f4d64a1e97114971471c50ed04cb2ec90d21b91be0c6c8875`.
+- Mock full-pipeline per-cluster p95: `0.000734s` (non-production; model/network latency evidence only for the mock transport).
 - Ollama version: **NOT COLLECTED (mock mode)**.
 - `bge-m3` model digest: **NOT COLLECTED (mock mode)**.
 - Production-host p95: **NOT MEASURED**.
@@ -35,5 +37,5 @@ It is not evidence of production `bge-m3` model quality, Ollama runtime, host la
 - `determinism_100_percent`: `True`.
 - `mock_pipeline_p95_le_30_seconds`: `True`.
 
-The selected `SimilarityParameters` are provisional for this mock calibration and are frozen in production code only because the recorded mock holdout gate passed.
-Run the explicitly opted-in `--live` mode separately before treating them as evidence about the configured production model.
+Grid tie-break order is precision, SAME_EVENT recall, total false merges, HARD_NEGATIVE false merges, OTHER_EVENT false merges, then canonical parameter order; contradiction vetoes are applied during calibration and holdout.
+The selected `SimilarityParameters` are provisional for the repository-curated mock fixture and must not be treated as production-model evidence.
