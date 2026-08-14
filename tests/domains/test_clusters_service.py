@@ -12,11 +12,53 @@ clusters_service_module = load_module('app.domains.clusters.service')
 ClustersService = clusters_service_module.ClustersService
 
 
+def _unavailable_grouping(cluster_id, article_ids):
+    from app.db.repositories.projections import (
+        ArticleGroupingRecord,
+        ArticleGroupMemberRecord,
+        ArticleGroupRecord,
+    )
+
+    groups = tuple(
+        ArticleGroupRecord(
+            similar_group_id=7000 + rank,
+            cluster_id=cluster_id,
+            group_rank=rank,
+            representative_article_id=article_id,
+            algorithm_version='v1',
+            generated_at=datetime(2026, 3, 18, 5, 0, tzinfo=UTC),
+            members=(
+                ArticleGroupMemberRecord(
+                    7000 + rank,
+                    article_id,
+                    1.0,
+                    0,
+                    True,
+                    1,
+                ),
+            ),
+        )
+        for rank, article_id in enumerate(article_ids, start=1)
+    )
+    return ArticleGroupingRecord(
+        status='UNAVAILABLE',
+        generated_at=None,
+        issue_code='SIMILARITY_GROUPING_FAILED',
+        algorithm_version='v1',
+        groups=groups,
+        members=tuple(member for group in groups for member in group.members),
+    )
+
+
 class FakeClusterRepository:
     def __init__(self, cluster_row, cluster_articles, processed_articles):
         self.cluster_row = cluster_row
         self.cluster_articles = cluster_articles
         self.processed_articles = processed_articles
+        self.grouping = _unavailable_grouping(
+            cluster_row['id'],
+            [row['processed_article_id'] for row in cluster_articles],
+        )
         self.calls: list[tuple] = []
 
     async def get_cluster_by_uid(self, cluster_uid):
@@ -38,6 +80,10 @@ class FakeClusterRepository:
             for article_id in article_ids
             if article_id in self.processed_articles
         ]
+
+    async def get_cluster_grouping(self, cluster_id):
+        self.calls.append(('get_cluster_grouping', cluster_id))
+        return self.grouping
 
 
 class FakeAiSummaryRepository:
@@ -179,6 +225,20 @@ async def test_cluster_service_reads_persisted_article_grouping(
         0,
     ]
     assert payload['articleGrouping']['status'] == 'UNAVAILABLE'
+
+
+@pytest.mark.anyio
+async def test_cluster_service_rejects_missing_persisted_article_grouping(
+    cluster_repository,
+):
+    async def get_cluster_grouping(_cluster_id):
+        return None
+
+    cluster_repository.get_cluster_grouping = get_cluster_grouping
+    service = ClustersService(cluster_repository, FakeAiSummaryRepository(None))
+
+    with pytest.raises(ValueError, match='persisted'):
+        await service.get_cluster_detail('51f0d9a0-9fc5-4f15-a4f9-62856f128683')
 
 
 @pytest.mark.anyio

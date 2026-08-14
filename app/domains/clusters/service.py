@@ -45,10 +45,7 @@ class ClustersService:
         ordered_articles = [
             by_id[row['processed_article_id']] for row in cluster_articles
         ]
-        grouping = None
-        get_cluster_grouping = getattr(self._repo, 'get_cluster_grouping', None)
-        if get_cluster_grouping is not None:
-            grouping = await get_cluster_grouping(cluster['id'])
+        grouping = await self._repo.get_cluster_grouping(cluster['id'])
         ai_summary = None
         if self._ai_summary_repo is not None:
             ai_summary = await self._ai_summary_repo.get_latest_cluster_summary(

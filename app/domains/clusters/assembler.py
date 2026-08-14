@@ -57,8 +57,8 @@ def _build_unavailable_group_article(
     *,
     cluster_uid: str,
     group_rank: int,
-    is_representative: bool = True,
-    exact_duplicate_count: int = 0,
+    is_representative: bool,
+    exact_duplicate_count: int,
 ) -> ClusterArticleResponse:
     return ClusterArticleResponse(
         processedArticleId=_required_article_id(article),
@@ -141,21 +141,7 @@ def _build_article_grouping(
 ) -> dict[str, Any]:
     article_ids = [_required_article_id(article) for article in articles]
     if grouping is None:
-        metadata = {
-            article_id: (rank, True, 0)
-            for rank, article_id in enumerate(article_ids, start=1)
-        }
-        return {
-            'response': ArticleGroupingResponse(
-                status='UNAVAILABLE',
-                generatedAt=None,
-                issue=ArticleGroupingIssueResponse(
-                    code=_GROUPING_FAILED,
-                    message=_GROUPING_ISSUE_MESSAGE,
-                ),
-            ),
-            'articles': metadata,
-        }
+        raise ValueError('persisted article grouping is missing')
 
     status = _grouping_value(grouping, 'status')
     if status not in {'READY', 'UNAVAILABLE'}:

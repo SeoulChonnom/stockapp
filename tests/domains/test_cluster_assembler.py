@@ -112,6 +112,44 @@ def _summary_record(*, paragraphs, metadata, status='SUCCESS', fallback_used=Fal
     )
 
 
+def _unavailable_grouping(article_ids, cluster_id=7001):
+    from app.db.repositories.projections import (
+        ArticleGroupingRecord,
+        ArticleGroupMemberRecord,
+        ArticleGroupRecord,
+    )
+
+    groups = tuple(
+        ArticleGroupRecord(
+            similar_group_id=7000 + rank,
+            cluster_id=cluster_id,
+            group_rank=rank,
+            representative_article_id=article_id,
+            algorithm_version='v1',
+            generated_at=datetime(2026, 3, 18, 5, 0, tzinfo=UTC),
+            members=(
+                ArticleGroupMemberRecord(
+                    7000 + rank,
+                    article_id,
+                    1.0,
+                    0,
+                    True,
+                    1,
+                ),
+            ),
+        )
+        for rank, article_id in enumerate(article_ids, start=1)
+    )
+    return ArticleGroupingRecord(
+        status='UNAVAILABLE',
+        generated_at=None,
+        issue_code='SIMILARITY_GROUPING_FAILED',
+        algorithm_version='v1',
+        groups=groups,
+        members=tuple(member for group in groups for member in group.members),
+    )
+
+
 def _grounded_sections(
     *, conflict_status='NONE', conflict_ids=None, conflict_note=None
 ):
@@ -765,42 +803,12 @@ def test_cluster_builder_emits_unavailable_singleton_grouping(
     sample_cluster_row,
     sample_processed_article_rows,
 ):
-    payload = build_cluster_detail_payload(
-        sample_cluster_row,
-        sample_processed_article_rows[0],
-        sample_processed_article_rows,
-    )
-
-    assert payload['summary']['analysisStatus'] == 'UNAVAILABLE'
-    assert payload['summary']['analysisGeneratedAt'] is None
-    assert payload['summary']['analysisIssues'] == [
-        {
-            'code': 'ANALYSIS_GENERATION_FAILED',
-            'message': '분석을 생성하지 못했습니다.',
-        }
-    ]
-    assert payload['articleGrouping'] == {
-        'status': 'UNAVAILABLE',
-        'generatedAt': None,
-        'issue': {
-            'code': 'SIMILARITY_GROUPING_FAILED',
-            'message': '유사 기사 묶음을 생성하지 못했습니다.',
-        },
-    }
-    assert [article['processedArticleId'] for article in payload['articles']] == [
-        4001,
-        4002,
-        4003,
-    ]
-    assert [article['similarGroupId'] for article in payload['articles']] == [
-        f'sim-{sample_cluster_row["cluster_uid"]}-1',
-        f'sim-{sample_cluster_row["cluster_uid"]}-2',
-        f'sim-{sample_cluster_row["cluster_uid"]}-3',
-    ]
-    assert all(
-        article['isSimilarGroupRepresentative'] for article in payload['articles']
-    )
-    assert all(article['exactDuplicateCount'] == 0 for article in payload['articles'])
+    with pytest.raises(ValueError, match='persisted'):
+        build_cluster_detail_payload(
+            sample_cluster_row,
+            sample_processed_article_rows[0],
+            sample_processed_article_rows,
+        )
 
 
 def test_cluster_builder_reads_persisted_sections_and_generated_at(
@@ -839,6 +847,9 @@ def test_cluster_builder_reads_persisted_sections_and_generated_at(
         sample_processed_article_rows[0],
         sample_processed_article_rows,
         persisted_summary,
+        article_grouping=_unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
+        ),
     )
 
     assert payload['summary']['short'] == sample_cluster_row['summary_short']
@@ -891,6 +902,9 @@ def test_cluster_builder_degrades_persisted_unknown_source_ids(
         sample_processed_article_rows[0],
         sample_processed_article_rows,
         persisted_summary,
+        article_grouping=_unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
+        ),
     )
 
     assert payload['summary']['analysisStatus'] == 'UNAVAILABLE'
@@ -1058,6 +1072,9 @@ def test_cluster_builder_fails_closed_for_invalid_success_metadata(
             paragraphs=_grounded_sections(),
             metadata=metadata,
         ),
+        article_grouping=_unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
+        ),
     )
 
     assert payload['summary'] == {
@@ -1114,6 +1131,9 @@ def test_cluster_builder_fails_closed_for_impossible_fallback_metadata(
             status='FALLBACK',
             fallback_used=True,
         ),
+        article_grouping=_unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
+        ),
     )
 
     response = assemble_cluster_detail_response(payload)
@@ -1144,6 +1164,9 @@ def test_cluster_builder_structural_failure_wins_over_persisted_metadata(
                 'conflictStatus': 'NOT_CHECKED',
             },
         ),
+        article_grouping=_unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
+        ),
     )
 
     assert payload['summary']['analysisStatus'] == 'UNAVAILABLE'
@@ -1172,6 +1195,9 @@ def test_cluster_builder_rejects_metadata_conflict_aggregate_mismatch(
                 'analysisIssues': [],
                 'conflictStatus': 'FOUND',
             },
+        ),
+        article_grouping=_unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
         ),
     )
 
@@ -1208,6 +1234,9 @@ def test_cluster_builder_merges_valid_causal_metadata_and_validator_issues(
                 ],
                 'conflictStatus': 'NOT_CHECKED',
             },
+        ),
+        article_grouping=_unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
         ),
     )
 
@@ -1260,6 +1289,9 @@ def test_cluster_builder_accepts_valid_mixed_found_not_checked_partial(
                 'conflictStatus': 'FOUND',
             },
         ),
+        article_grouping=_unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
+        ),
     )
 
     assert payload['summary']['analysisStatus'] == 'PARTIAL'
@@ -1292,6 +1324,9 @@ def test_cluster_builder_accepts_valid_invalid_source_only_partial(
                 ],
                 'conflictStatus': 'NONE',
             },
+        ),
+        article_grouping=_unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
         ),
     )
 

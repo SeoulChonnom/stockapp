@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest  # pyright: ignore[reportMissingImports]
 
 from app.core.exceptions import NotFoundError
@@ -10,8 +12,126 @@ from fastapi import FastAPI  # pyright: ignore[reportMissingImports]
 from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
 clusters_router_module = load_module('app.domains.clusters.router')
+clusters_service_module = load_module('app.domains.clusters.service')
 auth_module = load_module('app.api.deps.auth')
 exceptions_module = load_module('app.core.exceptions')
+
+
+def _persisted_grouping(status: str):
+    from app.db.repositories.projections import (
+        ArticleGroupingRecord,
+        ArticleGroupMemberRecord,
+        ArticleGroupRecord,
+    )
+
+    if status == 'READY':
+        groups = (
+            ArticleGroupRecord(
+                similar_group_id=9101,
+                cluster_id=7001,
+                group_rank=1,
+                representative_article_id=4001,
+                algorithm_version='v1',
+                generated_at=datetime(2026, 3, 18, 5, 0, tzinfo=UTC),
+                members=(
+                    ArticleGroupMemberRecord(9101, 4001, 1.0, 2, True, 1),
+                    ArticleGroupMemberRecord(9101, 4002, 0.8, 1, False, 2),
+                ),
+            ),
+            ArticleGroupRecord(
+                similar_group_id=9102,
+                cluster_id=7001,
+                group_rank=2,
+                representative_article_id=4003,
+                algorithm_version='v1',
+                generated_at=datetime(2026, 3, 18, 5, 0, tzinfo=UTC),
+                members=(ArticleGroupMemberRecord(9102, 4003, 1.0, 0, True, 1),),
+            ),
+        )
+        generated_at = datetime(2026, 3, 18, 5, 0, tzinfo=UTC)
+        issue_code = None
+    else:
+        groups = tuple(
+            ArticleGroupRecord(
+                similar_group_id=9200 + index,
+                cluster_id=7001,
+                group_rank=index,
+                representative_article_id=4000 + index,
+                algorithm_version='v1',
+                generated_at=datetime(2026, 3, 18, 5, 0, tzinfo=UTC),
+                members=(
+                    ArticleGroupMemberRecord(
+                        9200 + index,
+                        4000 + index,
+                        1.0,
+                        count,
+                        True,
+                        1,
+                    ),
+                ),
+            )
+            for index, count in enumerate((4, 2, 1), start=1)
+        )
+        generated_at = None
+        issue_code = 'SIMILARITY_GROUPING_FAILED'
+    return ArticleGroupingRecord(
+        status=status,
+        generated_at=generated_at,
+        issue_code=issue_code,
+        algorithm_version='v1',
+        groups=groups,
+        members=tuple(member for group in groups for member in group.members),
+    )
+
+
+class PersistedClusterRepository:
+    def __init__(self, cluster, cluster_articles, processed_articles, grouping):
+        self.cluster = cluster
+        self.cluster_articles = cluster_articles
+        self.processed_articles = {row['id']: row for row in processed_articles}
+        self.grouping = grouping
+
+    async def get_cluster_by_uid(self, cluster_uid):
+        return self.cluster if str(cluster_uid) == self.cluster['cluster_uid'] else None
+
+    async def get_cluster_articles(self, cluster_id):
+        return self.cluster_articles
+
+    async def get_processed_articles(self, article_ids):
+        return [
+            self.processed_articles[article_id]
+            for article_id in article_ids
+            if article_id in self.processed_articles
+        ]
+
+    async def get_cluster_grouping(self, cluster_id):
+        return self.grouping
+
+
+def _build_real_cluster_app(
+    sample_cluster_row,
+    sample_cluster_article_rows,
+    sample_processed_article_rows,
+    grouping,
+):
+    service = clusters_service_module.ClustersService(
+        PersistedClusterRepository(
+            sample_cluster_row,
+            sample_cluster_article_rows,
+            sample_processed_article_rows,
+            grouping,
+        )
+    )
+    app = FastAPI()
+    exceptions_module.register_exception_handlers(app)
+    app.include_router(clusters_router_module.router, prefix='/stock/api')
+    app.dependency_overrides[auth_module.get_current_user] = lambda: (
+        auth_module.CurrentUser(user_id='test-user', roles=('USER',))
+    )
+    app.dependency_overrides[clusters_router_module.get_clusters_service] = lambda: (
+        service
+    )
+    return app
 
 
 class FakeClustersService:
@@ -131,6 +251,131 @@ def test_get_cluster_detail_returns_contract(client, sample_cluster_detail_paylo
         article['isSimilarGroupRepresentative'] for article in payload['articles']
     )
     assert all(article['exactDuplicateCount'] == 0 for article in payload['articles'])
+
+
+def test_get_cluster_detail_real_service_returns_persisted_ready_contract(
+    sample_cluster_row,
+    sample_cluster_article_rows,
+    sample_processed_article_rows,
+):
+    app = _build_real_cluster_app(
+        sample_cluster_row,
+        sample_cluster_article_rows,
+        sample_processed_article_rows,
+        _persisted_grouping('READY'),
+    )
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.get(
+                f'/stock/api/news/clusters/{sample_cluster_row["cluster_uid"]}'
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()['data']
+    required_article_fields = {
+        'processedArticleId',
+        'title',
+        'publisherName',
+        'publishedAt',
+        'originLink',
+        'naverLink',
+        'sourceSummary',
+        'similarGroupId',
+        'isSimilarGroupRepresentative',
+        'exactDuplicateCount',
+    }
+    assert required_article_fields <= set(payload['representativeArticle'])
+    assert all(
+        required_article_fields <= set(article) for article in payload['articles']
+    )
+    assert payload['articleGrouping']['status'] == 'READY'
+    assert payload['articleGrouping']['generatedAt'] is not None
+    assert payload['articleGrouping']['issue'] is None
+    assert [article['similarGroupId'] for article in payload['articles']] == [
+        f'sim-{sample_cluster_row["cluster_uid"]}-1',
+        f'sim-{sample_cluster_row["cluster_uid"]}-1',
+        f'sim-{sample_cluster_row["cluster_uid"]}-2',
+    ]
+    assert [article['exactDuplicateCount'] for article in payload['articles']] == [
+        2,
+        1,
+        0,
+    ]
+    assert all(
+        '910' not in article['similarGroupId'] for article in payload['articles']
+    )
+
+
+def test_get_cluster_detail_real_service_returns_persisted_unavailable_contract(
+    sample_cluster_row,
+    sample_cluster_article_rows,
+    sample_processed_article_rows,
+):
+    app = _build_real_cluster_app(
+        sample_cluster_row,
+        sample_cluster_article_rows,
+        sample_processed_article_rows,
+        _persisted_grouping('UNAVAILABLE'),
+    )
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.get(
+                f'/stock/api/news/clusters/{sample_cluster_row["cluster_uid"]}'
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()['data']
+    assert payload['articleGrouping'] == {
+        'status': 'UNAVAILABLE',
+        'generatedAt': None,
+        'issue': {
+            'code': 'SIMILARITY_GROUPING_FAILED',
+            'message': '유사 기사 묶음을 생성하지 못했습니다.',
+        },
+    }
+    assert [article['similarGroupId'] for article in payload['articles']] == [
+        f'sim-{sample_cluster_row["cluster_uid"]}-1',
+        f'sim-{sample_cluster_row["cluster_uid"]}-2',
+        f'sim-{sample_cluster_row["cluster_uid"]}-3',
+    ]
+    assert [article['exactDuplicateCount'] for article in payload['articles']] == [
+        4,
+        2,
+        1,
+    ]
+
+
+@pytest.mark.parametrize('grouping', [None, {'status': 'READY', 'groups': ()}])
+def test_get_cluster_detail_real_service_sanitizes_grouping_integrity_failure(
+    grouping,
+    sample_cluster_row,
+    sample_cluster_article_rows,
+    sample_processed_article_rows,
+):
+    app = _build_real_cluster_app(
+        sample_cluster_row,
+        sample_cluster_article_rows,
+        sample_processed_article_rows,
+        grouping,
+    )
+    try:
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            response = test_client.get(
+                f'/stock/api/news/clusters/{sample_cluster_row["cluster_uid"]}'
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 500
+    assert response.json()['error'] == {
+        'code': 'INTERNAL_SERVER_ERROR',
+        'message': 'Internal server error',
+    }
+    assert 'cluster article grouping' not in response.text
 
 
 def test_get_cluster_detail_rejects_malformed_uuid(client):
