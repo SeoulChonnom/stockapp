@@ -26,6 +26,35 @@ def _article(
     )
 
 
+class _UnclosedResponseFake:
+    def __init__(
+        self, status_code: int, payload: object = None, *, invalid_json: bool = False
+    ):
+        self.status_code = status_code
+        self._payload = payload
+        self._invalid_json = invalid_json
+        self.closed = False
+
+    def json(self) -> object:
+        if self._invalid_json:
+            raise ValueError('invalid json')
+        return self._payload
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class _DirectAsyncClientFake:
+    def __init__(self, responses: list[_UnclosedResponseFake]):
+        self.responses = responses
+        self.calls = 0
+
+    async def post(self, _url: str, *, json: object) -> _UnclosedResponseFake:
+        _ = json
+        self.calls += 1
+        return self.responses.pop(0)
+
+
 @pytest.mark.anyio
 async def test_embed_articles_posts_one_exact_batch_request():
     requests: list[httpx.Request] = []
@@ -295,6 +324,81 @@ async def test_embed_articles_closes_success_response_without_closing_injected_c
     assert responses[0].is_closed is True
     assert client.is_closed is False
     await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_embed_articles_closes_direct_fake_success_response():
+    response = _UnclosedResponseFake(200, {'embeddings': [[1.0]]})
+    client = _DirectAsyncClientFake([response])
+    provider = OllamaEmbeddingProvider(
+        Settings(_env_file=None, ollama_base_url='http://ollama.test'),
+        client=client,
+    )
+
+    assert await provider.embed_articles([_article()]) == [[1.0]]
+    assert response.closed is True
+    assert client.calls == 1
+
+
+@pytest.mark.anyio
+async def test_embed_articles_closes_direct_fake_retry_response_before_next_attempt():
+    retry_response = _UnclosedResponseFake(503, {'error': 'busy'})
+    success_response = _UnclosedResponseFake(200, {'embeddings': [[1.0]]})
+    client = _DirectAsyncClientFake([retry_response, success_response])
+    provider = OllamaEmbeddingProvider(
+        Settings(
+            _env_file=None,
+            ollama_base_url='http://ollama.test',
+            ollama_max_retries=1,
+        ),
+        client=client,
+    )
+
+    assert await provider.embed_articles([_article()]) == [[1.0]]
+    assert retry_response.closed is True
+    assert success_response.closed is True
+    assert client.calls == 2
+
+
+@pytest.mark.anyio
+async def test_embed_articles_closes_direct_fake_permanent_response():
+    response = _UnclosedResponseFake(404, {'error': 'missing'})
+    client = _DirectAsyncClientFake([response])
+    provider = OllamaEmbeddingProvider(
+        Settings(
+            _env_file=None,
+            ollama_base_url='http://ollama.test',
+            ollama_max_retries=2,
+        ),
+        client=client,
+    )
+
+    with pytest.raises(OllamaEmbeddingError, match='request failed'):
+        await provider.embed_articles([_article()])
+
+    assert response.closed is True
+    assert client.calls == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('response', ['invalid_json', 'invalid_shape'])
+async def test_embed_articles_closes_direct_fake_invalid_response(response: str):
+    fake_response = (
+        _UnclosedResponseFake(200, invalid_json=True)
+        if response == 'invalid_json'
+        else _UnclosedResponseFake(200, {'embeddings': [[1.0], [2.0, 3.0]]})
+    )
+    client = _DirectAsyncClientFake([fake_response])
+    provider = OllamaEmbeddingProvider(
+        Settings(_env_file=None, ollama_base_url='http://ollama.test'),
+        client=client,
+    )
+
+    with pytest.raises(OllamaEmbeddingError, match='invalid response'):
+        await provider.embed_articles([_article(), _article('두 번째')])
+
+    assert fake_response.closed is True
+    assert client.calls == 1
 
 
 @pytest.mark.anyio

@@ -23,12 +23,16 @@
 - RED observed first: provider test collection failed with the expected
   missing-module error before implementation.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/core/test_settings.py tests/batch/test_ollama_embedding_provider.py -q`
-  -> 55 passed (only the repository's existing dependency deprecation warnings).
+  -> 85 passed (only the repository's existing dependency deprecation warnings).
 - `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check app/core/settings.py app/batch/providers/ollama_embedding_provider.py app/batch/providers/__init__.py tests/core/test_settings.py tests/batch/test_ollama_embedding_provider.py`
   -> all checks passed.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pyright app/core/settings.py app/batch/providers/ollama_embedding_provider.py`
   -> 0 errors, 0 warnings.
 - `git diff --check` -> clean.
+
+The review-evidence rerun above is scoped to settings and the Ollama provider;
+the earlier full relevant run covered `tests/core tests/batch` with 573 passed
+before the additional cleanup-only tests were added.
 
 All provider tests use `httpx.MockTransport`; no Ollama or Gemini endpoint was
 called.
