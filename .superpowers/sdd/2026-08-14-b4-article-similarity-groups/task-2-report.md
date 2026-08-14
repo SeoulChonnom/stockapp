@@ -33,6 +33,20 @@
 All provider tests use `httpx.MockTransport`; no Ollama or Gemini endpoint was
 called.
 
+## Review follow-up
+
+- Validated and whitespace-normalized `ollama_base_url` as an HTTP(S) URL with
+  a host, rejecting unsupported schemes, blank values, malformed hosts, query
+  strings, fragments, credentials, and invalid ports.
+- Every received HTTP response is awaited-closed on success, retry, permanent
+  status, and invalid JSON paths. Injected clients remain open while
+  internally-owned clients are closed by the provider context manager.
+- Restricted success to 2xx and sanitized `float()` type/value/overflow errors;
+  non-unit vectors remain unchanged.
+- Added MockTransport coverage for timeout, 408/429/5xx retry counts, 1xx/3xx
+  rejection, response cleanup, ownership, URL validation, and huge integer
+  overflow.
+
 ## Residual risks
 
 - The provider is intentionally limited to transport/validation; grouping,

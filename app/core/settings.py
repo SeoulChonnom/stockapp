@@ -416,6 +416,33 @@ class Settings(BaseSettings):
             return value.strip()
         return value
 
+    @field_validator('ollama_base_url', mode='before')
+    @classmethod
+    def normalize_ollama_base_url(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        parsed = urlparse(normalized)
+        if (
+            not normalized
+            or parsed.scheme.lower() not in {'http', 'https'}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                'ollama_base_url must be a valid http or https URL with a host'
+            )
+        try:
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError(
+                'ollama_base_url must be a valid http or https URL with a host'
+            ) from exc
+        return normalized
+
     @field_validator('jwt_access_audiences', mode='before')
     @classmethod
     def parse_jwt_access_audiences(cls, value: object) -> object:

@@ -115,6 +115,55 @@ async def test_embed_articles_retries_connection_and_transient_http_errors():
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize('status_code', [408, 429, 500, 503])
+async def test_embed_articles_retries_each_transient_status_once(status_code: int):
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(status_code, content=b'busy', request=request)
+        return httpx.Response(200, json={'embeddings': [[0.25]]}, request=request)
+
+    settings = Settings(
+        _env_file=None,
+        ollama_base_url='http://ollama.test',
+        ollama_max_retries=1,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        result = await provider.embed_articles([_article()])
+
+    assert result == [[0.25]]
+    assert attempts == 2
+
+
+@pytest.mark.anyio
+async def test_embed_articles_retries_timeout_once():
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ReadTimeout('timed out', request=request)
+        return httpx.Response(200, json={'embeddings': [[0.5]]}, request=request)
+
+    settings = Settings(
+        _env_file=None,
+        ollama_base_url='http://ollama.test',
+        ollama_max_retries=1,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        result = await provider.embed_articles([_article()])
+
+    assert result == [[0.5]]
+    assert attempts == 2
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize('status_code', [400, 401, 404])
 async def test_embed_articles_does_not_retry_permanent_http_errors(status_code: int):
     attempts = 0
@@ -123,6 +172,35 @@ async def test_embed_articles_does_not_retry_permanent_http_errors(status_code: 
         nonlocal attempts
         attempts += 1
         return httpx.Response(status_code, json={'error': 'failure'}, request=request)
+
+    settings = Settings(
+        _env_file=None,
+        ollama_base_url='http://ollama.test',
+        ollama_max_retries=2,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        with pytest.raises(OllamaEmbeddingError, match='request failed'):
+            await provider.embed_articles([_article()])
+
+    assert attempts == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('status_code', [100, 199, 300, 301, 399])
+async def test_embed_articles_rejects_non_success_http_status_without_retry(
+    status_code: int,
+):
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(
+            status_code,
+            json={'embeddings': [[1.0]]},
+            request=request,
+        )
 
     settings = Settings(
         _env_file=None,
@@ -158,6 +236,116 @@ async def test_embed_articles_rejects_invalid_json_shape_count_dimension_and_val
             provider = OllamaEmbeddingProvider(settings, client=client)
             with pytest.raises(OllamaEmbeddingError, match='invalid response'):
                 await provider.embed_articles([_article(), _article('두 번째')])
+
+
+@pytest.mark.anyio
+async def test_embed_articles_sanitizes_float_conversion_overflow():
+    huge_integer = 10**1000
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={'embeddings': [[huge_integer]]},
+            request=request,
+        )
+
+    settings = Settings(_env_file=None, ollama_base_url='http://ollama.test')
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        with pytest.raises(OllamaEmbeddingError, match='invalid response') as exc_info:
+            await provider.embed_articles([_article()])
+
+    assert 'http://ollama.test' not in str(exc_info.value)
+    assert '100000' not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_embed_articles_preserves_non_unit_vector_values():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={'embeddings': [[3.0, 4.0]]},
+            request=request,
+        )
+
+    settings = Settings(_env_file=None, ollama_base_url='http://ollama.test')
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        result = await provider.embed_articles([_article()])
+
+    assert result == [[3.0, 4.0]]
+
+
+@pytest.mark.anyio
+async def test_embed_articles_closes_success_response_without_closing_injected_client():
+    responses: list[httpx.Response] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        response = httpx.Response(200, json={'embeddings': [[1.0]]}, request=request)
+        responses.append(response)
+        return response
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = OllamaEmbeddingProvider(
+        Settings(_env_file=None, ollama_base_url='http://ollama.test'),
+        client=client,
+    )
+    await provider.embed_articles([_article()])
+
+    assert responses[0].is_closed is True
+    assert client.is_closed is False
+    await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_embed_articles_closes_retry_response():
+    responses: list[httpx.Response] = []
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        response = (
+            httpx.Response(503, content=b'busy', request=request)
+            if attempts == 1
+            else httpx.Response(200, json={'embeddings': [[1.0]]}, request=request)
+        )
+        responses.append(response)
+        return response
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = OllamaEmbeddingProvider(
+        Settings(
+            _env_file=None,
+            ollama_base_url='http://ollama.test',
+            ollama_max_retries=1,
+        ),
+        client=client,
+    )
+    await provider.embed_articles([_article()])
+
+    assert [response.is_closed for response in responses] == [True, True]
+    await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_embed_articles_closes_internally_owned_client(monkeypatch):
+    responses: list[httpx.Response] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        response = httpx.Response(200, json={'embeddings': [[1.0]]}, request=request)
+        responses.append(response)
+        return response
+
+    internal_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    settings = Settings(_env_file=None, ollama_base_url='http://ollama.test')
+    provider = OllamaEmbeddingProvider(settings)
+    monkeypatch.setattr(provider, '_build_client', lambda: internal_client)
+
+    await provider.embed_articles([_article()])
+
+    assert responses[0].is_closed is True
+    assert internal_client.is_closed is True
 
 
 @pytest.mark.anyio

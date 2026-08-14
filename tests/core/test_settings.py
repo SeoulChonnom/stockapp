@@ -392,3 +392,31 @@ def test_settings_uses_ollama_defaults(monkeypatch: pytest.MonkeyPatch):
 def test_settings_rejects_invalid_ollama_bounds(field_name: str, value: object):
     with pytest.raises(ValidationError, match=field_name):
         settings_module.Settings(**{field_name: value})
+
+
+def test_settings_normalizes_ollama_base_url_whitespace():
+    settings = settings_module.Settings(
+        _env_file=None,
+        ollama_base_url='  https://ollama.example:11434/base/  ',
+    )
+
+    assert settings.ollama_base_url == 'https://ollama.example:11434/base/'
+
+
+@pytest.mark.parametrize(
+    'base_url',
+    [
+        '',
+        '   ',
+        'ftp://ollama.example:11434',
+        'file:///tmp/ollama',
+        'http://',
+        'https:///missing-host',
+        'ollama.example:11434',
+        'not-a-url',
+        'http://?missing-host=true',
+    ],
+)
+def test_settings_rejects_invalid_ollama_base_urls(base_url: str):
+    with pytest.raises(ValidationError, match='ollama_base_url'):
+        settings_module.Settings(_env_file=None, ollama_base_url=base_url)

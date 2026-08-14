@@ -30,6 +30,14 @@ class _EmbeddingHttpClient(Protocol):
     async def post(self, url: str, *, json: Mapping[str, object]) -> httpx.Response: ...
 
 
+class _EmbeddingHttpResponse(Protocol):
+    status_code: int
+
+    def json(self) -> object: ...
+
+    async def aclose(self) -> None: ...
+
+
 class OllamaEmbeddingProvider:
     """Batch article embeddings backed by Ollama's ``/api/embed`` endpoint."""
 
@@ -97,10 +105,7 @@ class OllamaEmbeddingProvider:
         attempts = self._settings.ollama_max_retries + 1
         for attempt in range(attempts):
             try:
-                response = await client.post(
-                    self._endpoint_url(),
-                    json=payload,
-                )
+                response = await client.post(self._endpoint_url(), json=payload)
             except asyncio.CancelledError:
                 raise
             except httpx.NetworkError, httpx.TimeoutException:
@@ -109,14 +114,17 @@ class OllamaEmbeddingProvider:
                     continue
                 raise OllamaEmbeddingError('request failed.') from None
 
-            if self._is_retryable_status(response.status_code):
-                if attempt + 1 < attempts:
-                    await self._sleep(0)
-                    continue
-                raise OllamaEmbeddingError('request failed.')
-            if response.status_code >= 400:
-                raise OllamaEmbeddingError('request failed.')
-            return self._parse_embeddings(response, expected_count)
+            try:
+                if self._is_retryable_status(response.status_code):
+                    if attempt + 1 < attempts:
+                        await self._sleep(0)
+                        continue
+                    raise OllamaEmbeddingError('request failed.')
+                if not 200 <= response.status_code < 300:
+                    raise OllamaEmbeddingError('request failed.')
+                return self._parse_embeddings(response, expected_count)
+            finally:
+                await response.aclose()
 
         raise OllamaEmbeddingError('request failed.')
 
@@ -129,11 +137,11 @@ class OllamaEmbeddingProvider:
 
     @staticmethod
     def _parse_embeddings(
-        response: httpx.Response, expected_count: int
+        response: _EmbeddingHttpResponse, expected_count: int
     ) -> list[list[float]]:
         try:
             data = response.json()
-        except ValueError:
+        except TypeError, ValueError:
             raise OllamaEmbeddingError('invalid response.') from None
         if not isinstance(data, Mapping):
             raise OllamaEmbeddingError('invalid response.')
@@ -154,7 +162,10 @@ class OllamaEmbeddingProvider:
             for value in embedding:
                 if isinstance(value, bool) or not isinstance(value, Real):
                     raise OllamaEmbeddingError('invalid response.')
-                numeric_value = float(value)
+                try:
+                    numeric_value = float(value)
+                except TypeError, ValueError, OverflowError:
+                    raise OllamaEmbeddingError('invalid response.') from None
                 if not math.isfinite(numeric_value):
                     raise OllamaEmbeddingError('invalid response.')
                 values.append(numeric_value)
