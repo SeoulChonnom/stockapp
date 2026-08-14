@@ -390,8 +390,10 @@ def _name_org_tokens(value: str, tickers: set[str]) -> set[str]:
         if canonical.upper() in ticker_words:
             flush_proper_run()
             continue
-        if _ORGANIZATION_SUFFIX_RE.search(raw_token):
-            names.add(canonical)
+        organization_match = _ORGANIZATION_SUFFIX_RE.search(raw_token)
+        if organization_match:
+            if organization_match.start() > 0:
+                names.add(canonical)
             flush_proper_run()
             continue
         if _EN_ORGANIZATION_SUFFIX_RE.fullmatch(raw_token):

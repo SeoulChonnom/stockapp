@@ -166,6 +166,19 @@ def test_lexical_features_keep_explicit_multiword_entities():
     assert features.name_org_tokens == frozenset({'federal reserve', 'acme corp'})
 
 
+@pytest.mark.parametrize('word', ['정부', '산업', '금융', '통신', '센터'])
+def test_lexical_features_ignore_standalone_korean_suffix_nouns(word):
+    features = extract_lexical_features(word)
+
+    assert features.name_org_tokens == frozenset()
+
+
+def test_lexical_features_require_korean_organization_prefix():
+    features = extract_lexical_features('한국정부 삼성전자 산업은행')
+
+    assert features.name_org_tokens == frozenset({'한국정부', '삼성전자', '산업은행'})
+
+
 def test_long_input_has_bounded_deterministic_features():
     text = ('삼성전자 실적 개선 1,234.56억원 2026-08-14 상승 ' * 2_000).strip()
 

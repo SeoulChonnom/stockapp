@@ -33,7 +33,7 @@
 ## Verification
 
 ```text
-40 focused pytest tests passed
+47 focused pytest tests passed
 ruff format/check passed
 pyright app/batch/article_similarity.py: 0 errors, 0 warnings
 ```
