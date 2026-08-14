@@ -27,7 +27,7 @@ _LIST_ARCHIVE_RESPONSES = merge_responses(
     AUTH_RESPONSES,
     error_response(
         422,
-        'Invalid archive status filter. Codes: REQUEST_VALIDATION_ERROR.',
+        'Invalid archive filters. Codes: REQUEST_VALIDATION_ERROR, INVALID_THEME.',
     ),
 )
 
@@ -69,6 +69,12 @@ async def list_archive(
     fromDate: Annotated[date | None, Query(alias='fromDate')] = None,
     toDate: Annotated[date | None, Query(alias='toDate')] = None,
     status: Annotated[ArchiveStatus | None, Query(alias='status')] = None,
+    theme: Annotated[list[str] | None, Query(alias='theme', max_length=10)] = None,
+    marketType: Annotated[
+        Literal['US', 'KR'] | None,
+        Query(alias='marketType'),
+    ] = None,
+    q: Annotated[str | None, Query(alias='q', min_length=2, max_length=100)] = None,
     page: Annotated[int, Query(alias='page', ge=1)] = 1,
     size: Annotated[int, Query(alias='size', ge=1, le=100)] = 30,
 ) -> ApiSuccess[ArchiveListResponse]:
@@ -76,6 +82,9 @@ async def list_archive(
         from_date=fromDate,
         to_date=toDate,
         status=status,
+        market_type=marketType,
+        themes=theme,
+        query=q,
         page=page,
         size=size,
     )

@@ -483,3 +483,85 @@ async def test_archive_status_filter_is_bound_at_uppercase_boundary(
 
     sql = normalize_sql(session.statements[0])
     assert 'upper(' in sql.lower()
+
+
+@pytest.mark.anyio
+async def test_archive_query_scope_keeps_all_q_tokens_in_one_market_or_cluster_unit():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = PageSnapshotRepository(session)
+
+    await repo.list_archive_page_headers(query_tokens=['nvidia', 'earnings'])
+
+    sql = normalize_sql(session.statements[0]).lower()
+    assert "ilike '%nvidia%' escape '\\'" in sql
+    assert "ilike '%earnings%' escape '\\'" in sql
+    assert 'market_daily_page_market as market' in sql
+    assert 'market_daily_page_market_cluster as cluster' in sql
+    assert sql.index('with latest_public as') < sql.index('select id as "pageid"')
+    assert ':q_token_0' in str(session.statements[0])
+    assert ':q_token_1' in str(session.statements[0])
+
+
+@pytest.mark.anyio
+async def test_archive_theme_and_query_scope_correlates_theme_and_tokens_to_one_cluster():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = PageSnapshotRepository(session)
+
+    await repo.list_archive_page_headers(
+        market_type='KR',
+        theme_codes=['ROOT', 'ROOT_CHILD'],
+        query_tokens=['nvidia', 'earnings'],
+    )
+
+    sql = normalize_sql(session.statements[0]).lower()
+    assert 'market_daily_page_market_cluster_theme' in sql
+    assert 'theme_code in' in sql
+    assert 'market.market_type = cast' in sql
+    assert 'cluster.search_document ilike' in sql
+    assert sql.count('cluster.search_document ilike') == 2
+    assert 'market.id = cluster.page_market_id' in sql
+    assert 'market.page_id = latest_public.id' in sql
+
+
+@pytest.mark.anyio
+async def test_archive_count_and_list_share_filter_sql_and_bind_values():
+    list_session = RecordingAsyncSession(results=[DummyResult([])])
+    count_session = RecordingAsyncSession(results=[DummyResult([0])])
+    list_repo = PageSnapshotRepository(list_session)
+    count_repo = PageSnapshotRepository(count_session)
+    kwargs = {
+        'from_date': date(2026, 3, 16),
+        'to_date': date(2026, 3, 17),
+        'status': 'READY',
+        'market_type': 'US',
+        'theme_codes': ['A', 'B'],
+        'query_tokens': ['100%_ready'],
+    }
+
+    await list_repo.list_archive_page_headers(**kwargs, page=2, size=10)
+    await count_repo.count_archive_page_headers(**kwargs)
+
+    list_sql = str(list_session.statements[0])
+    count_sql = str(count_session.statements[0])
+    list_where = list_sql[list_sql.index('FROM latest_public') :].split('ORDER BY', 1)[
+        0
+    ]
+    count_where = count_sql[count_sql.index('FROM latest_public') :]
+    assert list_where == count_where
+    assert (
+        list_session.statements[0]._bindparams.keys()
+        >= count_session.statements[0]._bindparams.keys()
+    )
+    assert list_session.parameters[0] is None
+    assert count_session.parameters[0] is None
+
+
+@pytest.mark.anyio
+async def test_archive_query_escapes_like_metacharacters_as_literal_substrings():
+    session = RecordingAsyncSession(results=[DummyResult([])])
+    repo = PageSnapshotRepository(session)
+
+    await repo.list_archive_page_headers(query_tokens=['100%_ready\\now'])
+
+    sql = normalize_sql(session.statements[0]).lower()
+    assert "ilike '%100\\%\\_ready\\\\now%' escape '\\'" in sql

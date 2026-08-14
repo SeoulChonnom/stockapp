@@ -33,13 +33,31 @@ class RecordingArchiveRepository:
 
 
 class RecordingThemeRepository:
-    def __init__(self, rows: list[ThemeCatalogRecord] | None = None) -> None:
+    def __init__(
+        self,
+        rows: list[ThemeCatalogRecord] | None = None,
+        *,
+        invalid_codes: list[str] | None = None,
+        expanded_codes: list[str] | None = None,
+    ) -> None:
         self.rows = rows or []
+        self.invalid_codes = invalid_codes or []
+        self.expanded_codes = expanded_codes or []
         self.calls = 0
+        self.validation_calls: list[list[str]] = []
+        self.expansion_calls: list[list[str]] = []
 
     async def list_active_tree_rows(self) -> list[ThemeCatalogRecord]:
         self.calls += 1
         return self.rows
+
+    async def validate_active_theme_codes(self, theme_codes: list[str]) -> list[str]:
+        self.validation_calls.append(theme_codes)
+        return [code for code in theme_codes if code in self.invalid_codes]
+
+    async def expand_active_theme_codes(self, theme_codes: list[str]) -> list[str]:
+        self.expansion_calls.append(theme_codes)
+        return self.expanded_codes or theme_codes
 
 
 @pytest.mark.anyio
@@ -59,6 +77,100 @@ async def test_archive_service_rejects_failed_status_before_querying_repository(
 
     assert exc_info.value.code == 'UNSUPPORTED_ARCHIVE_STATUS'
     assert repository.calls == []
+
+
+@pytest.mark.anyio
+async def test_archive_service_validates_expands_and_correlates_archive_filters():
+    repository = RecordingArchiveRepository()
+    theme_repository = RecordingThemeRepository(
+        expanded_codes=['ROOT', 'ROOT_CHILD', 'OTHER'],
+    )
+    service = ArchiveService(repository, theme_repository)
+
+    await service.list_archive(
+        from_date=date(2026, 3, 16),
+        to_date=date(2026, 3, 17),
+        status='ready',
+        market_type='KR',
+        themes=[' ROOT ', 'OTHER'],
+        query='  NVIDIA\u0301   Earnings  ',
+        page=2,
+        size=10,
+    )
+
+    assert theme_repository.validation_calls == [['ROOT', 'OTHER']]
+    assert theme_repository.expansion_calls == [['ROOT', 'OTHER']]
+    assert repository.calls == [
+        (
+            'list_archive_page_headers',
+            {
+                'from_date': date(2026, 3, 16),
+                'to_date': date(2026, 3, 17),
+                'status': 'READY',
+                'market_type': 'KR',
+                'theme_codes': ['ROOT', 'ROOT_CHILD', 'OTHER'],
+                'query_tokens': ['nvidiá', 'earnings'],
+                'page': 2,
+                'size': 10,
+            },
+        ),
+        (
+            'count_archive_page_headers',
+            {
+                'from_date': date(2026, 3, 16),
+                'to_date': date(2026, 3, 17),
+                'status': 'READY',
+                'market_type': 'KR',
+                'theme_codes': ['ROOT', 'ROOT_CHILD', 'OTHER'],
+                'query_tokens': ['nvidiá', 'earnings'],
+            },
+        ),
+    ]
+
+
+@pytest.mark.anyio
+async def test_archive_service_rejects_any_invalid_theme_without_archive_queries():
+    repository = RecordingArchiveRepository()
+    theme_repository = RecordingThemeRepository(invalid_codes=['BAD'])
+    service = ArchiveService(repository, theme_repository)
+
+    with pytest.raises(ValidationError) as exc_info:
+        await service.list_archive(
+            from_date=None,
+            to_date=None,
+            status=None,
+            market_type=None,
+            themes=['GOOD', 'BAD'],
+            query=None,
+            page=1,
+            size=30,
+        )
+
+    assert exc_info.value.code == 'INVALID_THEME'
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.details == {'invalidThemes': ['BAD']}
+    assert theme_repository.expansion_calls == []
+    assert repository.calls == []
+
+
+@pytest.mark.anyio
+async def test_archive_service_rejects_more_than_ten_normalized_query_tokens():
+    service = ArchiveService(RecordingArchiveRepository(), RecordingThemeRepository())
+
+    with pytest.raises(ValidationError) as exc_info:
+        await service.list_archive(
+            from_date=None,
+            to_date=None,
+            status=None,
+            market_type=None,
+            themes=None,
+            query='one two three four five six seven eight nine ten eleven',
+            page=1,
+            size=30,
+        )
+
+    assert exc_info.value.code == 'REQUEST_VALIDATION_ERROR'
+    assert exc_info.value.status_code == 422
 
 
 def _theme_record(

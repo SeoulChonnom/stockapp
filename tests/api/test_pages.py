@@ -83,8 +83,10 @@ class FakePagesService:
 class FakeArchiveService:
     def __init__(self, archive_payload: dict):
         self.archive_payload = archive_payload
+        self.list_kwargs = None
 
-    async def list_archive(self, **_kwargs):
+    async def list_archive(self, **kwargs):
+        self.list_kwargs = kwargs
         return self.archive_payload
 
 
@@ -152,6 +154,7 @@ def client(sample_daily_page_payload, sample_archive_list_payload):
     )
 
     with TestClient(app) as test_client:
+        test_client.archive_service = fake_archive_service
         yield test_client
 
     app.dependency_overrides.clear()
@@ -461,6 +464,61 @@ def test_get_archive_lists_latest_snapshot_per_date(
         == sample_archive_list_payload['items'][0]['businessDate']
     )
     assert payload['pagination']['totalCount'] == 2
+
+
+def test_get_archive_passes_repeated_theme_market_and_query_filters(client):
+    response = client.get(
+        '/stock/api/pages/archive',
+        params=[
+            ('theme', 'ROOT_A'),
+            ('theme', 'ROOT_B'),
+            ('marketType', 'KR'),
+            ('q', 'NVIDIA earnings'),
+        ],
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 200
+    assert client.archive_service.list_kwargs == {
+        'from_date': None,
+        'to_date': None,
+        'status': None,
+        'market_type': 'KR',
+        'themes': ['ROOT_A', 'ROOT_B'],
+        'query': 'NVIDIA earnings',
+        'page': 1,
+        'size': 30,
+    }
+
+
+def test_get_archive_rejects_more_than_ten_themes(client):
+    response = client.get(
+        '/stock/api/pages/archive',
+        params=[('theme', f'THEME_{index}') for index in range(11)],
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 422
+    assert response.json()['error']['code'] == 'REQUEST_VALIDATION_ERROR'
+
+
+def test_get_archive_rejects_query_shorter_than_two_characters(client):
+    response = client.get(
+        '/stock/api/pages/archive',
+        params={'q': 'a'},
+        headers=build_test_bearer_headers('ADMIN'),
+    )
+
+    assert response.status_code == 422
+    assert response.json()['error']['code'] == 'REQUEST_VALIDATION_ERROR'
+
+
+def test_archive_openapi_documents_correlated_filter_errors(client):
+    responses = client.get('/openapi.json').json()['paths']['/stock/api/pages/archive'][
+        'get'
+    ]['responses']
+
+    assert 'INVALID_THEME' in responses['422']['description']
 
 
 def test_daily_page_exposes_existing_neighbor_dates_not_calendar_arithmetic(
