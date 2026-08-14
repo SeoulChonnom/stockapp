@@ -38,12 +38,16 @@ INCREMENTAL_NEWS_MIGRATION = (
 )
 THEME_MIGRATION = MIGRATIONS_DIRECTORY / '20260813_08_theme_catalog_archive_search.sql'
 PAGE_SEARCH_MIGRATION = MIGRATIONS_DIRECTORY / '20260814_09_page_search_document.sql'
+SIMILARITY_MIGRATION = (
+    MIGRATIONS_DIRECTORY / '20260813_09_article_similarity_groups.sql'
+)
 ALEMBIC_BASELINE_SQL = (
     REPOSITORY_ROOT / 'db' / 'alembic' / 'baselines' / '20260731_schema.sql'
 )
 ALEMBIC_PREVIOUS_HEAD = '20260810_01_step_errors'
 ALEMBIC_THEME_REVISION = '20260814_01_theme_archive_search'
-ALEMBIC_HEAD = '20260814_02_page_search_document'
+ALEMBIC_PAGE_SEARCH_REVISION = '20260814_02_page_search_document'
+ALEMBIC_HEAD = '20260814_03_article_similarity_groups'
 
 
 def _execute_file(connection, path: Path) -> None:
@@ -1735,6 +1739,409 @@ def test_alembic_head_applies_theme_catalog_search_assets_and_seed_contract():
             )
             == 20
         )
+    finally:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+        engine.dispose()
+
+
+def _assert_article_similarity_contract(connection) -> None:
+    def query(sql: str):
+        if hasattr(connection, 'exec_driver_sql'):
+            return connection.exec_driver_sql(sql)
+        return connection.execute(sql)
+
+    source_columns = query(
+        """
+            SELECT column_name, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'stock'
+              AND table_name = 'news_cluster'
+              AND column_name IN (
+                  'article_grouping_status',
+                  'article_grouping_generated_at',
+                  'article_grouping_issue_code'
+            )
+            ORDER BY column_name
+            """
+    ).fetchall()
+    assert source_columns == [
+        ('article_grouping_generated_at', 'YES', None),
+        ('article_grouping_issue_code', 'YES', "'SIMILARITY_GROUPING_FAILED'::text"),
+        ('article_grouping_status', 'NO', "'UNAVAILABLE'::text"),
+    ]
+
+    snapshot_columns = query(
+        """
+            SELECT table_name, column_name, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'stock'
+              AND (
+                  table_name = 'market_daily_page_market_cluster'
+                  AND column_name IN (
+                      'article_grouping_status',
+                      'article_grouping_generated_at',
+                      'article_grouping_issue_code',
+                      'article_grouping_algorithm_version'
+                  )
+                  OR table_name = 'market_daily_page_article_link'
+                  AND column_name IN (
+                      'similar_group_rank',
+                      'is_similar_group_representative',
+                      'exact_duplicate_count'
+                  )
+            )
+            ORDER BY table_name, column_name
+            """
+    ).fetchall()
+    assert snapshot_columns == [
+        (
+            'market_daily_page_article_link',
+            'exact_duplicate_count',
+            'NO',
+            '0',
+        ),
+        (
+            'market_daily_page_article_link',
+            'is_similar_group_representative',
+            'NO',
+            'true',
+        ),
+        (
+            'market_daily_page_article_link',
+            'similar_group_rank',
+            'YES',
+            None,
+        ),
+        (
+            'market_daily_page_market_cluster',
+            'article_grouping_algorithm_version',
+            'YES',
+            None,
+        ),
+        (
+            'market_daily_page_market_cluster',
+            'article_grouping_generated_at',
+            'YES',
+            None,
+        ),
+        (
+            'market_daily_page_market_cluster',
+            'article_grouping_issue_code',
+            'YES',
+            "'SIMILARITY_GROUPING_FAILED'::text",
+        ),
+        (
+            'market_daily_page_market_cluster',
+            'article_grouping_status',
+            'NO',
+            "'UNAVAILABLE'::text",
+        ),
+    ]
+
+    tables = [
+        row[0]
+        for row in query(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'stock'
+              AND table_name IN (
+                  'news_cluster_similar_group',
+                  'news_cluster_similar_group_article'
+              )
+            ORDER BY table_name
+            """
+        ).fetchall()
+    ]
+    assert tables == [
+        'news_cluster_similar_group',
+        'news_cluster_similar_group_article',
+    ]
+
+    constraints = query(
+        """
+            SELECT conname, pg_get_constraintdef(oid)
+            FROM pg_constraint
+            WHERE connamespace = 'stock'::regnamespace
+              AND conname IN (
+                  'chk_news_cluster_article_grouping_status',
+                  'chk_news_cluster_article_grouping_ready_generated',
+                  'chk_page_market_cluster_grouping_status',
+                  'chk_page_market_cluster_grouping_ready',
+                  'chk_similar_group_rank_positive',
+                  'chk_similar_group_article_exact_count_non_negative',
+                  'chk_similar_group_article_rank_positive'
+              )
+            ORDER BY conname
+            """
+    ).fetchall()
+    assert {name for name, _definition in constraints} == {
+        'chk_page_market_cluster_grouping_ready',
+        'chk_page_market_cluster_grouping_status',
+        'chk_news_cluster_article_grouping_ready_generated',
+        'chk_news_cluster_article_grouping_status',
+        'chk_similar_group_article_exact_count_non_negative',
+        'chk_similar_group_article_rank_positive',
+        'chk_similar_group_rank_positive',
+    }
+
+    indexes = [
+        row[0]
+        for row in query(
+            """
+            SELECT indexname
+            FROM pg_indexes
+            WHERE schemaname = 'stock'
+              AND indexname IN (
+                  'idx_news_cluster_similar_group_cluster_rank',
+                  'idx_news_cluster_similar_group_article_processed'
+              )
+            ORDER BY indexname
+            """
+        ).fetchall()
+    ]
+    assert indexes == [
+        'idx_news_cluster_similar_group_article_processed',
+        'idx_news_cluster_similar_group_cluster_rank',
+    ]
+
+    extension_count = query(
+        """
+            SELECT count(*)
+            FROM pg_extension
+            WHERE extname = 'vector'
+            """
+    ).fetchone()[0]
+    assert extension_count == 0
+
+
+def test_article_similarity_sql_migration_is_idempotent_on_postgresql(
+    postgres_connection,
+):
+    _execute_file(postgres_connection, SIMILARITY_MIGRATION)
+    _execute_file(postgres_connection, SIMILARITY_MIGRATION)
+
+    _assert_article_similarity_contract(postgres_connection)
+
+    with postgres_connection.transaction():
+        article_id = postgres_connection.execute(
+            """
+            INSERT INTO stock.news_article_processed (
+                business_date,
+                market_type,
+                dedupe_hash,
+                canonical_title,
+                origin_link
+            )
+            VALUES (
+                DATE '2026-08-20',
+                'KR',
+                repeat('a', 64),
+                'Grouping test article',
+                'https://example.test/grouping'
+            )
+            RETURNING id
+            """
+        ).fetchone()[0]
+        cluster_id = postgres_connection.execute(
+            """
+            INSERT INTO stock.news_cluster (
+                business_date,
+                market_type,
+                cluster_rank,
+                title,
+                representative_article_id
+            )
+            VALUES (DATE '2026-08-20', 'KR', 1, 'Grouping test', %s)
+            RETURNING id
+            """,
+            (article_id,),
+        ).fetchone()[0]
+        postgres_connection.execute(
+            """
+            INSERT INTO stock.news_cluster_article (
+                cluster_id,
+                processed_article_id,
+                article_rank
+            )
+            VALUES (%s, %s, 1)
+            """,
+            (cluster_id, article_id),
+        )
+    with pytest.raises(psycopg.errors.CheckViolation):
+        postgres_connection.execute(
+            """
+            UPDATE stock.news_cluster
+            SET article_grouping_status = 'READY',
+                article_grouping_generated_at = NULL
+            WHERE business_date = DATE '2026-08-20'
+            """
+        )
+
+
+def test_alembic_fresh_upgrade_applies_article_similarity_revision():
+    database_url = os.getenv('STOCKAPP_MIGRATION_TEST_DSN')
+    if database_url is None:
+        pytest.skip('STOCKAPP_MIGRATION_TEST_DSN is not configured.')
+
+    sqlalchemy_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_engine(sqlalchemy_url, poolclass=pool.NullPool)
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+
+        _run_alembic(engine, database_url, command.upgrade, 'head')
+        _run_alembic(engine, database_url, command.upgrade, 'head')
+
+        with engine.connect() as connection:
+            _assert_article_similarity_contract(connection)
+            version = connection.execute(
+                text('SELECT version_num FROM stock.alembic_version')
+            ).scalar_one()
+            assert version == ALEMBIC_HEAD
+    finally:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+        engine.dispose()
+
+
+def test_alembic_previous_head_upgrade_applies_article_similarity_revision():
+    database_url = os.getenv('STOCKAPP_MIGRATION_TEST_DSN')
+    if database_url is None:
+        pytest.skip('STOCKAPP_MIGRATION_TEST_DSN is not configured.')
+
+    sqlalchemy_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_engine(sqlalchemy_url, poolclass=pool.NullPool)
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+
+        _run_alembic(
+            engine,
+            database_url,
+            command.upgrade,
+            ALEMBIC_PAGE_SEARCH_REVISION,
+        )
+        _run_alembic(engine, database_url, command.upgrade, 'head')
+
+        with engine.connect() as connection:
+            _assert_article_similarity_contract(connection)
+            version = connection.execute(
+                text('SELECT version_num FROM stock.alembic_version')
+            ).scalar_one()
+            assert version == ALEMBIC_HEAD
+    finally:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+        engine.dispose()
+
+
+def test_startup_migration_stamps_existing_schema_and_applies_article_similarity():
+    database_url = os.getenv('STOCKAPP_MIGRATION_TEST_DSN')
+    if database_url is None:
+        pytest.skip('STOCKAPP_MIGRATION_TEST_DSN is not configured.')
+
+    sqlalchemy_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_engine(sqlalchemy_url, poolclass=pool.NullPool)
+    settings = Settings(
+        _env_file=None,
+        app_env='test',
+        database_url=sqlalchemy_url,
+        database_schema='stock',
+        database_migration_enabled=True,
+        database_migration_lock_timeout_seconds=5,
+    )
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+            connection.exec_driver_sql(
+                ALEMBIC_BASELINE_SQL.read_text(encoding='utf-8').replace('%', '%%')
+            )
+            connection.commit()
+
+        migration_runner.run_startup_migrations(settings, engine=engine)
+        migration_runner.run_startup_migrations(settings, engine=engine)
+
+        with engine.connect() as connection:
+            _assert_article_similarity_contract(connection)
+            version = connection.execute(
+                text('SELECT version_num FROM stock.alembic_version')
+            ).scalar_one()
+            assert version == ALEMBIC_HEAD
+    finally:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+        engine.dispose()
+
+
+def test_startup_migration_upgrades_stamped_previous_head_to_article_similarity():
+    database_url = os.getenv('STOCKAPP_MIGRATION_TEST_DSN')
+    if database_url is None:
+        pytest.skip('STOCKAPP_MIGRATION_TEST_DSN is not configured.')
+
+    sqlalchemy_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_engine(sqlalchemy_url, poolclass=pool.NullPool)
+    settings = Settings(
+        _env_file=None,
+        app_env='test',
+        database_url=sqlalchemy_url,
+        database_schema='stock',
+        database_migration_enabled=True,
+        database_migration_lock_timeout_seconds=5,
+    )
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+
+        _run_alembic(
+            engine,
+            database_url,
+            command.upgrade,
+            ALEMBIC_PAGE_SEARCH_REVISION,
+        )
+        with engine.connect() as connection:
+            assert (
+                connection.execute(
+                    text('SELECT version_num FROM stock.alembic_version')
+                ).scalar_one()
+                == ALEMBIC_PAGE_SEARCH_REVISION
+            )
+
+        migration_runner.run_startup_migrations(settings, engine=engine)
+
+        with engine.connect() as connection:
+            _assert_article_similarity_contract(connection)
+            assert (
+                connection.execute(
+                    text('SELECT version_num FROM stock.alembic_version')
+                ).scalar_one()
+                == ALEMBIC_HEAD
+            )
     finally:
         with engine.connect() as connection:
             connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))

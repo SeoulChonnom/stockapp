@@ -399,12 +399,31 @@ CREATE TABLE news_cluster (
     tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
     representative_article_id BIGINT NOT NULL,
     article_count INTEGER NOT NULL DEFAULT 0,
+    article_grouping_status TEXT NOT NULL DEFAULT 'UNAVAILABLE',
+    article_grouping_generated_at TIMESTAMPTZ NULL,
+    article_grouping_issue_code TEXT NULL
+        DEFAULT 'SIMILARITY_GROUPING_FAILED',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_news_cluster_uid UNIQUE (cluster_uid),
     CONSTRAINT uq_news_cluster_rank UNIQUE (business_date, market_type, cluster_rank),
     CONSTRAINT chk_news_cluster_rank_positive CHECK (cluster_rank > 0),
-    CONSTRAINT chk_news_cluster_article_count_non_negative CHECK (article_count >= 0)
+    CONSTRAINT chk_news_cluster_article_count_non_negative CHECK (article_count >= 0),
+    CONSTRAINT chk_news_cluster_article_grouping_status
+        CHECK (article_grouping_status IN ('READY', 'UNAVAILABLE')),
+    CONSTRAINT chk_news_cluster_article_grouping_ready_generated
+        CHECK (
+            (
+                article_grouping_status = 'READY'
+                AND article_grouping_generated_at IS NOT NULL
+                AND article_grouping_issue_code IS NULL
+            )
+            OR (
+                article_grouping_status = 'UNAVAILABLE'
+                AND article_grouping_generated_at IS NULL
+                AND article_grouping_issue_code = 'SIMILARITY_GROUPING_FAILED'
+            )
+        )
 );
 
 CREATE INDEX idx_news_cluster_business_market
@@ -428,6 +447,47 @@ ALTER TABLE news_cluster
     FOREIGN KEY (id, representative_article_id)
     REFERENCES news_cluster_article (cluster_id, processed_article_id)
     DEFERRABLE INITIALLY DEFERRED;
+
+CREATE TABLE news_cluster_similar_group (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    cluster_id BIGINT NOT NULL REFERENCES news_cluster(id) ON DELETE CASCADE,
+    group_rank SMALLINT NOT NULL,
+    representative_article_id BIGINT NOT NULL,
+    algorithm_version TEXT NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT uq_news_cluster_similar_group_cluster_rank
+        UNIQUE (cluster_id, group_rank),
+    CONSTRAINT chk_similar_group_rank_positive
+        CHECK (group_rank > 0),
+    CONSTRAINT fk_news_cluster_similar_group_representative_membership
+        FOREIGN KEY (cluster_id, representative_article_id)
+        REFERENCES news_cluster_article (cluster_id, processed_article_id)
+        DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE news_cluster_similar_group_article (
+    similar_group_id BIGINT NOT NULL
+        REFERENCES news_cluster_similar_group(id) ON DELETE CASCADE,
+    processed_article_id BIGINT NOT NULL
+        REFERENCES news_article_processed(id) ON DELETE RESTRICT,
+    similarity_score DOUBLE PRECISION NOT NULL,
+    exact_duplicate_count INTEGER NOT NULL,
+    is_representative BOOLEAN NOT NULL,
+    article_rank SMALLINT NOT NULL,
+    CONSTRAINT chk_similar_group_article_exact_count_non_negative
+        CHECK (exact_duplicate_count >= 0),
+    CONSTRAINT chk_similar_group_article_rank_positive
+        CHECK (article_rank > 0),
+    PRIMARY KEY (similar_group_id, processed_article_id),
+    CONSTRAINT uq_news_cluster_similar_group_article_group_rank
+        UNIQUE (similar_group_id, article_rank)
+);
+
+CREATE INDEX idx_news_cluster_similar_group_cluster_rank
+    ON news_cluster_similar_group (cluster_id, group_rank);
+
+CREATE INDEX idx_news_cluster_similar_group_article_processed
+    ON news_cluster_similar_group_article (processed_article_id);
 
 CREATE TABLE theme_catalog (
     code TEXT PRIMARY KEY,
@@ -988,6 +1048,11 @@ CREATE TABLE market_daily_page_market_cluster (
     representative_published_at TIMESTAMPTZ NULL,
     representative_origin_link TEXT NULL,
     representative_naver_link TEXT NULL,
+    article_grouping_status TEXT NOT NULL DEFAULT 'UNAVAILABLE',
+    article_grouping_generated_at TIMESTAMPTZ NULL,
+    article_grouping_issue_code TEXT NULL
+        DEFAULT 'SIMILARITY_GROUPING_FAILED',
+    article_grouping_algorithm_version TEXT NULL,
     -- Snapshot of normalized cluster and all same-cluster article titles.
     search_document TEXT NOT NULL DEFAULT '',
     CONSTRAINT uq_market_daily_page_market_cluster_order
@@ -995,7 +1060,22 @@ CREATE TABLE market_daily_page_market_cluster (
     CONSTRAINT chk_market_daily_page_market_cluster_order_positive
         CHECK (display_order > 0),
     CONSTRAINT chk_market_daily_page_market_cluster_article_count_non_negative
-        CHECK (article_count >= 0)
+        CHECK (article_count >= 0),
+    CONSTRAINT chk_page_market_cluster_grouping_status
+        CHECK (article_grouping_status IN ('READY', 'UNAVAILABLE')),
+    CONSTRAINT chk_page_market_cluster_grouping_ready
+        CHECK (
+            (
+                article_grouping_status = 'READY'
+                AND article_grouping_generated_at IS NOT NULL
+                AND article_grouping_issue_code IS NULL
+            )
+            OR (
+                article_grouping_status = 'UNAVAILABLE'
+                AND article_grouping_generated_at IS NULL
+                AND article_grouping_issue_code = 'SIMILARITY_GROUPING_FAILED'
+            )
+        )
 );
 
 CREATE INDEX idx_market_daily_page_market_cluster_market
@@ -1047,10 +1127,15 @@ CREATE TABLE market_daily_page_article_link (
     published_at TIMESTAMPTZ NULL,
     origin_link TEXT NOT NULL,
     naver_link TEXT NULL,
+    similar_group_rank SMALLINT NULL,
+    is_similar_group_representative BOOLEAN NOT NULL DEFAULT TRUE,
+    exact_duplicate_count INTEGER NOT NULL DEFAULT 0,
     CONSTRAINT uq_market_daily_page_article_link_order
         UNIQUE (page_market_id, display_order),
     CONSTRAINT chk_market_daily_page_article_link_order_positive
-        CHECK (display_order > 0)
+        CHECK (display_order > 0),
+    CONSTRAINT chk_market_daily_page_article_link_exact_duplicate_count_non_negative
+        CHECK (exact_duplicate_count >= 0)
 );
 
 CREATE INDEX idx_market_daily_page_article_link_market

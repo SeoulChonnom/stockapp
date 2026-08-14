@@ -8,6 +8,9 @@ SCHEMA_SQL = REPOSITORY_ROOT / 'db' / 'schema_postgresql.sql'
 MIGRATIONS_DIRECTORY = REPOSITORY_ROOT / 'db' / 'migrations'
 THEME_MIGRATION = MIGRATIONS_DIRECTORY / '20260813_08_theme_catalog_archive_search.sql'
 PAGE_SEARCH_MIGRATION = MIGRATIONS_DIRECTORY / '20260814_09_page_search_document.sql'
+SIMILARITY_MIGRATION = (
+    MIGRATIONS_DIRECTORY / '20260813_09_article_similarity_groups.sql'
+)
 THEME_ALEMBIC_REVISION = (
     REPOSITORY_ROOT
     / 'alembic'
@@ -16,6 +19,12 @@ THEME_ALEMBIC_REVISION = (
 )
 PAGE_SEARCH_ALEMBIC_REVISION = (
     REPOSITORY_ROOT / 'alembic' / 'versions' / '20260814_02_page_search_document.py'
+)
+SIMILARITY_ALEMBIC_REVISION = (
+    REPOSITORY_ROOT
+    / 'alembic'
+    / 'versions'
+    / '20260814_03_article_similarity_groups.py'
 )
 
 THEME_CODES = (
@@ -375,3 +384,68 @@ def test_theme_migration_is_transactional_qualified_and_idempotent():
     assert 'CREATE INDEX IF NOT EXISTS' in migration_sql
     for code in THEME_CODES:
         assert re.search(rf"\(\s*'{code}',", migration_sql)
+
+
+def test_article_similarity_schema_has_source_snapshot_and_group_contract():
+    schema_sql = _read_sql(SCHEMA_SQL)
+
+    assert 'article_grouping_status TEXT NOT NULL DEFAULT' in schema_sql
+    assert 'article_grouping_generated_at TIMESTAMPTZ NULL' in schema_sql
+    assert 'article_grouping_issue_code TEXT NULL' in schema_sql
+    assert "article_grouping_status IN ('READY', 'UNAVAILABLE')" in schema_sql
+    assert 'chk_news_cluster_article_grouping_ready_generated' in schema_sql
+    assert 'CREATE TABLE news_cluster_similar_group' in schema_sql
+    assert 'CREATE TABLE news_cluster_similar_group_article' in schema_sql
+    assert 'DEFERRABLE INITIALLY DEFERRED' in schema_sql
+    assert 'CHECK (exact_duplicate_count >= 0)' in schema_sql
+    assert 'idx_news_cluster_similar_group_cluster_rank' in schema_sql
+    assert 'idx_news_cluster_similar_group_article_processed' in schema_sql
+    assert (
+        'article_grouping_status TEXT NOT NULL DEFAULT'
+        in schema_sql[
+            schema_sql.index('CREATE TABLE market_daily_page_market_cluster') :
+        ]
+    )
+    assert 'similar_group_rank SMALLINT NULL' in schema_sql
+    assert 'is_similar_group_representative BOOLEAN NOT NULL DEFAULT TRUE' in schema_sql
+    assert 'exact_duplicate_count INTEGER NOT NULL DEFAULT 0' in schema_sql
+    assert 'vector' not in schema_sql.lower()
+
+
+def test_article_similarity_migration_is_transactional_qualified_idempotent_and_vector_free():
+    assert SIMILARITY_MIGRATION.exists()
+    migration_sql = _read_sql(SIMILARITY_MIGRATION)
+
+    assert migration_sql.startswith('BEGIN;')
+    assert migration_sql.endswith('COMMIT;')
+    assert 'ALTER TABLE stock.news_cluster' in migration_sql
+    assert 'ADD COLUMN IF NOT EXISTS article_grouping_status' in migration_sql
+    assert (
+        'CREATE TABLE IF NOT EXISTS stock.news_cluster_similar_group' in migration_sql
+    )
+    assert (
+        'CREATE TABLE IF NOT EXISTS stock.news_cluster_similar_group_article'
+        in migration_sql
+    )
+    assert (
+        'CREATE INDEX IF NOT EXISTS idx_news_cluster_similar_group_cluster_rank'
+        in migration_sql
+    )
+    assert (
+        'CREATE INDEX IF NOT EXISTS idx_news_cluster_similar_group_article_processed'
+        in migration_sql
+    )
+    assert 'DEFERRABLE INITIALLY DEFERRED' in migration_sql
+    assert "article_grouping_status IN ('READY', 'UNAVAILABLE')" in migration_sql
+    assert 'SIMILARITY_GROUPING_FAILED' in migration_sql
+    assert 'CREATE EXTENSION' not in migration_sql
+    assert ' vector' not in migration_sql.lower()
+
+
+def test_article_similarity_is_connected_to_the_sequential_alembic_head():
+    assert SIMILARITY_ALEMBIC_REVISION.exists()
+    revision_sql = _read_sql(SIMILARITY_ALEMBIC_REVISION)
+
+    assert "revision = '20260814_03_article_similarity_groups'" in revision_sql
+    assert "down_revision = '20260814_02_page_search_document'" in revision_sql
+    assert '20260813_09_article_similarity_groups.sql' in revision_sql
