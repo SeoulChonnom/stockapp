@@ -1,6 +1,6 @@
 # B3 Task 11 — End-to-end contract gate report
 
-Status: **PASS; Unicode page-search residual resolved**
+Status: **PASS; Unicode page-search and Alembic/snapshot residuals resolved**
 
 Commit: `test: 테마 분류 평가 및 계약 검증` (final commit hash is reported with the handoff).
 
@@ -84,10 +84,26 @@ The migration also repairs a pre-existing nullable `search_document` column by
 backfilling first, then enforcing the canonical empty-string default and
 `NOT NULL` contract.
 
+The theme catalog/archive SQL asset is now connected to the startup Alembic
+chain through `20260814_01_theme_archive_search`, immediately after the
+baseline's existing `20260810_01_step_errors` head; the page-search revision
+depends on that revision. The revision executes the guarded SQL asset through
+Alembic's transaction-aware `op.execute` path, preserving the legacy SQL
+runner's idempotency. PostgreSQL 17 startup tests cover fresh/head reruns,
+previous-head upgrades, unversioned baseline adoption, the 63-row catalog
+(5/18/40 depth counts), enabled seed contract, and page/market/cluster search
+columns.
+
+Persisted page snapshot headers now project `search_document`. Rebuild and AI
+retry copy that source value exactly—even when it intentionally differs from
+the source title/headline—while only a newly built page computes the shared
+normalizer output.
+
 Follow-up evidence: combined focused Unicode/archive/Alembic tests **152
-passed, 14 skipped**; PostgreSQL 17 fresh/previous-head/backfill/idempotency/
-startup-adoption/write tests **38 passed**; full suite **1025 passed, 15
-skipped**; Ruff format/lint and relevant Pyright passed.
+passed, 14 skipped**; the final Alembic/snapshot focused set **67 passed, 1
+skipped**; PostgreSQL 17 fresh/previous-head/backfill/idempotency/
+startup-adoption/write/theme-chain tests **39 passed**; full suite **1026
+passed, 16 skipped**; Ruff format/lint and relevant Pyright passed.
 The disposable repository probe was not promoted to a new tracked test in this
 follow-up review; that remains the only documented minor limitation.
 

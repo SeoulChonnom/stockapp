@@ -10,7 +10,6 @@ import pytest
 
 from app.batch.ai_retry.models import AiRetryCounts
 from app.batch.ai_retry.page_builder import AiRetryPageBuilder
-from app.core.text import normalize_search_document
 from app.db.repositories.projections import AiSummaryRecord
 
 BUSINESS_DATE = date(2026, 7, 28)
@@ -135,6 +134,7 @@ def _source_state(*, non_ai_issue: bool = False) -> dict:
             'page_title': 'source page',
             'status': 'PARTIAL',
             'global_headline': 'old global',
+            'search_document': 'source page search document 그대로',
             'partial_message': 'AI summary fallback',
             'raw_news_count': 10,
             'processed_news_count': 8,
@@ -327,9 +327,7 @@ async def test_all_recovery_creates_ready_vnext_with_ai_overlay_and_cloned_links
     assert result.version_no == 4
     assert writes.page is not None
     assert writes.page['global_headline'] == 'new title GLOBAL_HEADLINE'
-    assert writes.page['search_document'] == normalize_search_document(
-        writes.page['page_title'], writes.page['global_headline']
-    )
+    assert writes.page['search_document'] == 'source page search document 그대로'
     assert writes.markets[0]['summary_body'] == 'new body MARKET_SUMMARY:US'
     assert writes.markets[0]['expected_session_date'] == date(2026, 7, 24)
     assert writes.markets[0]['actual_index_source_date'] == date(2026, 7, 24)

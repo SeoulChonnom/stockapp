@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alembic import command
 from app.batch.ai_retry.resolver import resolve_effective_summaries
+from app.batch.theme_rules import CANONICAL_LEAF_CODES, load_theme_rules
 from app.core.settings import Settings
 from app.core.text import normalize_search_document
 from app.db import migration_runner
@@ -41,6 +42,7 @@ ALEMBIC_BASELINE_SQL = (
     REPOSITORY_ROOT / 'db' / 'alembic' / 'baselines' / '20260731_schema.sql'
 )
 ALEMBIC_PREVIOUS_HEAD = '20260810_01_step_errors'
+ALEMBIC_THEME_REVISION = '20260814_01_theme_archive_search'
 ALEMBIC_HEAD = '20260814_02_page_search_document'
 
 
@@ -1307,6 +1309,15 @@ def test_alembic_head_applies_page_search_and_supports_snapshot_write():
             connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
             connection.commit()
 
+        _run_alembic(engine, database_url, command.upgrade, ALEMBIC_THEME_REVISION)
+        with engine.connect() as connection:
+            assert (
+                connection.execute(
+                    text('SELECT version_num FROM stock.alembic_version')
+                ).scalar_one()
+                == ALEMBIC_THEME_REVISION
+            )
+
         _run_alembic(engine, database_url, command.upgrade, 'head')
         _run_alembic(engine, database_url, command.upgrade, 'head')
 
@@ -1597,6 +1608,133 @@ def test_startup_migration_adopts_unversioned_baseline_and_applies_page_revision
                 )
             ).one()
             assert row == ('café strasse', ALEMBIC_HEAD)
+            assert (
+                connection.execute(
+                    text('SELECT count(*) FROM stock.theme_catalog')
+                ).scalar_one()
+                == 63
+            )
+    finally:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+        engine.dispose()
+
+
+def test_alembic_head_applies_theme_catalog_search_assets_and_seed_contract():
+    database_url = os.getenv('STOCKAPP_MIGRATION_TEST_DSN')
+    if database_url is None:
+        pytest.skip('STOCKAPP_MIGRATION_TEST_DSN is not configured.')
+
+    sqlalchemy_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_engine(sqlalchemy_url, poolclass=pool.NullPool)
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+
+        _run_alembic(engine, database_url, command.upgrade, 'head')
+        _run_alembic(engine, database_url, command.upgrade, 'head')
+
+        with engine.connect() as connection:
+            tables = set(
+                connection.execute(
+                    text(
+                        """
+                        SELECT table_name
+                        FROM information_schema.tables
+                        WHERE table_schema = 'stock'
+                          AND table_name IN (
+                              'theme_catalog',
+                              'news_cluster_theme',
+                              'market_daily_page_market_cluster_theme'
+                          )
+                        """
+                    )
+                ).scalars()
+            )
+            assert tables == {
+                'theme_catalog',
+                'news_cluster_theme',
+                'market_daily_page_market_cluster_theme',
+            }
+
+            search_columns = set(
+                connection.execute(
+                    text(
+                        """
+                        SELECT table_name
+                        FROM information_schema.columns
+                        WHERE table_schema = 'stock'
+                          AND column_name = 'search_document'
+                          AND table_name IN (
+                              'market_daily_page',
+                              'market_daily_page_market',
+                              'market_daily_page_market_cluster'
+                          )
+                        """
+                    )
+                ).scalars()
+            )
+            assert search_columns == {
+                'market_daily_page',
+                'market_daily_page_market',
+                'market_daily_page_market_cluster',
+            }
+
+            seed_counts = connection.execute(
+                text(
+                    """
+                    WITH RECURSIVE theme_tree AS (
+                        SELECT code, parent_code, 1 AS depth, ARRAY[code] AS path
+                        FROM stock.theme_catalog
+                        WHERE parent_code IS NULL
+                        UNION ALL
+                        SELECT child.code, child.parent_code,
+                               theme_tree.depth + 1,
+                               theme_tree.path || child.code
+                        FROM theme_tree
+                        JOIN stock.theme_catalog AS child
+                          ON child.parent_code = theme_tree.code
+                        WHERE NOT child.code = ANY(theme_tree.path)
+                    )
+                    SELECT count(*),
+                           count(*) FILTER (WHERE depth = 1),
+                           count(*) FILTER (WHERE depth = 2),
+                           count(*) FILTER (WHERE depth = 3)
+                    FROM theme_tree
+                    """
+                )
+            ).one()
+            assert seed_counts == (63, 5, 18, 40)
+
+            active_seed_count = connection.execute(
+                text(
+                    """
+                    SELECT count(*)
+                    FROM stock.theme_catalog
+                    WHERE is_active
+                    """
+                )
+            ).scalar_one()
+            assert active_seed_count == 63
+
+            version = connection.execute(
+                text('SELECT version_num FROM stock.alembic_version')
+            ).scalar_one()
+            assert version == ALEMBIC_HEAD
+
+        assert (
+            sum(
+                rule.fallback_enabled
+                for rule in load_theme_rules(CANONICAL_LEAF_CODES).values()
+            )
+            == 20
+        )
     finally:
         with engine.connect() as connection:
             connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))

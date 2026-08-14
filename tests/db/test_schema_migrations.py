@@ -8,6 +8,12 @@ SCHEMA_SQL = REPOSITORY_ROOT / 'db' / 'schema_postgresql.sql'
 MIGRATIONS_DIRECTORY = REPOSITORY_ROOT / 'db' / 'migrations'
 THEME_MIGRATION = MIGRATIONS_DIRECTORY / '20260813_08_theme_catalog_archive_search.sql'
 PAGE_SEARCH_MIGRATION = MIGRATIONS_DIRECTORY / '20260814_09_page_search_document.sql'
+THEME_ALEMBIC_REVISION = (
+    REPOSITORY_ROOT
+    / 'alembic'
+    / 'versions'
+    / '20260814_01_theme_catalog_archive_search.py'
+)
 PAGE_SEARCH_ALEMBIC_REVISION = (
     REPOSITORY_ROOT / 'alembic' / 'versions' / '20260814_02_page_search_document.py'
 )
@@ -338,8 +344,17 @@ def test_page_search_document_is_connected_to_the_sequential_alembic_head():
     revision_sql = _read_sql(PAGE_SEARCH_ALEMBIC_REVISION)
 
     assert "revision = '20260814_02_page_search_document'" in revision_sql
-    assert "down_revision = '20260810_01_step_errors'" in revision_sql
+    assert "down_revision = '20260814_01_theme_archive_search'" in revision_sql
     assert '20260814_09_page_search_document.sql' in revision_sql
+
+
+def test_theme_catalog_is_connected_before_page_search_in_alembic_chain():
+    assert THEME_ALEMBIC_REVISION.exists()
+    revision_sql = _read_sql(THEME_ALEMBIC_REVISION)
+
+    assert "revision = '20260814_01_theme_archive_search'" in revision_sql
+    assert "down_revision = '20260810_01_step_errors'" in revision_sql
+    assert '20260813_08_theme_catalog_archive_search.sql' in revision_sql
 
 
 def test_theme_migration_is_transactional_qualified_and_idempotent():

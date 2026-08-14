@@ -16,6 +16,7 @@ _PAGE_HEADER_BASE_COLUMNS: tuple[str, ...] = (
     'page_title',
     'status',
     'global_headline',
+    'search_document',
     'generated_at',
     'partial_message',
     'raw_news_count',

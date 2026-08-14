@@ -1,7 +1,7 @@
 """Connect the page search-document migration to startup Alembic upgrades.
 
 Revision ID: 20260814_02_page_search_document
-Revises: 20260810_01_step_errors
+Revises: 20260814_01_theme_archive_search
 Create Date: 2026-08-14
 
 The SQL migration is retained as the single executable source for both the
@@ -14,7 +14,7 @@ from pathlib import Path
 from alembic import op
 
 revision = '20260814_02_page_search_document'
-down_revision = '20260810_01_step_errors'
+down_revision = '20260814_01_theme_archive_search'
 branch_labels = None
 depends_on = None
 

@@ -16,7 +16,6 @@ from app.batch.normalizers import metadata_optional_string, metadata_string_list
 from app.batch.snapshot_contract import require_snapshot_cluster_id
 from app.batch.steps.build_page_snapshot import _build_search_document
 from app.batch.steps.page_snapshot_cloner import clone_child_rows, clone_page_markets
-from app.core.text import normalize_search_document
 from app.db.enums import AiSummaryType, PageStatus
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.db.repositories.page_snapshot_write_repo import (
@@ -127,7 +126,7 @@ class AiRetryPageBuilder:
             page_title=page_title,
             status=page_status,
             global_headline=global_headline,
-            search_document=normalize_search_document(page_title, global_headline),
+            search_document=source_page['search_document'],
             partial_message=partial_message,
             raw_news_count=source_page['raw_news_count'],
             processed_news_count=source_page['processed_news_count'],
