@@ -8,19 +8,31 @@ from uuid import uuid4
 import pytest
 from alembic.config import Config
 from sqlalchemy import create_engine, pool, text
+from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alembic import command
 from app.batch.ai_retry.resolver import resolve_effective_summaries
+from app.batch.article_similarity import (
+    SimilarityGroup,
+    SimilarityGroupingResult,
+    SimilarityGroupMember,
+)
 from app.batch.theme_rules import CANONICAL_LEAF_CODES, load_theme_rules
 from app.core.settings import Settings
 from app.core.text import normalize_search_document
 from app.db import migration_runner
 from app.db.repositories.ai_retry_repo import PostgresAiRetryRepository
 from app.db.repositories.ai_summary_repo import AiSummaryRepository
+from app.db.repositories.article_group_repo import ArticleGroupRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.market_context_repo import MarketContextRepository
-from app.db.repositories.projections import BatchJobMarketContextCreateParams
+from app.db.repositories.news_cluster_write_repo import NewsClusterWriteRepository
+from app.db.repositories.projections import (
+    BatchJobMarketContextCreateParams,
+    ExactDuplicateCountRecord,
+    NewsClusterArticleCreateParams,
+)
 
 psycopg = pytest.importorskip('psycopg')
 
@@ -2084,6 +2096,553 @@ def test_article_similarity_sql_migration_is_idempotent_on_postgresql(
             WHERE business_date = DATE '2026-08-20'
             """
         )
+
+
+@pytest.mark.anyio
+async def test_exact_duplicate_counts_bind_multiple_ids_as_postgres_array(
+    postgres_connection,
+):
+    processed_ids = []
+    for index in range(4):
+        processed_ids.append(
+            postgres_connection.execute(
+                """
+                INSERT INTO stock.news_article_processed (
+                    business_date,
+                    market_type,
+                    dedupe_hash,
+                    canonical_title,
+                    origin_link
+                )
+                VALUES (DATE '2026-08-21', 'US', %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    f'{index + 1:064d}',
+                    f'Exact count article {index}',
+                    f'https://example.test/exact-count/{index}',
+                ),
+            ).fetchone()[0]
+        )
+    raw_ids = []
+    for index in range(5):
+        raw_ids.append(
+            postgres_connection.execute(
+                """
+                INSERT INTO stock.news_article_raw (
+                    provider_name,
+                    provider_article_key,
+                    market_type,
+                    title
+                )
+                VALUES ('TASK5_TEST', %s, 'US', %s)
+                RETURNING id
+                """,
+                (f'exact-count-raw-{index}', f'Raw exact count {index}'),
+            ).fetchone()[0]
+        )
+    for raw_id, processed_id in (
+        (raw_ids[0], processed_ids[0]),
+        (raw_ids[1], processed_ids[0]),
+        (raw_ids[2], processed_ids[0]),
+        (raw_ids[3], processed_ids[1]),
+        (raw_ids[4], processed_ids[3]),
+    ):
+        postgres_connection.execute(
+            """
+            INSERT INTO stock.news_article_raw_processed_map (
+                raw_article_id,
+                processed_article_id
+            )
+            VALUES (%s, %s)
+            """,
+            (raw_id, processed_id),
+        )
+
+    database_url = os.environ['STOCKAPP_MIGRATION_TEST_DSN']
+    async_database_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_async_engine(async_database_url)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with session_maker() as session:
+            result = await ArticleGroupRepository(session).get_exact_duplicate_counts(
+                processed_ids
+            )
+            assert result == [
+                ExactDuplicateCountRecord(processed_ids[0], 2),
+                ExactDuplicateCountRecord(processed_ids[1], 0),
+                ExactDuplicateCountRecord(processed_ids[2], 0),
+                ExactDuplicateCountRecord(processed_ids[3], 0),
+            ]
+            await session.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_membership_replacement_invalidates_source_but_preserves_page_snapshot(
+    postgres_connection,
+):
+    _execute_file(postgres_connection, SIMILARITY_MIGRATION)
+    business_date = date(2026, 8, 22)
+    with postgres_connection.transaction():
+        processed_ids = []
+        for index in range(2):
+            processed_ids.append(
+                postgres_connection.execute(
+                    """
+                    INSERT INTO stock.news_article_processed (
+                        business_date,
+                        market_type,
+                        dedupe_hash,
+                        canonical_title,
+                        origin_link
+                    )
+                    VALUES (%s, 'US', %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        business_date,
+                        f'{index + 11:064d}',
+                        f'Membership article {index}',
+                        f'https://example.test/membership/{index}',
+                    ),
+                ).fetchone()[0]
+            )
+        cluster_id, cluster_uid = postgres_connection.execute(
+            """
+            INSERT INTO stock.news_cluster (
+                business_date,
+                market_type,
+                cluster_rank,
+                title,
+                representative_article_id
+            )
+            VALUES (%s, 'US', 1, 'Membership replacement', %s)
+            RETURNING id, cluster_uid
+            """,
+            (business_date, processed_ids[0]),
+        ).fetchone()
+        for processed_id, article_rank in (
+            (processed_ids[0], 1),
+            (processed_ids[1], 2),
+        ):
+            postgres_connection.execute(
+                """
+                INSERT INTO stock.news_cluster_article (
+                    cluster_id,
+                    processed_article_id,
+                    article_rank
+                )
+                VALUES (%s, %s, %s)
+                """,
+                (cluster_id, processed_id, article_rank),
+            )
+        old_group_id = postgres_connection.execute(
+            """
+            INSERT INTO stock.news_cluster_similar_group (
+                cluster_id,
+                group_rank,
+                representative_article_id,
+                algorithm_version,
+                generated_at
+            )
+            VALUES (%s, 1, %s, 'old-v1', TIMESTAMPTZ '2026-08-22 01:00:00+00')
+            RETURNING id
+            """,
+            (cluster_id, processed_ids[1]),
+        ).fetchone()[0]
+        postgres_connection.execute(
+            """
+            INSERT INTO stock.news_cluster_similar_group_article (
+                similar_group_id,
+                processed_article_id,
+                similarity_score,
+                exact_duplicate_count,
+                is_representative,
+                article_rank
+            )
+            VALUES (%s, %s, 1.0, 0, TRUE, 1)
+            """,
+            (old_group_id, processed_ids[1]),
+        )
+        postgres_connection.execute(
+            """
+            UPDATE stock.news_cluster
+            SET article_grouping_status = 'READY',
+                article_grouping_generated_at = TIMESTAMPTZ '2026-08-22 01:00:00+00',
+                article_grouping_issue_code = NULL
+            WHERE id = %s
+            """,
+            (cluster_id,),
+        )
+        job_id = postgres_connection.execute(
+            """
+            INSERT INTO stock.batch_job (business_date, status, trigger_type, run_mode)
+            VALUES (%s, 'SUCCESS', 'MANUAL', 'FULL')
+            RETURNING id
+            """,
+            (business_date,),
+        ).fetchone()[0]
+        page_id = postgres_connection.execute(
+            """
+            INSERT INTO stock.market_daily_page (
+                business_date,
+                version_no,
+                page_title,
+                status,
+                batch_job_id
+            )
+            VALUES (%s, 1, 'Snapshot', 'READY', %s)
+            RETURNING id
+            """,
+            (business_date, job_id),
+        ).fetchone()[0]
+        page_market_id = postgres_connection.execute(
+            """
+            INSERT INTO stock.market_daily_page_market (
+                page_id,
+                market_type,
+                display_order,
+                market_label
+            )
+            VALUES (%s, 'US', 1, 'US market')
+            RETURNING id
+            """,
+            (page_id,),
+        ).fetchone()[0]
+        postgres_connection.execute(
+            """
+            INSERT INTO stock.market_daily_page_market_cluster (
+                page_market_id,
+                cluster_id,
+                cluster_uid,
+                display_order,
+                title,
+                article_count,
+                representative_article_id,
+                article_grouping_status,
+                article_grouping_generated_at,
+                article_grouping_issue_code
+            )
+            VALUES (
+                %s, %s, %s, 1, 'Snapshot cluster', 2, %s,
+                'READY', TIMESTAMPTZ '2026-08-22 01:00:00+00', NULL
+            )
+            """,
+            (page_market_id, cluster_id, cluster_uid, processed_ids[0]),
+        )
+
+    database_url = os.environ['STOCKAPP_MIGRATION_TEST_DSN']
+    async_database_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_async_engine(async_database_url)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with session_maker() as session:
+            await NewsClusterWriteRepository(session).replace_cluster_articles(
+                cluster_id,
+                [
+                    NewsClusterArticleCreateParams(
+                        cluster_id=cluster_id,
+                        processed_article_id=processed_ids[0],
+                        article_rank=1,
+                    )
+                ],
+            )
+            await session.commit()
+            source = (
+                (
+                    await session.execute(
+                        text(
+                            """
+                        SELECT article_grouping_status,
+                               article_grouping_generated_at,
+                               article_grouping_issue_code
+                        FROM stock.news_cluster
+                        WHERE id = :cluster_id
+                        """
+                        ),
+                        {'cluster_id': cluster_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert source == {
+                'article_grouping_status': 'UNAVAILABLE',
+                'article_grouping_generated_at': None,
+                'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+            }
+            assert (
+                await session.scalar(
+                    text(
+                        """
+                        SELECT count(*)
+                        FROM stock.news_cluster_similar_group
+                        WHERE cluster_id = :cluster_id
+                        """
+                    ),
+                    {'cluster_id': cluster_id},
+                )
+            ) == 0
+            assert (
+                await session.execute(
+                    text(
+                        """
+                        SELECT processed_article_id
+                        FROM stock.news_cluster_article
+                        WHERE cluster_id = :cluster_id
+                        ORDER BY article_rank
+                        """
+                    ),
+                    {'cluster_id': cluster_id},
+                )
+            ).scalars().all() == [processed_ids[0]]
+            page_state = (
+                (
+                    await session.execute(
+                        text(
+                            """
+                        SELECT page.status::text AS page_status,
+                               cluster.article_grouping_status AS snapshot_status
+                        FROM stock.market_daily_page page
+                        JOIN stock.market_daily_page_market market
+                          ON market.page_id = page.id
+                        JOIN stock.market_daily_page_market_cluster cluster
+                          ON cluster.page_market_id = market.id
+                        WHERE cluster.cluster_id = :cluster_id
+                        """
+                        ),
+                        {'cluster_id': cluster_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert page_state == {
+                'page_status': 'READY',
+                'snapshot_status': 'READY',
+            }
+            await session.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_group_replacement_rolls_back_partial_member_insert_on_postgres(
+    postgres_connection,
+):
+    _execute_file(postgres_connection, SIMILARITY_MIGRATION)
+    business_date = date(2026, 8, 23)
+    with postgres_connection.transaction():
+        processed_ids = []
+        for index in range(2):
+            processed_ids.append(
+                postgres_connection.execute(
+                    """
+                    INSERT INTO stock.news_article_processed (
+                        business_date,
+                        market_type,
+                        dedupe_hash,
+                        canonical_title,
+                        origin_link
+                    )
+                    VALUES (%s, 'US', %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        business_date,
+                        f'{index + 21:064d}',
+                        f'Rollback article {index}',
+                        f'https://example.test/rollback/{index}',
+                    ),
+                ).fetchone()[0]
+            )
+        cluster_id = postgres_connection.execute(
+            """
+            INSERT INTO stock.news_cluster (
+                business_date,
+                market_type,
+                cluster_rank,
+                title,
+                representative_article_id
+            )
+            VALUES (%s, 'US', 1, 'Rollback cluster', %s)
+            RETURNING id
+            """,
+            (business_date, processed_ids[0]),
+        ).fetchone()[0]
+        for processed_id, article_rank in (
+            (processed_ids[0], 1),
+            (processed_ids[1], 2),
+        ):
+            postgres_connection.execute(
+                """
+                INSERT INTO stock.news_cluster_article (
+                    cluster_id,
+                    processed_article_id,
+                    article_rank
+                )
+                VALUES (%s, %s, %s)
+                """,
+                (cluster_id, processed_id, article_rank),
+            )
+        old_group_id = postgres_connection.execute(
+            """
+            INSERT INTO stock.news_cluster_similar_group (
+                cluster_id,
+                group_rank,
+                representative_article_id,
+                algorithm_version,
+                generated_at
+            )
+            VALUES (%s, 1, %s, 'old-v1', TIMESTAMPTZ '2026-08-23 01:00:00+00')
+            RETURNING id
+            """,
+            (cluster_id, processed_ids[0]),
+        ).fetchone()[0]
+        postgres_connection.execute(
+            """
+            INSERT INTO stock.news_cluster_similar_group_article (
+                similar_group_id,
+                processed_article_id,
+                similarity_score,
+                exact_duplicate_count,
+                is_representative,
+                article_rank
+            )
+            VALUES (%s, %s, 1.0, 0, TRUE, 1)
+            """,
+            (old_group_id, processed_ids[0]),
+        )
+        postgres_connection.execute(
+            """
+            UPDATE stock.news_cluster
+            SET article_grouping_status = 'READY',
+                article_grouping_generated_at = TIMESTAMPTZ '2026-08-23 01:00:00+00',
+                article_grouping_issue_code = NULL
+            WHERE id = %s
+            """,
+            (cluster_id,),
+        )
+
+    database_url = os.environ['STOCKAPP_MIGRATION_TEST_DSN']
+    async_database_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_async_engine(async_database_url)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with session_maker() as session:
+            grouping = SimilarityGroupingResult(
+                groups=(
+                    SimilarityGroup(
+                        group_rank=1,
+                        representative_article_id=processed_ids[0],
+                        members=(
+                            SimilarityGroupMember(
+                                processed_article_id=processed_ids[0],
+                                similarity_score=1.0,
+                                is_representative=True,
+                                article_rank=1,
+                            ),
+                        ),
+                    ),
+                    SimilarityGroup(
+                        group_rank=2,
+                        representative_article_id=processed_ids[1],
+                        members=(
+                            SimilarityGroupMember(
+                                processed_article_id=processed_ids[1],
+                                similarity_score=1.0,
+                                is_representative=True,
+                                article_rank=1,
+                            ),
+                        ),
+                    ),
+                )
+            )
+            with pytest.raises(DataError):
+                await ArticleGroupRepository(session).replace_cluster_groups(
+                    cluster_id,
+                    grouping,
+                    algorithm_version='new-v2',
+                    generated_at=datetime(2026, 8, 23, 2, tzinfo=UTC),
+                    exact_counts={processed_ids[0]: 0, processed_ids[1]: 2_147_483_648},
+                )
+            source = (
+                (
+                    await session.execute(
+                        text(
+                            """
+                        SELECT article_grouping_status,
+                               article_grouping_generated_at,
+                               article_grouping_issue_code
+                        FROM stock.news_cluster
+                        WHERE id = :cluster_id
+                        """
+                        ),
+                        {'cluster_id': cluster_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert source['article_grouping_status'] == 'READY'
+            assert source['article_grouping_generated_at'] is not None
+            assert source['article_grouping_issue_code'] is None
+            groups = (
+                (
+                    await session.execute(
+                        text(
+                            """
+                        SELECT id, algorithm_version
+                        FROM stock.news_cluster_similar_group
+                        WHERE cluster_id = :cluster_id
+                        """
+                        ),
+                        {'cluster_id': cluster_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            assert groups == [{'id': old_group_id, 'algorithm_version': 'old-v1'}]
+            members = (
+                (
+                    await session.execute(
+                        text(
+                            """
+                        SELECT similar_group_id, processed_article_id
+                        FROM stock.news_cluster_similar_group_article
+                        WHERE similar_group_id = :group_id
+                        """
+                        ),
+                        {'group_id': old_group_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            assert members == [
+                {
+                    'similar_group_id': old_group_id,
+                    'processed_article_id': processed_ids[0],
+                }
+            ]
+            await session.rollback()
+    finally:
+        await engine.dispose()
 
 
 def test_alembic_fresh_upgrade_applies_article_similarity_revision():

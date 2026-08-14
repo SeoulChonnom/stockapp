@@ -46,7 +46,7 @@ class ArticleGroupRepository(PostgresRepository):
         A processed-to-processed similarity relationship is deliberately absent
         from this query: only raw article mappings represent exact duplicates.
         """
-        ids = tuple(self._validate_ids(processed_article_ids))
+        ids = self._validate_ids(processed_article_ids)
         if not ids:
             return []
         statement = text(

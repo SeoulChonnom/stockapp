@@ -107,7 +107,7 @@ async def test_exact_duplicate_counts_use_raw_mappings_only():
     assert 'count(distinct' in sql
     assert 'greatest(count(distinct' in sql
     assert 'news_article_processed' not in sql
-    assert session.parameters[0]['processed_article_ids'] == (4001, 4002, 4003)
+    assert session.parameters[0]['processed_article_ids'] == [4001, 4002, 4003]
 
 
 @pytest.mark.anyio

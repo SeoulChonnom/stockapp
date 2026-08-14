@@ -96,6 +96,41 @@ async def test_create_cluster_bundle_inserts_cluster_and_memberships():
 
 
 @pytest.mark.anyio
+async def test_replace_cluster_articles_invalidates_grouping_before_membership_mutation():
+    session = RecordingAsyncSession()
+    repo = NewsClusterWriteRepository(session)
+
+    await repo.replace_cluster_articles(
+        7001,
+        [
+            projections_module.NewsClusterArticleCreateParams(
+                cluster_id=7001,
+                processed_article_id=4001,
+                article_rank=1,
+            )
+        ],
+    )
+
+    statements = [normalize_sql(statement).lower() for statement in session.statements]
+    assert 'select id from stock.news_cluster' in statements[0]
+    assert 'for update' in statements[0]
+    assert statements[1].startswith('delete from stock.news_cluster_similar_group')
+    assert statements[2].startswith('update stock.news_cluster set')
+    assert 'article_grouping_status' in statements[2]
+    assert 'article_grouping_generated_at' in statements[2]
+    assert 'article_grouping_issue_code' in statements[2]
+    assert statements[3].startswith('delete from stock.news_cluster_article')
+    assert statements[4].startswith('insert into stock.news_cluster_article')
+    assert all('market_daily_page' not in statement for statement in statements)
+    assert session.parameters[2] == {
+        'cluster_id': 7001,
+        'status': 'UNAVAILABLE',
+        'issue_code': 'SIMILARITY_GROUPING_FAILED',
+    }
+    assert session.commits == 0
+
+
+@pytest.mark.anyio
 async def test_list_cluster_ids_without_min_rank_omits_rank_filter_and_bind():
     """F2: when min_rank is not given, the query must not depend on an
     untyped NULL bind comparison -- the rank filter is left out of both

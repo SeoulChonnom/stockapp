@@ -144,6 +144,7 @@ class NewsClusterWriteRepository(PostgresRepository):
         memberships: list[NewsClusterArticleCreateParams],
     ) -> None:
         await self._lock_cluster_parent(cluster_id)
+        await self._invalidate_cluster_grouping(cluster_id)
         delete_statement = text(
             """
             DELETE FROM {cluster_article_table}
@@ -180,6 +181,33 @@ class NewsClusterWriteRepository(PostgresRepository):
                         'article_rank': membership.article_rank,
                     },
                 )
+
+    async def _invalidate_cluster_grouping(self, cluster_id: int) -> None:
+        """Clear stale groups before changing their source memberships."""
+        delete_statement = text(
+            """
+            DELETE FROM {group_table}
+            WHERE cluster_id = :cluster_id
+            """.format(group_table=qualify_db_identifier('news_cluster_similar_group'))
+        )
+        await self.session.execute(delete_statement, {'cluster_id': cluster_id})
+        status_statement = text(
+            """
+            UPDATE {cluster_table}
+            SET article_grouping_status = :status,
+                article_grouping_generated_at = NULL,
+                article_grouping_issue_code = :issue_code
+            WHERE id = :cluster_id
+            """.format(cluster_table=qualify_db_identifier('news_cluster'))
+        )
+        await self.session.execute(
+            status_statement,
+            {
+                'cluster_id': cluster_id,
+                'status': 'UNAVAILABLE',
+                'issue_code': 'SIMILARITY_GROUPING_FAILED',
+            },
+        )
 
     async def _lock_cluster_parent(self, cluster_id: int) -> None:
         """Acquire the parent lock used by grouping replacement."""
