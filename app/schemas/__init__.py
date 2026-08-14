@@ -6,7 +6,7 @@ from app.schemas.common import (
     Meta,
     SuccessEnvelope,
 )
-from app.schemas.page import ArchiveListResponse, DailyPageResponse
+from app.schemas.page import ArchiveListResponse, DailyPageResponse, ThemeNodeResponse
 
 __all__ = [
     'ApiError',
@@ -17,4 +17,5 @@ __all__ = [
     'DailyPageResponse',
     'Meta',
     'SuccessEnvelope',
+    'ThemeNodeResponse',
 ]

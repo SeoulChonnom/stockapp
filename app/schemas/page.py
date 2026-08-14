@@ -275,6 +275,20 @@ class ArchiveListResponse(BaseModel):
     pagination: PaginationResponse
 
 
+class ThemeNodeResponse(BaseModel):
+    """One active node in the recursively nested archive theme catalog."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    code: str
+    label: str
+    description: str
+    children: list[ThemeNodeResponse]
+
+
+ThemeNodeResponse.model_rebuild()
+
+
 __all__ = [
     'ArchiveItemResponse',
     'ArchiveListResponse',
@@ -294,5 +308,6 @@ __all__ = [
     'PageVersionSummaryResponse',
     'PaginationResponse',
     'RepresentativeArticleResponse',
+    'ThemeNodeResponse',
     'WatchKeyPointResponse',
 ]

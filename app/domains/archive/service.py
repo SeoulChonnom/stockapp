@@ -4,14 +4,24 @@ from datetime import date
 
 from app.core.exceptions import ValidationError
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
-from app.domains.archive.assembler import build_archive_list_payload
+from app.db.repositories.theme_repo import ThemeRepository
+from app.domains.archive.assembler import (
+    assemble_theme_catalog_response,
+    build_archive_list_payload,
+)
+from app.schemas.page import ThemeNodeResponse
 
 ARCHIVE_STATUSES = frozenset({'READY', 'PARTIAL'})
 
 
 class ArchiveService:
-    def __init__(self, repository: PageSnapshotRepository) -> None:
+    def __init__(
+        self,
+        repository: PageSnapshotRepository,
+        theme_repository: ThemeRepository,
+    ) -> None:
         self._repo = repository
+        self._theme_repo = theme_repository
 
     async def list_archive(
         self,
@@ -44,6 +54,11 @@ class ArchiveService:
             size=size,
             total_count=total_count,
         )
+
+    async def list_theme_catalog(self) -> list[ThemeNodeResponse]:
+        """Return the validated active archive theme tree."""
+        rows = await self._theme_repo.list_active_tree_rows()
+        return assemble_theme_catalog_response(rows)
 
 
 __all__ = ['ArchiveService']

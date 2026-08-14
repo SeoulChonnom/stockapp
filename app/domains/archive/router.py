@@ -13,9 +13,10 @@ from app.core.openapi_responses import (
 )
 from app.core.response import ApiSuccess
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
+from app.db.repositories.theme_repo import ThemeRepository
 from app.domains.archive.assembler import assemble_archive_list_response
 from app.domains.archive.service import ArchiveService
-from app.schemas.page import ArchiveListResponse
+from app.schemas.page import ArchiveListResponse, ThemeNodeResponse
 
 router = APIRouter(prefix='/pages', tags=['archive'])
 
@@ -29,11 +30,23 @@ _LIST_ARCHIVE_RESPONSES = merge_responses(
 
 
 def get_archive_service(session: DbSession) -> ArchiveService:
-    return ArchiveService(PageSnapshotRepository(session))
+    return ArchiveService(PageSnapshotRepository(session), ThemeRepository(session))
 
 
 type ArchiveServiceDep = Annotated[ArchiveService, Depends(get_archive_service)]
 type ArchiveStatus = Literal['READY', 'PARTIAL']
+
+
+@router.get(
+    '/archive/themes',
+    response_model=ApiSuccess[list[ThemeNodeResponse]],
+    responses=AUTH_RESPONSES,
+)
+async def list_archive_themes(
+    _: UserDep,
+    service: ArchiveServiceDep,
+) -> ApiSuccess[list[ThemeNodeResponse]]:
+    return ApiSuccess(data=await service.list_theme_catalog())
 
 
 @router.get(
@@ -60,4 +73,4 @@ async def list_archive(
     return ApiSuccess(data=assemble_archive_list_response(payload))
 
 
-__all__ = ['get_archive_service', 'router']
+__all__ = ['get_archive_service', 'list_archive_themes', 'router']
