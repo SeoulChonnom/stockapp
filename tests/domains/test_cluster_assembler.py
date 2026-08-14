@@ -1549,6 +1549,42 @@ def test_cluster_builder_uses_persisted_unavailable_singletons_in_server_order(
     ]
 
 
+@pytest.mark.parametrize(
+    ('status', 'generated_at', 'issue_code'),
+    [
+        ('READY', datetime(2026, 3, 18, 5, 0, tzinfo=UTC), 'BAD_ISSUE'),
+        ('UNAVAILABLE', None, None),
+        ('UNAVAILABLE', None, 'BAD_ISSUE'),
+    ],
+    ids=['ready-nonnull-issue', 'unavailable-null-issue', 'unavailable-wrong-issue'],
+)
+def test_cluster_builder_rejects_invalid_persisted_grouping_issue_code(
+    status,
+    generated_at,
+    issue_code,
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    from dataclasses import replace
+
+    grouping = replace(
+        _unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
+        ),
+        status=status,
+        generated_at=generated_at,
+        issue_code=issue_code,
+    )
+
+    with pytest.raises(ValueError, match='issue_code'):
+        build_cluster_detail_payload(
+            sample_cluster_row,
+            sample_processed_article_rows[0],
+            sample_processed_article_rows,
+            article_grouping=grouping,
+        )
+
+
 def test_cluster_assembler_returns_full_detail_contract(sample_cluster_detail_payload):
     structured_payload = _structured_cluster_payload(sample_cluster_detail_payload)
     payload = {

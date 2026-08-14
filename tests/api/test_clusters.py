@@ -378,6 +378,37 @@ def test_get_cluster_detail_real_service_sanitizes_grouping_integrity_failure(
     assert 'cluster article grouping' not in response.text
 
 
+@pytest.mark.parametrize('issue_code', [None, 'BAD_ISSUE'])
+def test_get_cluster_detail_real_service_sanitizes_unavailable_issue_integrity_failure(
+    issue_code,
+    sample_cluster_row,
+    sample_cluster_article_rows,
+    sample_processed_article_rows,
+):
+    from dataclasses import replace
+
+    app = _build_real_cluster_app(
+        sample_cluster_row,
+        sample_cluster_article_rows,
+        sample_processed_article_rows,
+        replace(_persisted_grouping('UNAVAILABLE'), issue_code=issue_code),
+    )
+    try:
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            response = test_client.get(
+                f'/stock/api/news/clusters/{sample_cluster_row["cluster_uid"]}'
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 500
+    assert response.json()['error'] == {
+        'code': 'INTERNAL_SERVER_ERROR',
+        'message': 'Internal server error',
+    }
+    assert 'BAD_ISSUE' not in response.text
+
+
 def test_get_cluster_detail_rejects_malformed_uuid(client):
     response = client.get('/stock/api/news/clusters/not-a-uuid')
 

@@ -151,6 +151,11 @@ def _build_article_grouping(
         raise ValueError('READY article grouping is missing generated_at')
     if status == 'UNAVAILABLE' and generated_at is not None:
         raise ValueError('UNAVAILABLE article grouping has generated_at')
+    issue_code = _grouping_value(grouping, 'issue_code')
+    if status == 'READY' and issue_code is not None:
+        raise ValueError('READY article grouping issue_code is invalid')
+    if status == 'UNAVAILABLE' and issue_code != _GROUPING_FAILED:
+        raise ValueError('UNAVAILABLE article grouping issue_code is invalid')
 
     raw_groups = _grouping_value(grouping, 'groups')
     if not isinstance(raw_groups, (list, tuple)):
