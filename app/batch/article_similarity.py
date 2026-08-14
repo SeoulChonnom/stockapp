@@ -1,0 +1,511 @@
+"""Deterministic article pair scoring used by the similarity grouping step.
+
+This module deliberately has no model, network, or database dependency.  Dense
+vectors are supplied by the caller; all lexical and contradiction decisions are
+made locally so repeated batch runs produce the same result.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+import unicodedata
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from numbers import Real
+
+from app.core.text import normalize_text
+
+_TOKEN_RE = re.compile(r'[0-9A-Za-z가-힣]+')
+_NUMBER_RE = re.compile(
+    r'(?<![\w])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)(?:\s*%|\s*퍼센트)?'
+)
+_ISO_DATE_RE = re.compile(
+    r'(?<!\d)(\d{4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})(?!\d)'
+)
+_KOREAN_DATE_RE = re.compile(r'(?<!\d)(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일?')
+_TICKER_RE = re.compile(
+    r'(?<![A-Za-z0-9])(?:\$[A-Z]{1,6}|[A-Z]{1,6}(?:[.-][A-Z0-9]{1,6})?'
+    r'|\d{6}(?:\.[A-Z]{1,3})?)(?![A-Za-z0-9])'
+)
+_UNIT_RE = re.compile(
+    r'^\s*(?P<unit>%|퍼센트|조\s*원|억\s*원|만\s*원|원|달러|USD|EUR|'
+    r'백만\s*달러|million\s+(?:dollars?|USD)|billion\s+(?:dollars?|USD)|'
+    r'배|명|건|개|곳|회|도)',
+    re.IGNORECASE,
+)
+
+_POSITIVE_DIRECTION_RE = re.compile(
+    r'(?:정상|상승|오름|증가|늘어|개선|강세|반등|상향|급등|폭등|회복|'
+    r'(?<![a-z])(?:rise|rises|rose|rising|gain|gains|gained|increase|'
+    r'increases|increased|increasing|up|upward|surge|surged|higher|'
+    r'improve|improved|improvement)(?![a-z]))',
+)
+_NEGATIVE_DIRECTION_RE = re.compile(
+    r'(?:하락|내림|감소|줄어|악화|약세|하향|급락|폭락|'
+    r'(?<![a-z])(?:fall|falls|fell|falling|loss|losses|lose|decrease|'
+    r'decreases|decreased|decreasing|down|downward|drop|dropped|decline|'
+    r'declined|lower|worsen|worsening)(?![a-z]))',
+)
+_ORGANIZATION_SUFFIX_RE = re.compile(
+    r'(?:전자|증권|은행|그룹|기업|회사|공사|정부|위원회|대학교|대학|병원|'
+    r'재단|협회|공단|연구원|산업|금융|통신|센터|청|원)$'
+)
+_METRIC_SUFFIXES = (
+    '으로',
+    '에서',
+    '까지',
+    '부터',
+    '에는',
+    '은',
+    '는',
+    '이',
+    '가',
+    '을',
+    '를',
+    '의',
+    '에',
+    '도',
+    '와',
+    '과',
+)
+
+
+@dataclass(frozen=True, slots=True)
+class StructuredNumericValue:
+    """One number that has a locally comparable metric and unit."""
+
+    metric: str
+    unit: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class LexicalFeatures:
+    """Immutable lexical features extracted from one article input."""
+
+    title_tokens: frozenset[str]
+    content_tokens: frozenset[str]
+    numeric_values: frozenset[str]
+    dates: frozenset[str]
+    direction_terms: frozenset[str]
+    ticker_tokens: frozenset[str]
+    name_org_tokens: frozenset[str]
+    metric_values: tuple[StructuredNumericValue, ...] = ()
+
+    @property
+    def full_tokens(self) -> frozenset[str]:
+        """Return tokens from the complete title-plus-content input."""
+
+        return self.content_tokens
+
+    @property
+    def numeric_date_tokens(self) -> frozenset[str]:
+        """Return normalized numeric and date tokens for agreement scoring."""
+
+        return self.numeric_values | self.dates
+
+    @property
+    def organization_name_tokens(self) -> frozenset[str]:
+        """Compatibility alias for organization/name features."""
+
+        return self.name_org_tokens
+
+
+@dataclass(frozen=True, slots=True)
+class SimilarityParameters:
+    """Weights for lexical components and dense/lexical blending.
+
+    Lexical component weights and dense/lexical weights are each normalized
+    independently.  Keeping these values in a frozen value object makes the
+    algorithm version explicit at every call site.
+    """
+
+    title_weight: float = 0.30
+    full_text_weight: float = 0.30
+    numeric_date_weight: float = 0.25
+    ticker_name_org_weight: float = 0.15
+    dense_weight: float = 0.70
+    lexical_weight: float = 0.30
+
+    def __post_init__(self) -> None:
+        lexical = (
+            self.title_weight,
+            self.full_text_weight,
+            self.numeric_date_weight,
+            self.ticker_name_org_weight,
+        )
+        dense_lexical = (self.dense_weight, self.lexical_weight)
+        for value in (*lexical, *dense_lexical):
+            if isinstance(value, bool) or not isinstance(value, Real):
+                raise TypeError('weights must be real numbers')
+            if not math.isfinite(float(value)):
+                raise ValueError('weights must be finite')
+            if value < 0:
+                raise ValueError('weights must be non-negative')
+        if not math.isclose(sum(lexical), 1.0, abs_tol=1e-9):
+            raise ValueError('lexical component weights must sum to 1')
+        if not math.isclose(sum(dense_lexical), 1.0, abs_tol=1e-9):
+            raise ValueError('dense and lexical weights must sum to 1')
+
+    @property
+    def full_weight(self) -> float:
+        """Compatibility alias for the full-input token component."""
+
+        return self.full_text_weight
+
+    @property
+    def entity_weight(self) -> float:
+        """Compatibility alias for ticker/name/organization agreement."""
+
+        return self.ticker_name_org_weight
+
+
+@dataclass(frozen=True, slots=True)
+class SimilarityResult:
+    """Component and final score for an article pair."""
+
+    dense_score: float
+    title_dice: float
+    full_dice: float
+    numeric_date_agreement: float
+    ticker_name_org_agreement: float
+    lexical_score: float
+    combined_score: float
+    contradiction_veto: bool
+    contradiction_reasons: tuple[str, ...]
+
+    @property
+    def vetoed(self) -> bool:
+        """Compatibility alias for the contradiction veto flag."""
+
+        return self.contradiction_veto
+
+    @property
+    def score(self) -> float:
+        """Return the bounded combined score."""
+
+        return self.combined_score
+
+    @property
+    def numeric_date_score(self) -> float:
+        """Compatibility alias for numeric/date agreement."""
+
+        return self.numeric_date_agreement
+
+    @property
+    def entity_score(self) -> float:
+        """Compatibility alias for ticker/name/organization agreement."""
+
+        return self.ticker_name_org_agreement
+
+
+def safe_cosine_similarity(left: Sequence[Real], right: Sequence[Real]) -> float:
+    """Return cosine similarity, safely handling invalid vector boundaries.
+
+    Zero vectors return ``0.0``.  Mismatched dimensions and non-finite values
+    are input errors because silently accepting them can create false groups.
+    """
+
+    if len(left) != len(right):
+        raise ValueError('vectors must have the same dimension')
+    left_values: list[float] = []
+    right_values: list[float] = []
+    for value in left:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise TypeError('vector values must be real numbers')
+        numeric_value = float(value)
+        if not math.isfinite(numeric_value):
+            raise ValueError('vector values must be finite')
+        left_values.append(numeric_value)
+    for value in right:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise TypeError('vector values must be real numbers')
+        numeric_value = float(value)
+        if not math.isfinite(numeric_value):
+            raise ValueError('vector values must be finite')
+        right_values.append(numeric_value)
+    left_norm = math.sqrt(sum(value * value for value in left_values))
+    right_norm = math.sqrt(sum(value * value for value in right_values))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    result = sum(a * b for a, b in zip(left_values, right_values, strict=True)) / (
+        left_norm * right_norm
+    )
+    return max(-1.0, min(1.0, result))
+
+
+cosine_similarity = safe_cosine_similarity
+
+
+def _date_features(value: str) -> tuple[set[str], set[tuple[int, int]]]:
+    dates: set[str] = set()
+    spans: set[tuple[int, int]] = set()
+    for pattern in (_ISO_DATE_RE, _KOREAN_DATE_RE):
+        for match in pattern.finditer(value):
+            year, month, day = (int(part) for part in match.groups())
+            try:
+                date = f'{year:04d}-{month:02d}-{day:02d}'
+                if not 1 <= month <= 12 or not 1 <= day <= 31:
+                    continue
+            except ValueError:
+                continue
+            dates.add(date)
+            spans.add(match.span())
+    return dates, spans
+
+
+def _normalize_number(raw_value: str) -> str:
+    is_percentage = '%' in raw_value or '퍼센트' in raw_value
+    number = re.sub(r'[^0-9.+-]', '', raw_value)
+    try:
+        decimal = Decimal(number)
+    except InvalidOperation:
+        return ''
+    if not decimal.is_finite():
+        return ''
+    normalized = format(decimal.normalize(), 'f')
+    if '.' in normalized:
+        normalized = normalized.rstrip('0').rstrip('.')
+    if normalized in {'-0', '+0', ''}:
+        normalized = '0'
+    return f'{normalized}%' if is_percentage else normalized
+
+
+def _unit_after(value: str, end: int, *, is_percentage: bool) -> str | None:
+    if is_percentage:
+        return '%'
+    match = _UNIT_RE.match(value[end:])
+    if match is None:
+        return None
+    unit = re.sub(r'\s+', '', match.group('unit')).casefold()
+    aliases = {
+        '조원': 'KRW_TRILLION',
+        '억원': 'KRW_HUNDRED_MILLION',
+        '만원': 'KRW_TEN_THOUSAND',
+        '원': 'KRW',
+        '달러': 'USD',
+        'usd': 'USD',
+        'eur': 'EUR',
+        '백만달러': 'USD_MILLION',
+        'milliondollars': 'USD_MILLION',
+        'millionusd': 'USD_MILLION',
+        'billiondollars': 'USD_BILLION',
+        'billionusd': 'USD_BILLION',
+    }
+    return aliases.get(unit, unit.upper())
+
+
+def _metric_before(value: str, start: int) -> str:
+    prefix = value[max(0, start - 80) : start]
+    tokens = _TOKEN_RE.findall(prefix)
+    for token in reversed(tokens):
+        metric = normalize_text(token)
+        if not metric or metric in {'the', 'a', 'an', 'is', 'was', 'are', 'and'}:
+            continue
+        for suffix in _METRIC_SUFFIXES:
+            if metric.endswith(suffix) and len(metric) > len(suffix) + 1:
+                metric = metric[: -len(suffix)]
+                break
+        return metric
+    return ''
+
+
+def _structured_values(
+    value: str,
+    number_spans: Iterable[tuple[int, int, str]],
+) -> tuple[StructuredNumericValue, ...]:
+    values: set[StructuredNumericValue] = set()
+    for start, end, normalized in number_spans:
+        unit = _unit_after(value, end, is_percentage=normalized.endswith('%'))
+        metric = _metric_before(value, start)
+        if unit and metric:
+            values.add(
+                StructuredNumericValue(metric=metric, unit=unit, value=normalized)
+            )
+    return tuple(sorted(values, key=lambda item: (item.metric, item.unit, item.value)))
+
+
+def _name_org_tokens(value: str, tickers: set[str]) -> set[str]:
+    names: set[str] = set()
+    for match in _TOKEN_RE.finditer(value):
+        raw_token = match.group(0)
+        canonical = normalize_text(raw_token)
+        if any(character.isdigit() for character in raw_token):
+            continue
+        if canonical.upper() in tickers:
+            continue
+        if _ORGANIZATION_SUFFIX_RE.search(raw_token):
+            names.add(canonical)
+        elif re.fullmatch(r'[A-Z][a-z]{2,}(?:[A-Z][a-z]+)*', raw_token):
+            names.add(canonical)
+        elif raw_token.isupper() and len(raw_token) >= 2:
+            names.add(canonical)
+    return names
+
+
+def extract_lexical_features(
+    title: str | None,
+    content: str | None = None,
+) -> LexicalFeatures:
+    """Extract deterministic token, structure, entity, and direction features."""
+
+    raw_title = unicodedata.normalize('NFC', title or '')
+    raw_content = unicodedata.normalize('NFC', content or '')
+    raw_full = ' '.join(part for part in (raw_title, raw_content) if part)
+    normalized_full = normalize_text(raw_full)
+    normalized_title = normalize_text(raw_title)
+    title_tokens = frozenset(_TOKEN_RE.findall(normalized_title))
+    content_tokens = frozenset(_TOKEN_RE.findall(normalized_full))
+
+    dates, date_spans = _date_features(raw_full)
+    number_values: set[str] = set()
+    number_spans: list[tuple[int, int, str]] = []
+    for match in _NUMBER_RE.finditer(raw_full):
+        if any(start <= match.start() < end for start, end in date_spans):
+            continue
+        normalized_number = _normalize_number(match.group(0))
+        if normalized_number:
+            number_values.add(normalized_number)
+            number_spans.append((*match.span(), normalized_number))
+
+    tickers = {
+        normalize_text(match.group(0)).upper()
+        for match in _TICKER_RE.finditer(raw_full)
+    }
+    directions: set[str] = set()
+    if _POSITIVE_DIRECTION_RE.search(normalized_full):
+        directions.add('positive')
+    if _NEGATIVE_DIRECTION_RE.search(normalized_full):
+        directions.add('negative')
+    names = _name_org_tokens(raw_full, tickers)
+    return LexicalFeatures(
+        title_tokens=title_tokens,
+        content_tokens=content_tokens,
+        numeric_values=frozenset(number_values),
+        dates=frozenset(dates),
+        direction_terms=frozenset(directions),
+        ticker_tokens=frozenset(tickers),
+        name_org_tokens=frozenset(names),
+        metric_values=_structured_values(raw_full, number_spans),
+    )
+
+
+def dice_score(left: Iterable[str], right: Iterable[str]) -> float:
+    """Return bounded Dice overlap, treating empty sets as no evidence."""
+
+    left_set = set(left)
+    right_set = set(right)
+    if not left_set or not right_set:
+        return 0.0
+    return 2.0 * len(left_set & right_set) / (len(left_set) + len(right_set))
+
+
+def _contradiction_reasons(
+    left: LexicalFeatures, right: LexicalFeatures
+) -> tuple[str, ...]:
+    reasons: set[str] = set()
+    left_by_metric: dict[tuple[str, str], set[str]] = {}
+    right_by_metric: dict[tuple[str, str], set[str]] = {}
+    for item in left.metric_values:
+        left_by_metric.setdefault((item.metric, item.unit), set()).add(item.value)
+    for item in right.metric_values:
+        right_by_metric.setdefault((item.metric, item.unit), set()).add(item.value)
+    for key in left_by_metric.keys() & right_by_metric.keys():
+        if not left_by_metric[key] & right_by_metric[key]:
+            reasons.add('numeric')
+            break
+    if left.dates and right.dates and not left.dates & right.dates:
+        reasons.add('date')
+    left_directions = left.direction_terms
+    right_directions = right.direction_terms
+    if (left_directions == {'positive'} and right_directions == {'negative'}) or (
+        left_directions == {'negative'} and right_directions == {'positive'}
+    ):
+        reasons.add('direction')
+    return tuple(sorted(reasons))
+
+
+def score_similarity(
+    title_left: str | None,
+    content_left: str | None,
+    title_right: str | None,
+    content_right: str | None,
+    *,
+    dense_score: float = 0.0,
+    parameters: SimilarityParameters | None = None,
+) -> SimilarityResult:
+    """Compute bounded lexical/dense similarity and independent veto reasons."""
+
+    selected = parameters or SimilarityParameters()
+    if isinstance(dense_score, bool) or not isinstance(dense_score, Real):
+        raise TypeError('dense_score must be a real number')
+    raw_dense = float(dense_score)
+    if not math.isfinite(raw_dense):
+        raise ValueError('dense_score must be finite')
+    bounded_dense = max(0.0, min(1.0, raw_dense))
+    left = extract_lexical_features(title_left, content_left)
+    right = extract_lexical_features(title_right, content_right)
+    title_dice = dice_score(left.title_tokens, right.title_tokens)
+    full_dice = dice_score(left.full_tokens, right.full_tokens)
+    numeric_date = dice_score(left.numeric_date_tokens, right.numeric_date_tokens)
+    ticker_name_org = dice_score(
+        left.ticker_tokens | left.name_org_tokens,
+        right.ticker_tokens | right.name_org_tokens,
+    )
+    lexical = (
+        title_dice * selected.title_weight
+        + full_dice * selected.full_text_weight
+        + numeric_date * selected.numeric_date_weight
+        + ticker_name_org * selected.ticker_name_org_weight
+    )
+    combined = max(
+        0.0,
+        min(
+            1.0,
+            bounded_dense * selected.dense_weight + lexical * selected.lexical_weight,
+        ),
+    )
+    reasons = _contradiction_reasons(left, right)
+    return SimilarityResult(
+        dense_score=bounded_dense,
+        title_dice=title_dice,
+        full_dice=full_dice,
+        numeric_date_agreement=numeric_date,
+        ticker_name_org_agreement=ticker_name_org,
+        lexical_score=lexical,
+        combined_score=combined,
+        contradiction_veto=bool(reasons),
+        contradiction_reasons=reasons,
+    )
+
+
+score_article_pair = score_similarity
+compare_articles = score_similarity
+compute_similarity = score_similarity
+safe_cosine = safe_cosine_similarity
+
+
+def has_contradiction(left: LexicalFeatures, right: LexicalFeatures) -> bool:
+    """Return whether two extracted feature sets trigger an independent veto."""
+
+    return bool(_contradiction_reasons(left, right))
+
+
+__all__ = [
+    'LexicalFeatures',
+    'SimilarityParameters',
+    'SimilarityResult',
+    'StructuredNumericValue',
+    'compare_articles',
+    'compute_similarity',
+    'cosine_similarity',
+    'dice_score',
+    'extract_lexical_features',
+    'has_contradiction',
+    'safe_cosine_similarity',
+    'safe_cosine',
+    'score_article_pair',
+    'score_similarity',
+]
