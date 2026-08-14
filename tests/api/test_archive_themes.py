@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import json
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
+
 import pytest
 
 from tests.support import build_test_bearer_headers, load_module
@@ -11,7 +17,9 @@ from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImport
 archive_router_module = load_module('app.domains.archive.router')
 exceptions_module = load_module('app.core.exceptions')
 assembler_module = load_module('app.domains.archive.assembler')
+schemas_page_module = load_module('app.schemas.page')
 ThemeCatalogError = assembler_module.ThemeCatalogError
+ThemeNodeResponse = schemas_page_module.ThemeNodeResponse
 
 
 class FakeArchiveService:
@@ -23,6 +31,43 @@ class FakeArchiveService:
 
     async def list_theme_catalog(self):
         return self.theme_catalog
+
+
+def _build_theme_app(theme_catalog: list[Any]) -> FastAPI:
+    app = FastAPI()
+    exceptions_module.register_exception_handlers(app)
+    app.include_router(archive_router_module.router, prefix='/stock/api')
+    app.dependency_overrides[archive_router_module.get_archive_service] = lambda: (
+        FakeArchiveService(theme_catalog)
+    )
+    return app
+
+
+@contextmanager
+def _raised_recursion_limit(limit: int) -> Iterator[None]:
+    previous_limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(limit)
+    try:
+        yield
+    finally:
+        sys.setrecursionlimit(previous_limit)
+
+
+def _linear_theme_catalog(depth: int) -> list[ThemeNodeResponse]:
+    node = ThemeNodeResponse(
+        code=f'THEME_{depth - 1}',
+        label=f'Label {depth - 1}',
+        description=f'Description {depth - 1}',
+        children=[],
+    )
+    for index in reversed(range(depth - 1)):
+        node = ThemeNodeResponse(
+            code=f'THEME_{index}',
+            label=f'Label {index}',
+            description=f'Description {index}',
+            children=[node],
+        )
+    return [node]
 
 
 @pytest.fixture
@@ -141,3 +186,81 @@ def test_archive_theme_catalog_hides_internal_catalog_failure_details():
         'code': 'INTERNAL_SERVER_ERROR',
         'message': 'Internal server error',
     }
+
+
+def test_archive_theme_catalog_empty_data_is_a_successful_empty_list():
+    app = _build_theme_app([])
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.get(
+                '/stock/api/pages/archive/themes',
+                headers=build_test_bearer_headers('USER'),
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['success'] is True
+    assert payload['data'] == []
+
+
+def test_archive_theme_catalog_serializes_linear_depth_1200_without_server_recursion():
+    catalog = _linear_theme_catalog(1_200)
+    app = _build_theme_app(catalog)
+    recursion_limit_before_request = sys.getrecursionlimit()
+    try:
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            response = test_client.get(
+                '/stock/api/pages/archive/themes',
+                headers=build_test_bearer_headers('USER'),
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert sys.getrecursionlimit() == recursion_limit_before_request
+    assert response.status_code == 200
+    assert response.headers['content-type'] == 'application/json'
+    with _raised_recursion_limit(10_000):
+        payload = json.loads(response.content)
+    assert payload['success'] is True
+    assert payload['meta']['requestId']
+    assert payload['meta']['timestamp'].endswith('Z')
+    node = payload['data'][0]
+    for index in range(1_200):
+        assert node['code'] == f'THEME_{index}'
+        if index == 1_199:
+            assert node['children'] == []
+        else:
+            assert len(node['children']) == 1
+            node = node['children'][0]
+
+
+def test_archive_theme_catalog_escapes_malicious_scalar_fields():
+    malicious_text = 'quote " slash \\ newline \n tab \t control \x01 한국어 😀'
+    catalog = [
+        ThemeNodeResponse(
+            code='THEME_ESCAPED',
+            label=malicious_text,
+            description=malicious_text,
+            children=[],
+        )
+    ]
+    app = _build_theme_app(catalog)
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.get(
+                '/stock/api/pages/archive/themes',
+                headers=build_test_bearer_headers('USER'),
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['data'][0]['label'] == malicious_text
+    assert payload['data'][0]['description'] == malicious_text
+    assert b'\\"' in response.content
+    assert b'\\n' in response.content
+    assert b'\\t' in response.content
+    assert b'\\u0001' in response.content

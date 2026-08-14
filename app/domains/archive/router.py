@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.api.deps import DbSession, UserDep
 from app.core.openapi_responses import (
@@ -14,7 +14,10 @@ from app.core.openapi_responses import (
 from app.core.response import ApiSuccess
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.db.repositories.theme_repo import ThemeRepository
-from app.domains.archive.assembler import assemble_archive_list_response
+from app.domains.archive.assembler import (
+    assemble_archive_list_response,
+    encode_theme_catalog_success_response,
+)
 from app.domains.archive.service import ArchiveService
 from app.schemas.page import ArchiveListResponse, ThemeNodeResponse
 
@@ -45,8 +48,14 @@ type ArchiveStatus = Literal['READY', 'PARTIAL']
 async def list_archive_themes(
     _: UserDep,
     service: ArchiveServiceDep,
-) -> ApiSuccess[list[ThemeNodeResponse]]:
-    return ApiSuccess(data=await service.list_theme_catalog())
+) -> Response:
+    payload = ApiSuccess[list[ThemeNodeResponse]](
+        data=await service.list_theme_catalog()
+    )
+    return Response(
+        content=encode_theme_catalog_success_response(payload),
+        media_type='application/json',
+    )
 
 
 @router.get(

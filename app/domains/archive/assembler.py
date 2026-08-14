@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
+from app.core.response import ApiSuccess
 from app.db.repositories.projections import ThemeCatalogRecord
 from app.schemas.page import (
     ArchiveItemResponse,
@@ -88,6 +90,80 @@ def assemble_theme_catalog_response(
     return [nodes[code] for code in children_by_parent.get(None, [])]
 
 
+def encode_theme_catalog_success_response(
+    payload: ApiSuccess[list[ThemeNodeResponse]],
+) -> bytes:
+    """Encode a theme success envelope without recursive child serialization.
+
+    FastAPI's normal response serializer walks recursive Pydantic models and
+    fails on sufficiently deep valid catalogs. The envelope and every scalar
+    field still use the regular Pydantic schema values; only the tree is
+    written with an explicit stack so arbitrary catalog depth is supported.
+    """
+    meta = payload.meta.model_dump(mode='json')
+    parts = [
+        '{"success":',
+        'true' if payload.success else 'false',
+        ',"data":',
+    ]
+    _append_theme_nodes(parts, payload.data)
+    parts.extend(
+        [
+            ',"meta":{"requestId":',
+            _json_string(cast(str, meta['requestId'])),
+            ',"timestamp":',
+            _json_string(cast(str, meta['timestamp'])),
+            '}}',
+        ]
+    )
+    return ''.join(parts).encode('utf-8')
+
+
+def _append_theme_nodes(
+    parts: list[str],
+    nodes: Sequence[ThemeNodeResponse],
+) -> None:
+    stack: list[
+        tuple[
+            str,
+            str | ThemeNodeResponse | Sequence[ThemeNodeResponse],
+        ]
+    ] = [('nodes', nodes)]
+    while stack:
+        token_type, value = stack.pop()
+        if token_type == 'text':
+            parts.append(cast(str, value))
+            continue
+        if token_type == 'nodes':
+            node_sequence = cast(Sequence[ThemeNodeResponse], value)
+            parts.append('[')
+            stack.append(('text', ']'))
+            for index in reversed(range(len(node_sequence))):
+                if index < len(node_sequence) - 1:
+                    stack.append(('text', ','))
+                stack.append(('node', node_sequence[index]))
+            continue
+
+        node = cast(ThemeNodeResponse, value)
+        parts.extend(
+            [
+                '{"code":',
+                _json_string(node.code),
+                ',"label":',
+                _json_string(node.label),
+                ',"description":',
+                _json_string(node.description),
+                ',"children":',
+            ]
+        )
+        stack.append(('text', '}'))
+        stack.append(('nodes', node.children))
+
+
+def _json_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+
+
 def _validate_parent_cycles(parent_by_code: dict[str, str | None]) -> None:
     state: dict[str, int] = {}
     for starting_code in parent_by_code:
@@ -115,4 +191,5 @@ __all__ = [
     'assemble_archive_list_response',
     'assemble_theme_catalog_response',
     'build_archive_list_payload',
+    'encode_theme_catalog_success_response',
 ]
