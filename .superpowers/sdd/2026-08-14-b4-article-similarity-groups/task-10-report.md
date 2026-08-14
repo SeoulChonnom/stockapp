@@ -46,7 +46,7 @@ Effective grouping version in the evidence test:
 | `UV_CACHE_DIR=/tmp/uv-cache uv run vulture` | 2 pre-existing findings: unused `CursorResult` import and existing `required` test variable |
 
 The full suite skips the repository's external/live tests when their required
-services or environment are absent (`24 skipped`). No live Ollama request was
+services or environment are absent (`25 skipped`). No live Ollama request was
 made.
 
 ## PostgreSQL cleanup
@@ -58,7 +58,7 @@ returned no rows.
 
 ## Calibration boundary
 
-Task 7 remains **`MOCK_PIPELINE_PASS_REAL_BGE_M3_CALIBRATION_REQUIRED`**. This
+Task 7 remains **`MOCK_PIPELINE_PASS_REAL_BGE_M3_CALIBRATION_REQUIRED`**.
 The mock pipeline proves provider/request and deterministic grouping behavior;
 the PostgreSQL test proves production repository persistence. Neither makes a
 claim about real Ollama `bge-m3` quality, calibration metrics, model digest, or
