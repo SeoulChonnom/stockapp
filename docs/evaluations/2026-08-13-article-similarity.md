@@ -7,6 +7,7 @@
 - Synthetic fixture pairs: `320` (`222` calibration / `98` holdout = `69.375%` / `30.625%`; approximate 70/30 constrained by label/market, event family, and normalized content components).
 - Split assignment SHA-256: `02dbce5b03084a0591c93afd57dea6972e43ff111abf78b8e1e021238b34b11f` (content components never cross partitions).
 - Grid candidates: `147`; search was run on calibration pairs only.
+- Auditable raw pair predictions: `320` (IDs, labels, scores, vetoes, and split only; no full article bodies).
 - Selected parameters: `{"dense_weight": 0.6, "full_text_weight": 0.3, "lexical_weight": 0.4, "numeric_date_weight": 0.3, "ticker_name_org_weight": 0.2, "title_weight": 0.2}`; threshold `0.45`.
 - Grouping algorithm version: `format=similarity-v2;model=mock-bge-m3;inputChars=2048;lexical=lexical-v1;weights=0x1.999999999999ap-3,0x1.3333333333333p-2,0x1.3333333333333p-2,0x1.999999999999ap-3,0x1.3333333333333p-1,0x1.999999999999ap-2;threshold=0x1.ccccccccccccdp-2;veto=veto-v1;grouping=complete-link-v1`.
 - Determinism audit: `90` checks across `2` multi-article clusters, `3` runs, and all input permutations.
@@ -25,8 +26,8 @@
 This artifact validates the calibration contract and pipeline with a repository-curated mock fixture using deterministic mock embeddings through `httpx.MockTransport`.
 The dataset is a synthetic deterministic contract fixture with fixture annotations, not a manually labeled real-news calibration corpus.
 It is not evidence of production `bge-m3` model quality, Ollama runtime, host latency, Ollama version, or model digest.
-- Mock algorithm: `mock-token-hash-v1`; implementation source SHA-256: `098587ddd0c0e0f85a96b90abc7d405f07a23c7bc809811cc8ff7c95e8fbc8bd`.
-- Mock full-pipeline per-cluster p95: `0.000747s` (non-production; model/network latency evidence only for the mock transport).
+- Mock algorithm: `mock-token-hash-v1`; implementation source SHA-256: `a3c31e4e9c7c74c1856e68c1073e5b1e13fcff113c34e857c1e288d8241997d4`.
+- Mock full-pipeline per-cluster p95: `0.000752s` (non-production; model/network latency evidence only for the mock transport).
 - Ollama version: **NOT COLLECTED (mock mode)**.
 - `bge-m3` model digest: **NOT COLLECTED (mock mode)**.
 - Production-host p95: **NOT MEASURED**.

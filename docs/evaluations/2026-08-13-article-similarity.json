@@ -2,7 +2,7 @@
   "algorithm_version": "format=similarity-v2;model=mock-bge-m3;inputChars=2048;lexical=lexical-v1;weights=0x1.999999999999ap-3,0x1.3333333333333p-2,0x1.3333333333333p-2,0x1.999999999999ap-3,0x1.3333333333333p-1,0x1.999999999999ap-2;threshold=0x1.ccccccccccccdp-2;veto=veto-v1;grouping=complete-link-v1",
   "bge_m3_model_digest": "NOT_COLLECTED BY THIS SCRIPT",
   "calibration_metrics": {
-    "determinism_rate": 0.0,
+    "determinism_rate": null,
     "hard_negative_count": 56,
     "hard_negative_false_merge_count": 0,
     "hard_negative_false_merge_rate": 0.0,
@@ -24,9 +24,9 @@
   "determinism_check_count": 90,
   "determinism_min_articles": 3,
   "determinism_runs": 3,
-  "elapsed_seconds": 3.1692106670234352,
+  "elapsed_seconds": 3.218556916923262,
   "embedding_algorithm": "mock-token-hash-v1",
-  "embedding_algorithm_sha256": "098587ddd0c0e0f85a96b90abc7d405f07a23c7bc809811cc8ff7c95e8fbc8bd",
+  "embedding_algorithm_sha256": "a3c31e4e9c7c74c1856e68c1073e5b1e13fcff113c34e857c1e288d8241997d4",
   "gate_scope": "mock-contract-only",
   "gates": {
     "determinism_100_percent": true,
@@ -4225,7 +4225,7 @@
   "real_model_calibration_status": "UNVERIFIED_REQUIRED",
   "runtime_cluster_count": 2,
   "runtime_evidence_scope": "mock-full-pipeline-per-cluster; non-production evidence",
-  "runtime_p95_seconds": 0.0007467503019142896,
+  "runtime_p95_seconds": 0.0007518442580476403,
   "runtime_sample_count": 6,
   "schema_version": "article-similarity-calibration-result-v2",
   "selected_parameters": {

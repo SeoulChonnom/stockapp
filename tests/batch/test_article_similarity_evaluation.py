@@ -203,14 +203,27 @@ def test_metrics_apply_pair_gates_and_hard_negative_rate() -> None:
         pairs,
         scores={'same': 0.9, 'other': 0.2, 'hard': 0.95},
         threshold=0.8,
-        deterministic_runs=2,
     )
 
     assert metrics.precision == pytest.approx(0.5)
     assert metrics.same_event_recall == pytest.approx(1.0)
     assert metrics.other_event_false_merge_rate == pytest.approx(0.0)
     assert metrics.hard_negative_false_merge_rate == pytest.approx(1.0)
+    assert metrics.determinism_rate is None
+
+
+def test_metrics_accept_only_explicit_measured_determinism() -> None:
+    pair = _pair('same', 'SAME_EVENT')
+
+    metrics = evaluate_metrics(
+        (pair,), scores={'same': 0.9}, threshold=0.8, determinism_rate=1.0
+    )
+
     assert metrics.determinism_rate == pytest.approx(1.0)
+    with pytest.raises(ValueError, match='determinism_rate'):
+        evaluate_metrics(
+            (pair,), scores={'same': 0.9}, threshold=0.8, determinism_rate=1.1
+        )
 
 
 def test_grid_search_uses_calibration_only_and_deterministic_tie_break() -> None:
@@ -424,7 +437,7 @@ def test_committed_artifact_recomputes_without_running_the_writer() -> None:
         'threshold=0x1.ccccccccccccdp-2;veto=veto-v1;grouping=complete-link-v1'
     )
     assert result['embedding_algorithm_sha256'] == (
-        '098587ddd0c0e0f85a96b90abc7d405f07a23c7bc809811cc8ff7c95e8fbc8bd'
+        'a3c31e4e9c7c74c1856e68c1073e5b1e13fcff113c34e857c1e288d8241997d4'
     )
 
     assignments = result['split_assignments']
@@ -455,12 +468,25 @@ def test_committed_artifact_recomputes_without_running_the_writer() -> None:
             assert fingerprint_split.setdefault(fingerprint, split_name) == split_name
 
     predictions = result['pair_predictions']
-    assert len(predictions) == len(pair_payload)
-    assert {item['pair_id'] for item in predictions} == set(pair_payload)
+    prediction_ids = [item['pair_id'] for item in predictions]
+    assert len(predictions) == 320
+    assert len(set(prediction_ids)) == 320
+    assert set(prediction_ids) == set(pair_payload)
+    assignment_by_id = {item['pair_id']: item for item in assignments}
+    for prediction in predictions:
+        pair = pair_payload[prediction['pair_id']]
+        assignment = assignment_by_id[prediction['pair_id']]
+        assert prediction['label'] == pair['label']
+        assert prediction['market'] == pair['market']
+        assert prediction['event_family_id'] == pair['event_family_id']
+        assert prediction['left_article_id'] == pair['left']['article_id']
+        assert prediction['right_article_id'] == pair['right']['article_id']
+        assert prediction['hard_negative_type'] == pair['hard_negative_type']
+        assert prediction['split'] == assignment['split']
 
     def manual_metrics(
-        records: list[dict[str, Any]], *, determinism_rate: float
-    ) -> dict[str, float | int]:
+        records: list[dict[str, Any]], *, determinism_rate: float | None
+    ) -> dict[str, float | int | None]:
         same = [item for item in records if item['label'] == 'SAME_EVENT']
         other = [item for item in records if item['label'] == 'OTHER_EVENT']
         hard = [item for item in records if item['label'] == 'HARD_NEGATIVE']
@@ -490,7 +516,7 @@ def test_committed_artifact_recomputes_without_running_the_writer() -> None:
     assert len(calibration_predictions) == 222
     assert len(holdout_predictions) == 98
     assert result['calibration_metrics'] == manual_metrics(
-        calibration_predictions, determinism_rate=0.0
+        calibration_predictions, determinism_rate=None
     )
     assert result['holdout_metrics'] == manual_metrics(
         holdout_predictions, determinism_rate=1.0

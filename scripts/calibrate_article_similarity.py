@@ -95,7 +95,7 @@ class EvaluationMetrics:
     same_event_recall: float
     other_event_false_merge_rate: float
     hard_negative_false_merge_rate: float
-    determinism_rate: float
+    determinism_rate: float | None
     true_positive_count: int
     predicted_positive_count: int
     same_event_count: int
@@ -110,7 +110,7 @@ class EvaluationMetrics:
 
         return self.pair_precision
 
-    def to_dict(self) -> dict[str, float | int]:
+    def to_dict(self) -> dict[str, float | int | None]:
         return asdict(self)
 
 
@@ -576,14 +576,19 @@ def evaluate_metrics(
     scores: Mapping[str, float],
     threshold: float,
     vetoes: Mapping[str, bool] | None = None,
-    deterministic_runs: int = 1,
+    determinism_rate: float | None = None,
 ) -> EvaluationMetrics:
-    """Calculate pair gates from fixed scores and optional contradiction vetoes."""
+    """Calculate pair metrics; determinism must come from an actual audit."""
 
     if not math.isfinite(threshold) or not 0 <= threshold <= 1:
         raise ValueError('threshold must be between 0 and 1')
-    if deterministic_runs < 1:
-        raise ValueError('deterministic_runs must be positive')
+    if determinism_rate is not None and (
+        isinstance(determinism_rate, bool)
+        or not isinstance(determinism_rate, Real)
+        or not math.isfinite(float(determinism_rate))
+        or not 0.0 <= float(determinism_rate) <= 1.0
+    ):
+        raise ValueError('determinism_rate must be between 0 and 1 when measured')
     vetoes = vetoes or {}
     predicted = {
         pair.pair_id: scores[pair.pair_id] >= threshold
@@ -604,7 +609,9 @@ def evaluate_metrics(
         same_event_recall=true_positive / len(same) if same else 1.0,
         other_event_false_merge_rate=other_false / len(other) if other else 0.0,
         hard_negative_false_merge_rate=hard_false / len(hard) if hard else 0.0,
-        determinism_rate=1.0 if deterministic_runs > 1 else 0.0,
+        determinism_rate=(
+            float(determinism_rate) if determinism_rate is not None else None
+        ),
         true_positive_count=true_positive,
         predicted_positive_count=predicted_positive,
         same_event_count=len(same),
@@ -961,6 +968,7 @@ def _build_report(result: Mapping[str, Any]) -> str:
         f'- Synthetic fixture pairs: `{total_pairs}` (`{result["calibration_pair_count"]}` calibration / `{result["holdout_pair_count"]}` holdout = `{calibration_percent:.3f}%` / `{holdout_percent:.3f}%`; approximate 70/30 constrained by label/market, event family, and normalized content components).',
         f'- Split assignment SHA-256: `{result["split_assignment_sha256"]}` (content components never cross partitions).',
         f'- Grid candidates: `{result["grid_candidate_count"]}`; search was run on calibration pairs only.',
+        f'- Auditable raw pair predictions: `{len(result["pair_predictions"])}` (IDs, labels, scores, vetoes, and split only; no full article bodies).',
         f'- Selected parameters: `{json.dumps(result["selected_parameters"], sort_keys=True)}`; threshold `{result["selected_threshold"]}`.',
         f'- Grouping algorithm version: `{result["algorithm_version"]}`.',
         f'- Determinism audit: `{result["determinism_check_count"]}` checks across `{result["determinism_case_count"]}` multi-article clusters, `{result["determinism_runs"]}` runs, and all input permutations.',
