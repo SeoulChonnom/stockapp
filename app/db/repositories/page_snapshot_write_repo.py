@@ -275,7 +275,11 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 representative_publisher_name,
                 representative_published_at,
                 representative_origin_link,
-                representative_naver_link
+                representative_naver_link,
+                article_grouping_status,
+                article_grouping_generated_at,
+                article_grouping_issue_code,
+                article_grouping_algorithm_version
             )
             VALUES (
                 :page_market_id,
@@ -292,7 +296,11 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 :representative_publisher_name,
                 :representative_published_at,
                 :representative_origin_link,
-                :representative_naver_link
+                :representative_naver_link,
+                :article_grouping_status,
+                :article_grouping_generated_at,
+                :article_grouping_issue_code,
+                :article_grouping_algorithm_version
             )
             """.format(
                 cluster_table=qualify_db_identifier('market_daily_page_market_cluster')
@@ -301,6 +309,10 @@ class PageSnapshotWriteRepository(PostgresRepository):
         )
         payload = dict(params)
         payload.setdefault('search_document', '')
+        payload.setdefault('article_grouping_status', 'UNAVAILABLE')
+        payload.setdefault('article_grouping_generated_at', None)
+        payload.setdefault('article_grouping_issue_code', 'SIMILARITY_GROUPING_FAILED')
+        payload.setdefault('article_grouping_algorithm_version', None)
         payload['tags_json'] = json.dumps(payload['tags_json'])
         result = await self.session.execute(statement, payload)
         return int(result.scalar_one())
@@ -403,7 +415,10 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 publisher_name,
                 published_at,
                 origin_link,
-                naver_link
+                naver_link,
+                similar_group_rank,
+                is_similar_group_representative,
+                exact_duplicate_count
             )
             VALUES (
                 :page_market_id,
@@ -416,13 +431,20 @@ class PageSnapshotWriteRepository(PostgresRepository):
                 :publisher_name,
                 :published_at,
                 :origin_link,
-                :naver_link
+                :naver_link,
+                :similar_group_rank,
+                :is_similar_group_representative,
+                :exact_duplicate_count
             )
             """.format(
                 article_table=qualify_db_identifier('market_daily_page_article_link')
             )
         )
-        await self.session.execute(statement, params)
+        payload = dict(params)
+        payload.setdefault('similar_group_rank', None)
+        payload.setdefault('is_similar_group_representative', True)
+        payload.setdefault('exact_duplicate_count', 0)
+        await self.session.execute(statement, payload)
 
 
 __all__ = ['PageSnapshotWriteRepository']

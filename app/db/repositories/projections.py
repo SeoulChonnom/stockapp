@@ -99,6 +99,10 @@ class PageMarketClusterRecord:
     representative_published_at: datetime | None
     representative_origin_link: str | None
     representative_naver_link: str | None
+    article_grouping_status: str = 'UNAVAILABLE'
+    article_grouping_generated_at: datetime | None = None
+    article_grouping_issue_code: str | None = 'SIMILARITY_GROUPING_FAILED'
+    article_grouping_algorithm_version: str | None = None
 
 
 @dataclass(slots=True)
@@ -115,6 +119,9 @@ class PageArticleLinkRecord:
     published_at: datetime | None
     origin_link: str
     naver_link: str | None
+    similar_group_rank: int | None = None
+    is_similar_group_representative: bool = True
+    exact_duplicate_count: int = 0
 
 
 @dataclass(slots=True)

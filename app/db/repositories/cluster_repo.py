@@ -201,6 +201,19 @@ class ClusterRepository(PostgresRepository):
                 c.tags_json,
                 c.representative_article_id,
                 c.article_count,
+                c.article_grouping_status,
+                c.article_grouping_generated_at,
+                c.article_grouping_issue_code,
+                (
+                    SELECT MIN(sg.algorithm_version)
+                    FROM {group_table} sg
+                    WHERE sg.cluster_id = c.id
+                ) AS article_grouping_algorithm_version,
+                (
+                    SELECT COUNT(DISTINCT sg.algorithm_version)
+                    FROM {group_table} sg
+                    WHERE sg.cluster_id = c.id
+                ) AS article_grouping_algorithm_version_count,
                 c.created_at,
                 c.updated_at,
                 p.canonical_title AS representative_title,
@@ -215,6 +228,7 @@ class ClusterRepository(PostgresRepository):
             ORDER BY c.market_type ASC, c.cluster_rank ASC
             """.format(
                 cluster_table=qualify_db_identifier('news_cluster'),
+                group_table=qualify_db_identifier('news_cluster_similar_group'),
                 processed_article_table=qualify_db_identifier('news_article_processed'),
                 where_sql=' AND '.join(where_clauses),
             )
@@ -290,6 +304,13 @@ class ClusterRepository(PostgresRepository):
                 c.title AS cluster_title,
                 ca.processed_article_id,
                 ca.article_rank,
+                c.article_grouping_status,
+                c.article_grouping_generated_at,
+                c.article_grouping_issue_code,
+                sg.group_rank AS similar_group_rank,
+                sga.is_representative AS is_similar_group_representative,
+                sga.exact_duplicate_count,
+                sg.algorithm_version AS article_grouping_algorithm_version,
                 p.canonical_title AS title,
                 p.publisher_name,
                 p.published_at,
@@ -300,6 +321,17 @@ class ClusterRepository(PostgresRepository):
               ON ca.cluster_id = c.id
             JOIN {processed_article_table} p
               ON p.id = ca.processed_article_id
+            LEFT JOIN {member_table} sga
+              ON sga.processed_article_id = ca.processed_article_id
+             AND EXISTS (
+                 SELECT 1
+                 FROM {group_table} sg_scope
+                 WHERE sg_scope.id = sga.similar_group_id
+                   AND sg_scope.cluster_id = c.id
+             )
+            LEFT JOIN {group_table} sg
+              ON sg.id = sga.similar_group_id
+             AND sg.cluster_id = c.id
             WHERE {where_sql}
             ORDER BY
                 c.market_type ASC,
@@ -310,6 +342,10 @@ class ClusterRepository(PostgresRepository):
             """.format(
                 cluster_table=qualify_db_identifier('news_cluster'),
                 cluster_article_table=qualify_db_identifier('news_cluster_article'),
+                group_table=qualify_db_identifier('news_cluster_similar_group'),
+                member_table=qualify_db_identifier(
+                    'news_cluster_similar_group_article'
+                ),
                 processed_article_table=qualify_db_identifier('news_article_processed'),
                 where_sql=' AND '.join(where_clauses),
             )

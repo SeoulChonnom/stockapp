@@ -148,6 +148,12 @@ class MarketDailyPageMarketCluster(Base):
     )
     representative_origin_link: Mapped[str | None] = mapped_column(Text)
     representative_naver_link: Mapped[str | None] = mapped_column(Text)
+    article_grouping_status: Mapped[str] = mapped_column(Text)
+    article_grouping_generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    article_grouping_issue_code: Mapped[str | None] = mapped_column(Text)
+    article_grouping_algorithm_version: Mapped[str | None] = mapped_column(Text)
 
     page_market: Mapped[MarketDailyPageMarket] = relationship(back_populates='clusters')
 
@@ -169,6 +175,9 @@ class MarketDailyPageArticleLink(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     origin_link: Mapped[str] = mapped_column(Text)
     naver_link: Mapped[str | None] = mapped_column(Text)
+    similar_group_rank: Mapped[int | None] = mapped_column(SmallInteger)
+    is_similar_group_representative: Mapped[bool] = mapped_column(Boolean)
+    exact_duplicate_count: Mapped[int] = mapped_column(Integer)
 
     page_market: Mapped[MarketDailyPageMarket] = relationship(
         back_populates='article_links'

@@ -29,6 +29,68 @@ def test_search_document_uses_shared_nfc_casefold_and_whitespace_normalizer():
     )
 
 
+def test_source_ready_grouping_rejects_missing_article_membership():
+    with pytest.raises(ValueError, match='membership'):
+        build_module._validate_source_grouping(
+            [
+                {
+                    'id': 7001,
+                    'cluster_uid': 'cluster-uid',
+                    'article_count': 2,
+                    'representative_article_id': 4001,
+                    'article_grouping_status': 'READY',
+                    'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                    'article_grouping_algorithm_version': 'v1',
+                    'article_grouping_issue_code': None,
+                }
+            ],
+            [
+                {
+                    'cluster_id': 7001,
+                    'processed_article_id': 4001,
+                    'similar_group_rank': 1,
+                    'is_similar_group_representative': True,
+                    'exact_duplicate_count': 0,
+                    'article_grouping_algorithm_version': 'v1',
+                }
+            ],
+        )
+
+
+def test_source_unavailable_grouping_requires_singletons_and_preserves_counts():
+    build_module._validate_source_grouping(
+        [
+            {
+                'id': 7001,
+                'cluster_uid': 'cluster-uid',
+                'article_count': 2,
+                'article_grouping_status': 'UNAVAILABLE',
+                'article_grouping_generated_at': None,
+                'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                'article_grouping_algorithm_version': 'v1',
+            }
+        ],
+        [
+            {
+                'cluster_id': 7001,
+                'processed_article_id': 4001,
+                'similar_group_rank': 1,
+                'is_similar_group_representative': True,
+                'exact_duplicate_count': 3,
+                'article_grouping_algorithm_version': 'v1',
+            },
+            {
+                'cluster_id': 7001,
+                'processed_article_id': 4002,
+                'similar_group_rank': 2,
+                'is_similar_group_representative': True,
+                'exact_duplicate_count': 1,
+                'article_grouping_algorithm_version': 'v1',
+            },
+        ],
+    )
+
+
 KEY_POINTS = [
     {
         'kind': 'direction',
@@ -89,6 +151,52 @@ class SourceClusterRepository:
     async def list_cluster_themes_by_business_date(self, business_date):
         _ = business_date
         return [{'cluster_id': 7001, 'theme_code': 'THEME_A', 'rank': 1}]
+
+
+class GroupedSourceClusterRepository(SourceClusterRepository):
+    async def list_clusters_by_business_date(self, business_date):
+        clusters = await super().list_clusters_by_business_date(business_date)
+        clusters[0].update(
+            {
+                'article_grouping_status': 'READY',
+                'article_grouping_generated_at': '2026-08-14T00:00:00+00:00',
+                'article_grouping_issue_code': None,
+                'article_grouping_algorithm_version': 'v1',
+                'article_grouping_algorithm_version_count': 1,
+            }
+        )
+        return clusters
+
+    async def list_cluster_article_links_by_business_date(self, business_date):
+        _ = business_date
+        return [
+            {
+                'market_type': 'US',
+                'processed_article_id': 4001,
+                'cluster_id': 7001,
+                'cluster_uid': 'cluster-uid',
+                'cluster_title': '기존 클러스터',
+                'title': '대표 기사',
+                'origin_link': 'https://example.com/1',
+                'similar_group_rank': 1,
+                'is_similar_group_representative': True,
+                'exact_duplicate_count': 4,
+                'article_grouping_algorithm_version': 'v1',
+            },
+            {
+                'market_type': 'US',
+                'processed_article_id': 4002,
+                'cluster_id': 7001,
+                'cluster_uid': 'cluster-uid',
+                'cluster_title': '기존 클러스터',
+                'title': '관련 기사',
+                'origin_link': 'https://example.com/2',
+                'similar_group_rank': 1,
+                'is_similar_group_representative': False,
+                'exact_duplicate_count': 1,
+                'article_grouping_algorithm_version': 'v1',
+            },
+        ]
 
 
 class EmptyIndexRepository:
@@ -1133,6 +1241,48 @@ async def test_normal_snapshot_groups_articles_and_preserves_one_to_three_theme_
         (1004, [{'theme_code': 'THEME_KR', 'rank': 1}]),
     ]
     assert context.partial_reasons == []
+
+
+@pytest.mark.anyio
+async def test_normal_snapshot_copies_ready_grouping_metadata_and_member_counts():
+    snapshot_repository = ThemeRecordingSnapshotRepository(RecordingAsyncSession())
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=date(2026, 3, 17),
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await BuildPageSnapshotStep(
+        cluster_repo_factory=GroupedSourceClusterRepository,
+        summary_repo_factory=SuccessfulKeyPointSummaryRepository,
+        index_repo_factory=EmptyIndexRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+        context_repo_factory=CompleteMarketContextRepository,
+    ).run(EventRepository(session=RecordingAsyncSession(), events=[]), context)
+
+    cluster = next(
+        payload
+        for name, payload in snapshot_repository.calls
+        if name == 'insert_page_market_cluster'
+    )
+    assert cluster['article_grouping_status'] == 'READY'
+    assert cluster['article_grouping_generated_at'] == ('2026-08-14T00:00:00+00:00')
+    assert cluster['article_grouping_issue_code'] is None
+    assert cluster['article_grouping_algorithm_version'] == 'v1'
+    links = [
+        payload
+        for name, payload in snapshot_repository.calls
+        if name == 'insert_page_article_link'
+    ]
+    assert [
+        (
+            link['similar_group_rank'],
+            link['is_similar_group_representative'],
+            link['exact_duplicate_count'],
+        )
+        for link in links
+    ] == [(1, True, 4), (1, False, 1)]
 
 
 @pytest.mark.anyio

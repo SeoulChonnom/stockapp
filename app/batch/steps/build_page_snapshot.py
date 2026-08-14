@@ -216,6 +216,174 @@ def _validate_snapshot_public_identities(
             raise ValueError('cluster_uid must not be null in a current snapshot')
 
 
+_GROUPING_FAILED_ISSUE = 'SIMILARITY_GROUPING_FAILED'
+
+
+def _grouping_value(row: Mapping[str, Any] | object, *keys: str) -> Any:
+    for key in keys:
+        value = _row_value(row, key)
+        if value is not None:
+            return value
+    return None
+
+
+def _cluster_article_links(
+    cluster: Mapping[str, Any], article_links: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    cluster_id = cluster.get('id')
+    by_id = [link for link in article_links if link.get('cluster_id') == cluster_id]
+    if by_id:
+        return by_id
+    cluster_uid = cluster.get('cluster_uid')
+    return [
+        link
+        for link in article_links
+        if cluster_uid is not None and str(link.get('cluster_uid')) == str(cluster_uid)
+    ]
+
+
+def _grouping_metadata(
+    cluster: Mapping[str, Any], links: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    status = _grouping_value(cluster, 'article_grouping_status', 'grouping_status')
+    if status is None and links:
+        status = _grouping_value(links[0], 'article_grouping_status', 'grouping_status')
+    if status is None:
+        # Rows created before B4 do not carry grouping metadata. Keep this
+        # compatibility branch for old fixtures; live source rows always do.
+        return None
+    if status not in {'READY', 'UNAVAILABLE'}:
+        raise ValueError('article grouping status is invalid')
+
+    generated_at = _grouping_value(
+        cluster, 'article_grouping_generated_at', 'grouping_generated_at'
+    )
+    if generated_at is None and links:
+        generated_at = _grouping_value(
+            links[0], 'article_grouping_generated_at', 'grouping_generated_at'
+        )
+    issue_code = _grouping_value(
+        cluster, 'article_grouping_issue_code', 'grouping_issue_code'
+    )
+    if issue_code is None and links:
+        issue_code = _grouping_value(
+            links[0], 'article_grouping_issue_code', 'grouping_issue_code'
+        )
+
+    cluster_version = _grouping_value(
+        cluster,
+        'article_grouping_algorithm_version',
+        'grouping_algorithm_version',
+        'algorithm_version',
+    )
+    versions = {
+        version
+        for link in links
+        if (
+            version := _grouping_value(
+                link,
+                'article_grouping_algorithm_version',
+                'grouping_algorithm_version',
+                'algorithm_version',
+            )
+        )
+        is not None
+    }
+    if len(versions) > 1:
+        raise ValueError('article grouping algorithm versions are inconsistent')
+    if cluster_version is not None and versions and cluster_version not in versions:
+        raise ValueError('article grouping algorithm version is inconsistent')
+    algorithm_version = cluster_version or next(iter(versions), None)
+    version_count = cluster.get('article_grouping_algorithm_version_count')
+    if version_count is not None and version_count != 1 and links:
+        raise ValueError('article grouping algorithm versions are inconsistent')
+    if not isinstance(algorithm_version, str) or not algorithm_version.strip():
+        raise ValueError('article grouping algorithm version is missing')
+
+    if status == 'READY':
+        if generated_at is None or issue_code is not None:
+            raise ValueError('READY article grouping metadata is inconsistent')
+    elif generated_at is not None or issue_code != _GROUPING_FAILED_ISSUE:
+        raise ValueError('UNAVAILABLE article grouping metadata is inconsistent')
+    return {
+        'status': status,
+        'generated_at': generated_at,
+        'issue_code': issue_code,
+        'algorithm_version': algorithm_version,
+    }
+
+
+def _validate_source_grouping(
+    clusters: list[dict[str, Any]], article_links: list[dict[str, Any]]
+) -> None:
+    """Validate persisted source groups before any snapshot row is inserted."""
+    for cluster in clusters:
+        links = _cluster_article_links(cluster, article_links)
+        metadata = _grouping_metadata(cluster, links)
+        if metadata is None:
+            continue
+        article_count = cluster.get('article_count')
+        if (
+            isinstance(article_count, bool)
+            or not isinstance(article_count, int)
+            or article_count < 0
+        ):
+            raise ValueError('cluster article count is invalid')
+        if len(links) != article_count:
+            raise ValueError('article grouping membership does not cover cluster')
+
+        article_ids: list[int] = []
+        ranks: list[int] = []
+        representatives_by_rank: dict[int, int] = defaultdict(int)
+        members_by_rank: dict[int, int] = defaultdict(int)
+        for link in links:
+            article_id = link.get('processed_article_id')
+            if (
+                isinstance(article_id, bool)
+                or not isinstance(article_id, int)
+                or article_id <= 0
+            ):
+                raise ValueError('article grouping membership is invalid')
+            if article_id in article_ids:
+                raise ValueError('article grouping membership is duplicated')
+            article_ids.append(article_id)
+            rank = link.get('similar_group_rank')
+            if isinstance(rank, bool) or not isinstance(rank, int) or rank <= 0:
+                raise ValueError('article grouping rank is invalid')
+            ranks.append(rank)
+            members_by_rank[rank] += 1
+            representative = link.get('is_similar_group_representative')
+            if not isinstance(representative, bool):
+                raise ValueError('article grouping representative flag is invalid')
+            representatives_by_rank[rank] += int(representative)
+            count = link.get('exact_duplicate_count')
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise ValueError('exact duplicate count is invalid')
+
+        if len(article_ids) != article_count:
+            raise ValueError('article grouping membership does not cover cluster')
+        expected_ranks = set(range(1, len(set(ranks)) + 1))
+        if set(ranks) != expected_ranks:
+            raise ValueError('article grouping ranks must be contiguous')
+        for rank in expected_ranks:
+            if representatives_by_rank[rank] != 1:
+                raise ValueError('each article grouping must have one representative')
+            if metadata['status'] == 'UNAVAILABLE' and members_by_rank[rank] != 1:
+                raise ValueError('UNAVAILABLE article groups must be singletons')
+
+
+def _source_grouping_by_cluster(
+    clusters: list[dict[str, Any]], article_links: list[dict[str, Any]]
+) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for cluster in clusters:
+        links = _cluster_article_links(cluster, article_links)
+        metadata = _grouping_metadata(cluster, links)
+        if metadata is not None:
+            result[int(cluster['id'])] = metadata
+    return result
+
+
 class BuildPageSnapshotStep(BatchStep):
     step_code = 'BUILD_PAGE_SNAPSHOT'
     started_message = 'Build page snapshot step started.'
@@ -285,6 +453,10 @@ class BuildPageSnapshotStep(BatchStep):
             )
             return context
         _validate_snapshot_public_identities(clusters, cluster_article_links)
+        _validate_source_grouping(clusters, cluster_article_links)
+        grouping_by_cluster_id = _source_grouping_by_cluster(
+            clusters, cluster_article_links
+        )
         theme_rows = await cluster_repo.list_cluster_themes_by_business_date(
             context.business_date
         )
@@ -575,6 +747,18 @@ class BuildPageSnapshotStep(BatchStep):
                     'representative_origin_link': representative_origin_link,
                     'representative_naver_link': representative_naver_link,
                 }
+                grouping = grouping_by_cluster_id.get(int(cluster['id']))
+                if grouping is not None:
+                    cluster_payload.update(
+                        {
+                            'article_grouping_status': grouping['status'],
+                            'article_grouping_generated_at': grouping['generated_at'],
+                            'article_grouping_issue_code': grouping['issue_code'],
+                            'article_grouping_algorithm_version': grouping[
+                                'algorithm_version'
+                            ],
+                        }
+                    )
                 snapshot_cluster_id = await snapshot_repo.insert_page_market_cluster(
                     cluster_payload
                 )
@@ -610,6 +794,13 @@ class BuildPageSnapshotStep(BatchStep):
                         'published_at': article_link.get('published_at'),
                         'origin_link': article_link['origin_link'],
                         'naver_link': article_link.get('naver_link'),
+                        'similar_group_rank': article_link.get('similar_group_rank'),
+                        'is_similar_group_representative': article_link.get(
+                            'is_similar_group_representative', True
+                        ),
+                        'exact_duplicate_count': article_link.get(
+                            'exact_duplicate_count', 0
+                        ),
                     }
                 )
 

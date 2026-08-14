@@ -29,6 +29,11 @@ class NewsCluster(Base):
     tags_json: Mapped[list[str]] = mapped_column(JSONB, default=list)
     representative_article_id: Mapped[int] = mapped_column(Integer)
     article_count: Mapped[int] = mapped_column(Integer)
+    article_grouping_status: Mapped[str] = mapped_column(Text)
+    article_grouping_generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    article_grouping_issue_code: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

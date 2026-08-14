@@ -393,7 +393,11 @@ class PageSnapshotRepository(PostgresRepository):
                 representative_publisher_name,
                 representative_published_at,
                 representative_origin_link,
-                representative_naver_link
+                representative_naver_link,
+                article_grouping_status,
+                article_grouping_generated_at,
+                article_grouping_issue_code,
+                article_grouping_algorithm_version
             FROM {page_market_cluster_table}
             WHERE page_market_id IN :page_market_ids
             ORDER BY page_market_id, display_order
@@ -453,7 +457,10 @@ class PageSnapshotRepository(PostgresRepository):
                 publisher_name,
                 published_at,
                 origin_link,
-                naver_link
+                naver_link,
+                similar_group_rank,
+                is_similar_group_representative,
+                exact_duplicate_count
             FROM {page_article_link_table}
             WHERE page_market_id IN :page_market_ids
               AND processed_article_id IS NOT NULL
