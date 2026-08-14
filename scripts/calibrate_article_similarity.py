@@ -264,45 +264,70 @@ def load_dataset(path: Path = DATASET_PATH) -> tuple[PairRecord, ...]:
 
 
 def split_dataset(pairs: Iterable[PairRecord]) -> DatasetSplit:
-    """Freeze a 70/30 label/market split without crossing event families.
+    """Freeze a deterministic approximate 70/30 split without content leakage.
 
-    Event families are sorted by a hash of their label, market, and family ID;
-    whole families, rather than individual pairs, are then assigned to the
-    calibration or holdout side.  This prevents near-duplicate pairs from
-    leaking across the split while retaining deterministic label/market
-    stratification.
+    A family is an assignment unit, and families sharing any normalized
+    ``(title, summary)`` fingerprint are unioned into one content component.
+    Whole components are assigned together, then selected per label/market
+    bucket with a deterministic closest-to-70-percent objective.
     """
 
-    buckets: dict[tuple[str, str], dict[str, list[PairRecord]]] = defaultdict(
-        lambda: defaultdict(list)
-    )
-    for pair in pairs:
-        buckets[(pair.label, pair.market)][pair.event_family_id].append(pair)
+    records = tuple(pairs)
+    components = _content_components(records)
+    buckets: dict[tuple[str, str], list[PairRecord]] = defaultdict(list)
+    for pair in records:
+        buckets[(pair.label, pair.market)].append(pair)
+    bucket_totals = {
+        bucket: len(bucket_pairs) for bucket, bucket_pairs in buckets.items()
+    }
+    bucket_targets = {
+        bucket: round(count * 0.7) for bucket, count in bucket_totals.items()
+    }
+    component_groups = _component_interaction_groups(components)
+    calibration_component_ids: set[str] = set()
+    for group_components in component_groups:
+        group_buckets = {
+            bucket
+            for component in group_components
+            for bucket in component['bucket_counts']
+        }
+        calibration_component_ids.update(
+            _select_calibration_components(
+                group_components,
+                bucket_targets={
+                    bucket: bucket_targets[bucket] for bucket in group_buckets
+                },
+                bucket_totals={
+                    bucket: bucket_totals[bucket] for bucket in group_buckets
+                },
+            )
+        )
     calibration: list[PairRecord] = []
     holdout: list[PairRecord] = []
     assignments: list[dict[str, str]] = []
-    for label, market in sorted(buckets):
-        families = buckets[(label, market)]
-        ordered_families = sorted(
-            families,
-            key=lambda family: hashlib.sha256(
-                f'{label}:{market}:{family}'.encode()
-            ).hexdigest(),
+    component_by_pair_id = {
+        pair.pair_id: component
+        for component in components
+        for pair in component['pairs']
+    }
+    for pair in sorted(records, key=lambda item: item.pair_id):
+        component = component_by_pair_id[pair.pair_id]
+        target = (
+            'calibration'
+            if component['component_id'] in calibration_component_ids
+            else 'holdout'
         )
-        calibration_families = _select_calibration_families(ordered_families, families)
-        for family in ordered_families:
-            target = 'calibration' if family in calibration_families else 'holdout'
-            for pair in sorted(families[family], key=lambda item: item.pair_id):
-                (calibration if target == 'calibration' else holdout).append(pair)
-                assignments.append(
-                    {
-                        'pair_id': pair.pair_id,
-                        'event_family_id': pair.event_family_id,
-                        'label': pair.label,
-                        'market': pair.market,
-                        'split': target,
-                    }
-                )
+        (calibration if target == 'calibration' else holdout).append(pair)
+        assignments.append(
+            {
+                'pair_id': pair.pair_id,
+                'event_family_id': pair.event_family_id,
+                'label': pair.label,
+                'market': pair.market,
+                'content_component_id': component['component_id'],
+                'split': target,
+            }
+        )
     assignments.sort(key=lambda item: item['pair_id'])
     assignment_hash = hashlib.sha256(_canonical_json(assignments).encode()).hexdigest()
     return DatasetSplit(
@@ -313,28 +338,173 @@ def split_dataset(pairs: Iterable[PairRecord]) -> DatasetSplit:
     )
 
 
-def _select_calibration_families(
-    ordered_families: Sequence[str], families: Mapping[str, Sequence[PairRecord]]
-) -> set[str]:
-    """Select whole families closest to 70%, breaking ties by hash order."""
+def _content_fingerprint(article: ArticleText) -> tuple[str, str]:
+    return normalize_text(article.title), normalize_text(article.summary)
 
-    if len(ordered_families) < 2:
-        raise ValueError('at least two event families are required per bucket')
-    target = round(sum(len(families[family]) for family in ordered_families) * 0.7)
-    options: list[tuple[int, ...]] = []
-    for count in range(1, len(ordered_families)):
-        options.extend(itertools.combinations(range(len(ordered_families)), count))
-    selected_indexes = min(
-        options,
-        key=lambda indexes: (
-            abs(
-                sum(len(families[ordered_families[index]]) for index in indexes)
-                - target
-            ),
-            indexes,
-        ),
+
+def _family_key(pair: PairRecord) -> tuple[str, str, str]:
+    return pair.label, pair.market, pair.event_family_id
+
+
+def _content_components(
+    pairs: Sequence[PairRecord],
+) -> tuple[dict[str, Any], ...]:
+    """Union event families that share exact normalized article content."""
+
+    family_parent: dict[tuple[str, str, str], tuple[str, str, str]] = {}
+    fingerprint_owner: dict[tuple[str, str], tuple[str, str, str]] = {}
+
+    def find(family: tuple[str, str, str]) -> tuple[str, str, str]:
+        parent = family_parent[family]
+        if parent != family:
+            family_parent[family] = find(parent)
+        return family_parent[family]
+
+    def union(left: tuple[str, str, str], right: tuple[str, str, str]) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return
+        if left_root < right_root:
+            family_parent[right_root] = left_root
+        else:
+            family_parent[left_root] = right_root
+
+    for pair in pairs:
+        family = _family_key(pair)
+        family_parent.setdefault(family, family)
+        for article in (pair.left, pair.right):
+            fingerprint = _content_fingerprint(article)
+            owner = fingerprint_owner.get(fingerprint)
+            if owner is None:
+                fingerprint_owner[fingerprint] = family
+            else:
+                union(family, owner)
+
+    records_by_root: dict[tuple[str, str, str], list[PairRecord]] = defaultdict(list)
+    for pair in pairs:
+        records_by_root[find(_family_key(pair))].append(pair)
+
+    components: list[dict[str, Any]] = []
+    for _root, component_pairs in records_by_root.items():
+        families = sorted({_family_key(pair) for pair in component_pairs})
+        component_id = hashlib.sha256(_canonical_json(families).encode()).hexdigest()
+        bucket_counts: dict[tuple[str, str], int] = defaultdict(int)
+        for pair in component_pairs:
+            bucket_counts[(pair.label, pair.market)] += 1
+        components.append(
+            {
+                'component_id': component_id,
+                'families': tuple(families),
+                'pairs': tuple(sorted(component_pairs, key=lambda item: item.pair_id)),
+                'bucket_counts': dict(bucket_counts),
+            }
+        )
+    return tuple(sorted(components, key=lambda item: item['component_id']))
+
+
+def _component_interaction_groups(
+    components: Sequence[dict[str, Any]],
+) -> tuple[tuple[dict[str, Any], ...], ...]:
+    """Group components sharing label/market buckets for local subset search."""
+
+    bucket_parent: dict[tuple[str, str], tuple[str, str]] = {}
+
+    def find(bucket: tuple[str, str]) -> tuple[str, str]:
+        parent = bucket_parent[bucket]
+        if parent != bucket:
+            bucket_parent[bucket] = find(parent)
+        return bucket_parent[bucket]
+
+    def union(left: tuple[str, str], right: tuple[str, str]) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return
+        if left_root < right_root:
+            bucket_parent[right_root] = left_root
+        else:
+            bucket_parent[left_root] = right_root
+
+    for component in components:
+        buckets = sorted(component['bucket_counts'])
+        for bucket in buckets:
+            bucket_parent.setdefault(bucket, bucket)
+        for bucket in buckets[1:]:
+            union(buckets[0], bucket)
+
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for component in components:
+        buckets = sorted(component['bucket_counts'])
+        grouped[find(buckets[0])].append(component)
+    return tuple(
+        tuple(sorted(group, key=lambda item: item['component_id']))
+        for _, group in sorted(grouped.items())
     )
-    return {ordered_families[index] for index in selected_indexes}
+
+
+def _selection_key(
+    selected: Sequence[dict[str, Any]],
+    *,
+    bucket_targets: Mapping[tuple[str, str], int],
+    bucket_totals: Mapping[tuple[str, str], int],
+) -> tuple[float, int, int, tuple[str, ...]]:
+    counts: dict[tuple[str, str], int] = defaultdict(int)
+    for component in selected:
+        for bucket, count in component['bucket_counts'].items():
+            counts[bucket] += count
+    normalized_error = sum(
+        abs(counts[bucket] - bucket_targets[bucket]) / bucket_totals[bucket]
+        for bucket in bucket_targets
+    )
+    partition_penalty = sum(
+        counts[bucket] in {0, bucket_totals[bucket]} for bucket in bucket_targets
+    )
+    total_error = abs(sum(counts.values()) - round(sum(bucket_totals.values()) * 0.7))
+    return (
+        normalized_error,
+        partition_penalty,
+        total_error,
+        tuple(component['component_id'] for component in selected),
+    )
+
+
+def _select_calibration_components(
+    components: Sequence[dict[str, Any]],
+    *,
+    bucket_targets: Mapping[tuple[str, str], int],
+    bucket_totals: Mapping[tuple[str, str], int],
+) -> set[str]:
+    """Select whole content components with deterministic tie breaking."""
+
+    if not components:
+        return set()
+    if len(components) <= 20:
+        candidates: Iterable[tuple[int, ...]] = (
+            indexes
+            for count in range(len(components) + 1)
+            for indexes in itertools.combinations(range(len(components)), count)
+        )
+        selected_indexes = min(
+            candidates,
+            key=lambda indexes: _selection_key(
+                [components[index] for index in indexes],
+                bucket_targets=bucket_targets,
+                bucket_totals=bucket_totals,
+            ),
+        )
+        return {components[index]['component_id'] for index in selected_indexes}
+
+    selected: list[dict[str, Any]] = []
+    for component in components:
+        candidate = [*selected, component]
+        if _selection_key(
+            candidate, bucket_targets=bucket_targets, bucket_totals=bucket_totals
+        ) < _selection_key(
+            selected, bucket_targets=bucket_targets, bucket_totals=bucket_totals
+        ):
+            selected.append(component)
+    return {component['component_id'] for component in selected}
 
 
 _TOKEN_RE = re.compile(r'[0-9A-Za-z가-힣]+')
@@ -542,6 +712,35 @@ def _default_scores(
     return scores, vetoes
 
 
+def _prediction_records(
+    pairs: Sequence[PairRecord],
+    *,
+    scores: Mapping[str, float],
+    vetoes: Mapping[str, bool],
+    threshold: float,
+    split: Literal['calibration', 'holdout'],
+) -> list[dict[str, Any]]:
+    """Serialize auditable pair predictions without copying article bodies."""
+
+    return [
+        {
+            'pair_id': pair.pair_id,
+            'market': pair.market,
+            'label': pair.label,
+            'event_family_id': pair.event_family_id,
+            'left_article_id': pair.left.article_id,
+            'right_article_id': pair.right.article_id,
+            'hard_negative_type': pair.hard_negative_type,
+            'split': split,
+            'score': scores[pair.pair_id],
+            'vetoed': vetoes.get(pair.pair_id, False),
+            'predicted_same_event': scores[pair.pair_id] >= threshold
+            and not vetoes.get(pair.pair_id, False),
+        }
+        for pair in sorted(pairs, key=lambda item: item.pair_id)
+    ]
+
+
 def _stable_article_id(article_id: str) -> int:
     """Map fixture IDs to positive IDs for the production grouping function."""
 
@@ -730,9 +929,13 @@ def _build_report(result: Mapping[str, Any]) -> str:
     holdout = result['holdout_metrics']
     gates = result['gates']
     gate_text = 'PASS' if result['passed'] else 'FAIL'
+    total_pairs = result['calibration_pair_count'] + result['holdout_pair_count']
+    calibration_percent = result['calibration_pair_count'] / total_pairs * 100
+    holdout_percent = result['holdout_pair_count'] / total_pairs * 100
     if mode == 'mock':
         evidence_lines = [
             'This artifact validates the calibration contract and pipeline with a repository-curated mock fixture using deterministic mock embeddings through `httpx.MockTransport`.',
+            'The dataset is a synthetic deterministic contract fixture with fixture annotations, not a manually labeled real-news calibration corpus.',
             'It is not evidence of production `bge-m3` model quality, Ollama runtime, host latency, Ollama version, or model digest.',
             f'- Mock algorithm: `{result["embedding_algorithm"]}`; implementation source SHA-256: `{result["embedding_algorithm_sha256"]}`.',
             f'- Mock full-pipeline per-cluster p95: `{result["runtime_p95_seconds"]:.6f}s` (non-production; model/network latency evidence only for the mock transport).',
@@ -749,19 +952,21 @@ def _build_report(result: Mapping[str, Any]) -> str:
             '- `bge-m3` model digest: **NOT COLLECTED BY THIS SCRIPT**.',
         ]
     lines = [
-        '# Article similarity calibration (Task 7)',
+        '# Article similarity mock contract evaluation (Task 7)',
         '',
-        f'- Overall gate: **{gate_text}** (mode: `{mode}`).',
+        f'- Decision/status: **`{result["status"]}`**.',
+        f'- Mock arithmetic gates: **{gate_text}** (mode: `{mode}`; this is not real-model acceptance).',
+        '- Approved real-model calibration gate: **UNVERIFIED — REAL `bge-m3` CALIBRATION REQUIRED**.',
         f'- Dataset SHA-256: `{result["dataset_sha256"]}`.',
-        f'- Labeled pairs: `{result["calibration_pair_count"] + result["holdout_pair_count"]}` (`{result["calibration_pair_count"]}` calibration / `{result["holdout_pair_count"]}` holdout).',
-        f'- Split assignment SHA-256: `{result["split_assignment_sha256"]}` (70% calibration / 30% holdout by label/market/family hash; families never cross partitions).',
+        f'- Synthetic fixture pairs: `{total_pairs}` (`{result["calibration_pair_count"]}` calibration / `{result["holdout_pair_count"]}` holdout = `{calibration_percent:.3f}%` / `{holdout_percent:.3f}%`; approximate 70/30 constrained by label/market, event family, and normalized content components).',
+        f'- Split assignment SHA-256: `{result["split_assignment_sha256"]}` (content components never cross partitions).',
         f'- Grid candidates: `{result["grid_candidate_count"]}`; search was run on calibration pairs only.',
         f'- Selected parameters: `{json.dumps(result["selected_parameters"], sort_keys=True)}`; threshold `{result["selected_threshold"]}`.',
         f'- Grouping algorithm version: `{result["algorithm_version"]}`.',
         f'- Determinism audit: `{result["determinism_check_count"]}` checks across `{result["determinism_case_count"]}` multi-article clusters, `{result["determinism_runs"]}` runs, and all input permutations.',
         f'- Runtime samples: `{result["runtime_sample_count"]}` per-cluster full-pipeline measurements across `{result["runtime_cluster_count"]}` clusters.',
         '',
-        '## Holdout gates',
+        '## Mock holdout arithmetic gates (not real-model acceptance)',
         '',
         f'- Precision: `{holdout["pair_precision"]:.4f}` (required >= 0.95).',
         f'- SAME_EVENT recall: `{holdout["same_event_recall"]:.4f}` (required >= 0.85).',
@@ -781,7 +986,8 @@ def _build_report(result: Mapping[str, Any]) -> str:
         [
             '',
             'Grid tie-break order is precision, SAME_EVENT recall, total false merges, HARD_NEGATIVE false merges, OTHER_EVENT false merges, then canonical parameter order; contradiction vetoes are applied during calibration and holdout.',
-            'The selected `SimilarityParameters` are provisional for the repository-curated mock fixture and must not be treated as production-model evidence.',
+            'The selected `SimilarityParameters` are provisional for this synthetic deterministic contract fixture, are not release-calibrated, and must not be treated as production-model evidence or a satisfied real holdout gate.',
+            'Run the explicitly opted-in `--live` mode separately against the configured provider before any production-quality or release-calibration decision.',
             '',
         ]
     )
@@ -854,6 +1060,9 @@ async def run_calibration(
             dense_lexical_grid=((0.6, 0.4), (0.7, 0.3), (0.8, 0.2)),
             threshold_grid=(0.45, 0.55, 0.65, 0.75, 0.80, 0.85, 0.90),
         )
+        calibration_selected_scores, calibration_selected_vetoes = _default_scores(
+            split.calibration, vectors, grid.parameters
+        )
         holdout_scores, holdout_vetoes = _default_scores(
             split.holdout, vectors, grid.parameters
         )
@@ -889,8 +1098,38 @@ async def run_calibration(
         )
         dataset_payload = json.loads(dataset_path.read_text(encoding='utf-8'))
         gates = _gates(holdout, runtime_p95, mode=mode)
+        pair_predictions = _prediction_records(
+            split.calibration,
+            scores=calibration_selected_scores,
+            vetoes=calibration_selected_vetoes,
+            threshold=grid.threshold,
+            split='calibration',
+        ) + _prediction_records(
+            split.holdout,
+            scores=holdout_scores,
+            vetoes=holdout_vetoes,
+            threshold=grid.threshold,
+            split='holdout',
+        )
+        status = (
+            'MOCK_PIPELINE_PASS_REAL_BGE_M3_CALIBRATION_REQUIRED'
+            if mode == 'mock' and all(gates.values())
+            else 'MOCK_PIPELINE_FAIL_REAL_BGE_M3_CALIBRATION_REQUIRED'
+            if mode == 'mock'
+            else 'LIVE_CALIBRATION_OPERATOR_RESULT'
+        )
         result_payload: dict[str, Any] = {
             'schema_version': 'article-similarity-calibration-result-v2',
+            'status': status,
+            'decision': status,
+            'gate_scope': 'mock-contract-only'
+            if mode == 'mock'
+            else 'live-operator-run',
+            'mock_gate_status': 'PASS' if all(gates.values()) else 'FAIL',
+            'real_model_calibration_status': (
+                'UNVERIFIED_REQUIRED' if mode == 'mock' else 'OPERATOR_REVIEW_REQUIRED'
+            ),
+            'real_model_calibration_approved': False,
             'mode': mode,
             'provider': 'httpx.MockTransport'
             if mode == 'mock'
@@ -910,6 +1149,7 @@ async def run_calibration(
             'selected_threshold': grid.threshold,
             'calibration_metrics': grid.metrics.to_dict(),
             'holdout_metrics': holdout.to_dict(),
+            'pair_predictions': pair_predictions,
             'gates': gates,
             'passed': all(gates.values()),
             'embedding_algorithm': (
@@ -971,7 +1211,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(
         json.dumps(
             {
-                'status': 'PASS' if result.result['passed'] else 'FAIL',
+                'status': result.result['status'],
+                'mock_gate_status': result.result['mock_gate_status'],
                 'report': str(args.report),
             },
             ensure_ascii=False,

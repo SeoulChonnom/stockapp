@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import replace as dataclass_replace
+import unicodedata
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -29,8 +29,10 @@ def _pair(
     label: str,
     *,
     family: str | None = None,
-    left_title: str = '삼성전자 실적 발표',
-    right_title: str = '삼성전자 분기 실적 발표',
+    left_title: str | None = None,
+    right_title: str | None = None,
+    left_summary: str | None = None,
+    right_summary: str | None = None,
 ) -> PairRecord:
     return PairRecord(
         pair_id=pair_id,
@@ -39,13 +41,13 @@ def _pair(
         event_family_id=family or f'{label.lower()}-{pair_id}',
         left=ArticleText(
             article_id=f'{pair_id}-left',
-            title=left_title,
-            summary='영업이익 120억원 증가',
+            title=left_title or f'삼성전자 실적 발표 {pair_id}',
+            summary=left_summary or f'영업이익 120억원 증가 {pair_id}',
         ),
         right=ArticleText(
             article_id=f'{pair_id}-right',
-            title=right_title,
-            summary='영업이익 120억원 늘어',
+            title=right_title or f'삼성전자 분기 실적 발표 {pair_id}',
+            summary=right_summary or f'영업이익 120억원 늘어 {pair_id}',
         ),
         hard_negative_type=None,
     )
@@ -114,6 +116,63 @@ def test_family_split_keeps_each_event_family_in_one_partition() -> None:
         for partition in (split.calibration, split.holdout)
         for label in ('SAME_EVENT', 'OTHER_EVENT', 'HARD_NEGATIVE')
     )
+
+
+def test_content_component_split_keeps_duplicate_content_together() -> None:
+    pairs = (
+        _pair(
+            'shared-a',
+            'SAME_EVENT',
+            family='same-family-a',
+            left_title='공유 기사',
+            right_title='공유 기사 후속',
+            left_summary='공유 요약',
+            right_summary='공유 요약 후속',
+        ),
+        _pair(
+            'shared-b',
+            'SAME_EVENT',
+            family='same-family-b',
+            left_title='공유 기사',
+            right_title='공유 기사 후속',
+            left_summary='공유 요약',
+            right_summary='공유 요약 후속',
+        ),
+        _pair('independent', 'SAME_EVENT', family='same-family-c'),
+    )
+
+    split = split_dataset(pairs)
+    assignment = {item.pair_id: 'calibration' for item in split.calibration} | {
+        item.pair_id: 'holdout' for item in split.holdout
+    }
+
+    assert assignment['shared-a'] == assignment['shared-b']
+
+
+def test_fixture_content_fingerprints_are_partition_disjoint() -> None:
+    payload = json.loads(
+        Path('tests/fixtures/article_similarity_pairs.json').read_text(encoding='utf-8')
+    )
+    pairs = load_dataset(Path('tests/fixtures/article_similarity_pairs.json'))
+    split = split_dataset(pairs)
+    pair_split = {
+        assignment['pair_id']: assignment['split'] for assignment in split.assignments
+    }
+
+    def normalized(value: str) -> str:
+        return ' '.join(unicodedata.normalize('NFC', value).casefold().split())
+
+    fingerprint_split: dict[tuple[str, str], str] = {}
+    for record in payload['pairs']:
+        partition = pair_split[record['pair_id']]
+        for side in ('left', 'right'):
+            article = record[side]
+            fingerprint = (
+                normalized(article['title']),
+                normalized(article['summary']),
+            )
+            previous = fingerprint_split.setdefault(fingerprint, partition)
+            assert previous == partition
 
 
 def test_mock_embedding_depends_only_on_normalized_text_not_label() -> None:
@@ -308,6 +367,10 @@ async def test_mock_calibration_artifacts_are_consistent_and_non_production(
 
     assert run.result == result
     assert result['passed'] is True
+    assert result['status'] == 'MOCK_PIPELINE_PASS_REAL_BGE_M3_CALIBRATION_REQUIRED'
+    assert result['mock_gate_status'] == 'PASS'
+    assert result['real_model_calibration_status'] == 'UNVERIFIED_REQUIRED'
+    assert result['real_model_calibration_approved'] is False
     assert (
         result['dataset_sha256']
         == json.loads(Path('tests/fixtures/article_similarity_pairs.json').read_text())[
@@ -316,78 +379,131 @@ async def test_mock_calibration_artifacts_are_consistent_and_non_production(
     )
     assert 'httpx.MockTransport' in report_path.read_text(encoding='utf-8')
     assert 'NOT COLLECTED (mock mode)' in report_path.read_text(encoding='utf-8')
+    assert 'synthetic deterministic contract fixture' in report_path.read_text(
+        encoding='utf-8'
+    )
+    assert 'REAL `bge-m3` CALIBRATION REQUIRED' in report_path.read_text(
+        encoding='utf-8'
+    )
     assert 'production `bge-m3` model quality' in report_path.read_text(
         encoding='utf-8'
     )
 
 
 def test_committed_artifact_recomputes_without_running_the_writer() -> None:
-    from scripts.calibrate_article_similarity import (
-        _dataset_hash,
-        _default_scores,
-        _gates,
-        _grouping_determinism_rate,
-        _implementation_sha256,
-        evaluate_metrics,
-    )
-
     dataset_path = Path('tests/fixtures/article_similarity_pairs.json')
     result_path = Path('docs/evaluations/2026-08-13-article-similarity.json')
     dataset = json.loads(dataset_path.read_text(encoding='utf-8'))
     result = json.loads(result_path.read_text(encoding='utf-8'))
-    pairs = load_dataset(dataset_path)
-    split = split_dataset(pairs)
 
-    assert _dataset_hash(dataset) == result['dataset_sha256']
-    assert result['split_assignment_sha256'] == split.assignment_sha256
-    assert result['split_assignments'] == list(split.assignments)
-    assert all(
-        len(
-            {
-                assignment['split']
-                for assignment in result['split_assignments']
-                if assignment['event_family_id'] == family
-            }
+    def canonical(value: object) -> str:
+        return json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(',', ':')
         )
-        == 1
-        for family in {item.event_family_id for item in pairs}
+
+    dataset_without_hash = dict(dataset)
+    dataset_without_hash.pop('dataset_sha256')
+    local_dataset_hash = hashlib.sha256(
+        canonical(dataset_without_hash).encode()
+    ).hexdigest()
+    assert local_dataset_hash == (
+        '95a7ca7614ce694317a30109e19a080e1477c1d0cfd267c66eae3f4164dbc666'
     )
-    assert result['calibration_pair_count'] == len(split.calibration)
-    assert result['holdout_pair_count'] == len(split.holdout)
-    assert result['algorithm_version'] == build_grouping_algorithm_version(
-        model='mock-bge-m3',
-        input_chars=2048,
-        parameters=SimilarityParameters(**result['selected_parameters']),
-        threshold=result['selected_threshold'],
+    assert result['dataset_sha256'] == (
+        '95a7ca7614ce694317a30109e19a080e1477c1d0cfd267c66eae3f4164dbc666'
     )
-    vectors = {
-        article.article_id: mock_embedding(f'{article.title} {article.summary}')
-        for pair in pairs
-        for article in (pair.left, pair.right)
-    }
-    parameters = SimilarityParameters(**result['selected_parameters'])
-    scores, vetoes = _default_scores(split.holdout, vectors, parameters)
-    holdout = evaluate_metrics(
-        split.holdout,
-        scores=scores,
-        threshold=result['selected_threshold'],
-        vetoes=vetoes,
+    assert result['split_assignment_sha256'] == (
+        '02dbce5b03084a0591c93afd57dea6972e43ff111abf78b8e1e021238b34b11f'
     )
-    holdout = dataclass_replace(
-        holdout,
-        determinism_rate=_grouping_determinism_rate(
-            parameters=parameters,
-            threshold=result['selected_threshold'],
-            runs=result['determinism_runs'],
-        ),
+    assert result['algorithm_version'] == (
+        'format=similarity-v2;model=mock-bge-m3;inputChars=2048;'
+        'lexical=lexical-v1;'
+        'weights=0x1.999999999999ap-3,0x1.3333333333333p-2,'
+        '0x1.3333333333333p-2,0x1.999999999999ap-3,'
+        '0x1.3333333333333p-1,0x1.999999999999ap-2;'
+        'threshold=0x1.ccccccccccccdp-2;veto=veto-v1;grouping=complete-link-v1'
     )
-    assert result['holdout_metrics'] == holdout.to_dict()
-    assert result['gates'] == _gates(
-        holdout, result['runtime_p95_seconds'], mode='mock'
+    assert result['embedding_algorithm_sha256'] == (
+        '098587ddd0c0e0f85a96b90abc7d405f07a23c7bc809811cc8ff7c95e8fbc8bd'
     )
-    assert result['embedding_algorithm_sha256'] == _implementation_sha256()
+
+    assignments = result['split_assignments']
+    pair_payload = {pair['pair_id']: pair for pair in dataset['pairs']}
+    assert {item['pair_id'] for item in assignments} == set(pair_payload)
+    assert len(assignments) == len(pair_payload)
+    family_split: dict[tuple[str, str, str], str] = {}
+    fingerprint_split: dict[tuple[str, str], str] = {}
+
+    def normalized(value: str) -> str:
+        return ' '.join(unicodedata.normalize('NFC', value).casefold().split())
+
+    for assignment in assignments:
+        pair = pair_payload[assignment['pair_id']]
+        split_name = assignment['split']
+        family_key = (
+            pair['label'],
+            pair['market'],
+            pair['event_family_id'],
+        )
+        assert family_split.setdefault(family_key, split_name) == split_name
+        for side in ('left', 'right'):
+            article = pair[side]
+            fingerprint = (
+                normalized(article['title']),
+                normalized(article['summary']),
+            )
+            assert fingerprint_split.setdefault(fingerprint, split_name) == split_name
+
+    predictions = result['pair_predictions']
+    assert len(predictions) == len(pair_payload)
+    assert {item['pair_id'] for item in predictions} == set(pair_payload)
+
+    def manual_metrics(
+        records: list[dict[str, Any]], *, determinism_rate: float
+    ) -> dict[str, float | int]:
+        same = [item for item in records if item['label'] == 'SAME_EVENT']
+        other = [item for item in records if item['label'] == 'OTHER_EVENT']
+        hard = [item for item in records if item['label'] == 'HARD_NEGATIVE']
+        positive = [item for item in records if item['predicted_same_event']]
+        true_positive = sum(item['label'] == 'SAME_EVENT' for item in positive)
+        other_false = sum(item['label'] == 'OTHER_EVENT' for item in positive)
+        hard_false = sum(item['label'] == 'HARD_NEGATIVE' for item in positive)
+        return {
+            'pair_precision': true_positive / len(positive) if positive else 1.0,
+            'same_event_recall': true_positive / len(same) if same else 1.0,
+            'other_event_false_merge_rate': other_false / len(other) if other else 0.0,
+            'hard_negative_false_merge_rate': hard_false / len(hard) if hard else 0.0,
+            'determinism_rate': determinism_rate,
+            'true_positive_count': true_positive,
+            'predicted_positive_count': len(positive),
+            'same_event_count': len(same),
+            'other_event_count': len(other),
+            'hard_negative_count': len(hard),
+            'other_event_false_merge_count': other_false,
+            'hard_negative_false_merge_count': hard_false,
+        }
+
+    calibration_predictions = [
+        item for item in predictions if item['split'] == 'calibration'
+    ]
+    holdout_predictions = [item for item in predictions if item['split'] == 'holdout']
+    assert len(calibration_predictions) == 222
+    assert len(holdout_predictions) == 98
+    assert result['calibration_metrics'] == manual_metrics(
+        calibration_predictions, determinism_rate=0.0
+    )
+    assert result['holdout_metrics'] == manual_metrics(
+        holdout_predictions, determinism_rate=1.0
+    )
+    assert result['calibration_pair_count'] == 222
+    assert result['holdout_pair_count'] == 98
     assert result['mode'] == 'mock'
     assert result['passed'] is True
+    assert result['status'] == 'MOCK_PIPELINE_PASS_REAL_BGE_M3_CALIBRATION_REQUIRED'
+    assert result['decision'] == result['status']
+    assert result['mock_gate_status'] == 'PASS'
+    assert result['real_model_calibration_status'] == 'UNVERIFIED_REQUIRED'
+    assert result['real_model_calibration_approved'] is False
     assert result['gates'] == {
         'precision_ge_95_percent': True,
         'same_event_recall_ge_85_percent': True,

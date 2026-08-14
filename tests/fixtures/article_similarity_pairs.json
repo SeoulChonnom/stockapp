@@ -1,6 +1,6 @@
 {
   "schema_version": "article-similarity-pairs-v2",
-  "curation": "repository-curated mock limited-title-summary fixture; deterministic event-family templates with fixture labels",
+  "curation": "synthetic deterministic contract fixture; repository-curated limited-title-summary mock pairs with fixture annotations, not a manually labeled real-news corpus",
   "pairs": [
     {
       "pair_id": "kr-same-01-01",
@@ -315,8 +315,8 @@
       "hard_negative_type": "date",
       "left": {
         "article_id": "kr-hard-01-04-left",
-        "title": "삼성전자 분기 실적 2026-08-04 발표",
-        "summary": "영업이익 200억원 일정"
+        "title": "삼성전자 분기 실적 2026-08-04 잠정 발표",
+        "summary": "영업이익 200억원 일정 잠정"
       },
       "right": {
         "article_id": "kr-hard-01-04-right",
@@ -340,7 +340,7 @@
         "title": "삼성전자 분기 실적 하락",
         "summary": "영업이익 전망 하락"
       },
-      "event_family_id": "kr-hard-01-b"
+      "event_family_id": "kr-hard-01-a"
     },
     {
       "pair_id": "kr-same-02-01",
@@ -655,8 +655,8 @@
       "hard_negative_type": "date",
       "left": {
         "article_id": "kr-hard-02-04-left",
-        "title": "현대차 전기차 투자 2026-08-04 발표",
-        "summary": "생산능력 201억원 일정"
+        "title": "현대차 전기차 투자 2026-08-04 잠정 발표",
+        "summary": "생산능력 201억원 일정 잠정"
       },
       "right": {
         "article_id": "kr-hard-02-04-right",
@@ -680,7 +680,7 @@
         "title": "현대차 전기차 투자 하락",
         "summary": "생산능력 전망 하락"
       },
-      "event_family_id": "kr-hard-02-b"
+      "event_family_id": "kr-hard-02-a"
     },
     {
       "pair_id": "kr-same-03-01",
@@ -3035,8 +3035,8 @@
       "hard_negative_type": "date",
       "left": {
         "article_id": "us-hard-01-04-left",
-        "title": "Apple quarterly earnings 2026-08-04 발표",
-        "summary": "revenue 200억원 일정"
+        "title": "Apple quarterly earnings 2026-08-04 잠정 발표",
+        "summary": "revenue 200억원 일정 잠정"
       },
       "right": {
         "article_id": "us-hard-01-04-right",
@@ -3060,7 +3060,7 @@
         "title": "Apple quarterly earnings fall",
         "summary": "revenue 전망 fall"
       },
-      "event_family_id": "us-hard-01-b"
+      "event_family_id": "us-hard-01-a"
     },
     {
       "pair_id": "us-same-02-01",
@@ -3375,8 +3375,8 @@
       "hard_negative_type": "date",
       "left": {
         "article_id": "us-hard-02-04-left",
-        "title": "Tesla vehicle deliveries 2026-08-04 발표",
-        "summary": "deliveries 201억원 일정"
+        "title": "Tesla vehicle deliveries 2026-08-04 잠정 발표",
+        "summary": "deliveries 201억원 일정 잠정"
       },
       "right": {
         "article_id": "us-hard-02-04-right",
@@ -3400,7 +3400,7 @@
         "title": "Tesla vehicle deliveries fall",
         "summary": "deliveries 전망 fall"
       },
-      "event_family_id": "us-hard-02-b"
+      "event_family_id": "us-hard-02-a"
     },
     {
       "pair_id": "us-same-03-01",
@@ -5443,5 +5443,5 @@
       "event_family_id": "us-hard-08"
     }
   ],
-  "dataset_sha256": "86b9006e1f613e0709f2a1519db805faba68de9a4f1d0b4a32480009a930e783"
+  "dataset_sha256": "95a7ca7614ce694317a30109e19a080e1477c1d0cfd267c66eae3f4164dbc666"
 }
