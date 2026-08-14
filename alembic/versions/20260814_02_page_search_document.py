@@ -29,9 +29,7 @@ _MIGRATION_SQL = (
 def _load_migration_sql() -> str:
     sql = _MIGRATION_SQL.read_text(encoding='utf-8').strip()
     if not sql.startswith('BEGIN;') or not sql.endswith('COMMIT;'):
-        raise RuntimeError(
-            'The page search migration has invalid transaction guards.'
-        )
+        raise RuntimeError('The page search migration has invalid transaction guards.')
     return sql.removeprefix('BEGIN;').removesuffix('COMMIT;').strip()
 
 
@@ -47,6 +45,5 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute('DROP INDEX IF EXISTS stock.idx_market_daily_page_search_document')
     op.execute(
-        'ALTER TABLE stock.market_daily_page '
-        'DROP COLUMN IF EXISTS search_document'
+        'ALTER TABLE stock.market_daily_page DROP COLUMN IF EXISTS search_document'
     )

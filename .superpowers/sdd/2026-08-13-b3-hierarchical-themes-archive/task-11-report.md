@@ -50,8 +50,8 @@ There is no Candidate-A production prompt/build write/parser or feature flag in
 | Full suite (`uv run pytest -q`) | **1020 passed, 11 skipped** |
 | PostgreSQL migration test, all migration files twice | **9 passed** |
 | Disposable PostgreSQL repository probe | **PASS** — parent expansion, latest-public exclusion, page/market/cluster q, theme+q same-cluster correlation, market+theme+q, multiple-theme OR, literal LIKE escaping, list/count parity |
-| Ruff format check | **208 files already formatted** |
-| Ruff lint | **All checks passed** |
+| Ruff format check | **216 files already formatted** (`uv run ruff format --check .`) |
+| Ruff lint | **All checks passed** (`uv run ruff check .`) |
 | `git diff --check` | **PASS** |
 | Pyright on changed/B3 production files | **0 errors, 0 warnings, 0 informations** |
 | Evaluation artifact hash verification | **PASS** for final and retained-initial JSON/report/manifest sets |
