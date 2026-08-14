@@ -392,6 +392,84 @@ class NewsClusterWriteRecord:
     cluster_rank: int
 
 
+@dataclass(frozen=True, slots=True)
+class ExactDuplicateCountRecord:
+    """Raw exact-duplicate count for one canonical processed article."""
+
+    processed_article_id: int
+    exact_duplicate_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ArticleGroupRecord:
+    """Persisted similar-group header returned in deterministic rank order."""
+
+    similar_group_id: int
+    cluster_id: int
+    group_rank: int
+    representative_article_id: int
+    algorithm_version: str
+    generated_at: datetime
+    members: tuple[ArticleGroupMemberRecord, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ArticleGroupMemberRecord:
+    """Persisted article membership and score within one similar group."""
+
+    similar_group_id: int
+    processed_article_id: int
+    similarity_score: float
+    exact_duplicate_count: int
+    is_representative: bool
+    article_rank: int
+
+
+@dataclass(frozen=True, slots=True)
+class ArticleGroupCreateParams:
+    """Immutable insert payload for one persisted group header."""
+
+    cluster_id: int
+    group_rank: int
+    representative_article_id: int
+    algorithm_version: str
+    generated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ArticleGroupMemberCreateParams:
+    """Immutable insert payload for one persisted group member."""
+
+    similar_group_id: int
+    processed_article_id: int
+    similarity_score: float
+    exact_duplicate_count: int
+    is_representative: bool
+    article_rank: int
+
+
+@dataclass(frozen=True, slots=True)
+class ArticleGroupingRecord:
+    """Stored grouping status with ranked groups and members."""
+
+    status: Literal['READY', 'UNAVAILABLE']
+    generated_at: datetime | None
+    issue_code: str | None
+    algorithm_version: str | None
+    groups: tuple[ArticleGroupRecord, ...]
+    members: tuple[ArticleGroupMemberRecord, ...]
+
+
+# Similar-group terminology is used by the schema and by callers in later
+# pipeline stages.  Keep aliases so both vocabulary choices share one typed
+# projection rather than introducing mutable duplicate models.
+SimilarGroupRecord = ArticleGroupRecord
+SimilarGroupMemberRecord = ArticleGroupMemberRecord
+SimilarGroupCreateParams = ArticleGroupCreateParams
+SimilarGroupMemberCreateParams = ArticleGroupMemberCreateParams
+SimilarGroupingRecord = ArticleGroupingRecord
+
+
 @dataclass(slots=True)
 class ThemeAssignmentCreateParams:
     """Ranked leaf-theme assignment accepted by the persistence boundary."""

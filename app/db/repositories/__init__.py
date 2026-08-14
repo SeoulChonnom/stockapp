@@ -1,5 +1,6 @@
 from app.db.repositories.ai_retry_repo import PostgresAiRetryRepository
 from app.db.repositories.ai_summary_write_repo import AiSummaryWriteRepository
+from app.db.repositories.article_group_repo import ArticleGroupRepository
 from app.db.repositories.cluster_repo import ClusterRepository
 from app.db.repositories.market_context_repo import MarketContextRepository
 from app.db.repositories.market_index_repo import MarketIndexRepository
@@ -15,6 +16,7 @@ from app.db.repositories.theme_repo import ThemeRepository
 
 __all__ = [
     'AiSummaryWriteRepository',
+    'ArticleGroupRepository',
     'ClusterRepository',
     'MarketContextRepository',
     'MarketIndexRepository',

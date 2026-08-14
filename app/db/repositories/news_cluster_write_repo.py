@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
-from datetime import date
+from collections.abc import Mapping, Sequence
+from datetime import date, datetime
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.batch.article_similarity import SimilarityGroupingResult
 from app.db.identifiers import qualify_db_identifier
+from app.db.repositories.article_group_repo import ArticleGroupRepository
 from app.db.repositories.base import PostgresRepository
 from app.db.repositories.projections import (
     NewsClusterArticleCreateParams,
@@ -241,6 +243,41 @@ class NewsClusterWriteRepository(PostgresRepository):
                 }
                 for assignment in normalized_assignments
             ],
+        )
+
+    async def replace_cluster_groups(
+        self,
+        cluster_id: int,
+        result: SimilarityGroupingResult,
+        *,
+        algorithm_version: str | None = None,
+        generated_at: datetime | None = None,
+        exact_counts: Mapping[int, int] | Sequence[object] | None = None,
+    ) -> None:
+        """Replace persisted similarity groups in the caller's transaction."""
+        await ArticleGroupRepository(self.session).replace_cluster_groups(
+            cluster_id,
+            result,
+            algorithm_version=algorithm_version,
+            generated_at=generated_at,
+            exact_counts=exact_counts,
+        )
+
+    async def mark_grouping_unavailable_with_singletons(
+        self,
+        cluster_id: int,
+        articles,
+        exact_counts,
+        algorithm_version: str,
+    ) -> None:
+        """Persist singleton fallback groups without committing the session."""
+        await ArticleGroupRepository(
+            self.session
+        ).mark_grouping_unavailable_with_singletons(
+            cluster_id,
+            articles,
+            exact_counts,
+            algorithm_version,
         )
 
     @staticmethod

@@ -7,8 +7,13 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.identifiers import qualify_db_identifier
+from app.db.repositories.article_group_repo import ArticleGroupRepository
 from app.db.repositories.base import PostgresRepository
-from app.db.repositories.projections import ClusterThemeRecord
+from app.db.repositories.projections import (
+    ArticleGroupingRecord,
+    ClusterThemeRecord,
+    ExactDuplicateCountRecord,
+)
 
 
 class ClusterRepository(PostgresRepository):
@@ -34,6 +39,9 @@ class ClusterRepository(PostgresRepository):
                 tags_json,
                 representative_article_id,
                 article_count,
+                article_grouping_status,
+                article_grouping_generated_at,
+                article_grouping_issue_code,
                 updated_at AS last_updated_at
             FROM {cluster_table}
             WHERE cluster_uid = :cluster_uid
@@ -47,14 +55,35 @@ class ClusterRepository(PostgresRepository):
         statement = text(
             """
             SELECT
-                cluster_id,
-                processed_article_id,
-                article_rank
+                {cluster_article_table}.cluster_id,
+                {cluster_article_table}.processed_article_id,
+                {cluster_article_table}.article_rank,
+                {group_table}.group_rank AS similar_group_rank,
+                {member_table}.is_representative AS is_similar_group_representative,
+                {member_table}.exact_duplicate_count,
+                {member_table}.similarity_score,
+                {cluster_table}.article_grouping_status,
+                {cluster_table}.article_grouping_generated_at,
+                {cluster_table}.article_grouping_issue_code,
+                {group_table}.algorithm_version AS article_grouping_algorithm_version
             FROM {cluster_article_table}
-            WHERE cluster_id = :cluster_id
-            ORDER BY article_rank ASC, processed_article_id ASC
+            JOIN {cluster_table}
+              ON {cluster_table}.id = {cluster_article_table}.cluster_id
+            LEFT JOIN {member_table}
+              ON {member_table}.processed_article_id = {cluster_article_table}.processed_article_id
+            LEFT JOIN {group_table}
+              ON {group_table}.id = {member_table}.similar_group_id
+             AND {group_table}.cluster_id = {cluster_article_table}.cluster_id
+            WHERE {cluster_article_table}.cluster_id = :cluster_id
+            ORDER BY {cluster_article_table}.article_rank ASC,
+                     {cluster_article_table}.processed_article_id ASC
             """.format(
-                cluster_article_table=qualify_db_identifier('news_cluster_article')
+                cluster_article_table=qualify_db_identifier('news_cluster_article'),
+                cluster_table=qualify_db_identifier('news_cluster'),
+                group_table=qualify_db_identifier('news_cluster_similar_group'),
+                member_table=qualify_db_identifier(
+                    'news_cluster_similar_group_article'
+                ),
             )
         ).bindparams(bindparam('cluster_id', cluster_id))
         result = await self.session.execute(statement)
@@ -217,6 +246,20 @@ class ClusterRepository(PostgresRepository):
         rows = [self._row_to_dict(row) for row in result.all()]
         by_id = {row['id']: row for row in rows}
         return [by_id[article_id] for article_id in article_ids if article_id in by_id]
+
+    async def get_exact_duplicate_counts(
+        self, processed_article_ids: list[int]
+    ) -> list[ExactDuplicateCountRecord]:
+        """Return raw exact-duplicate counts for a batch of articles."""
+        return await ArticleGroupRepository(self.session).get_exact_duplicate_counts(
+            processed_article_ids
+        )
+
+    async def get_cluster_grouping(self, cluster_id: int) -> ArticleGroupingRecord:
+        """Read persisted grouping status and ranked memberships."""
+        return await ArticleGroupRepository(self.session).get_cluster_grouping(
+            cluster_id
+        )
 
     async def list_cluster_article_links_by_business_date(
         self,
