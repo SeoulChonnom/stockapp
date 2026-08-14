@@ -10,11 +10,12 @@ from __future__ import annotations
 import math
 import re
 import unicodedata
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from numbers import Real
+from typing import Any
 
 from app.core.text import normalize_text
 
@@ -222,6 +223,151 @@ class SimilarityResult:
         """Compatibility alias for ticker/name/organization agreement."""
 
         return self.ticker_name_org_agreement
+
+
+@dataclass(frozen=True, slots=True)
+class ArticleCandidate:
+    """Immutable article input for deterministic similarity grouping.
+
+    ``published_at`` must be timezone-aware when supplied.  The grouping
+    function converts it to UTC before sorting, so equivalent instants with
+    different offsets have identical ordering.  A missing timestamp is valid
+    article data, but does not count toward information completeness.
+    """
+
+    processed_article_id: int
+    canonical_title: str | None = None
+    source_summary: str | None = None
+    article_body_excerpt: str | None = None
+    publisher_name: str | None = None
+    origin_link: str | None = None
+    published_at: datetime | None = None
+    vector: tuple[Real, ...] | None = None
+    exact_duplicate_count: int = 0
+    is_cluster_representative: bool = False
+
+    def __post_init__(self) -> None:
+        if isinstance(self.processed_article_id, bool) or not isinstance(
+            self.processed_article_id, int
+        ):
+            raise TypeError('processed_article_id must be an integer')
+        for field_name in (
+            'canonical_title',
+            'source_summary',
+            'article_body_excerpt',
+            'publisher_name',
+            'origin_link',
+        ):
+            value = getattr(self, field_name)
+            if value is not None and not isinstance(value, str):
+                raise TypeError(f'{field_name} must be a string or None')
+        if self.published_at is not None and not isinstance(
+            self.published_at, datetime
+        ):
+            raise TypeError('published_at must be a datetime or None')
+        if isinstance(self.exact_duplicate_count, bool) or not isinstance(
+            self.exact_duplicate_count, int
+        ):
+            raise TypeError('exact_duplicate_count must be an integer')
+        if self.exact_duplicate_count < 0:
+            raise ValueError('exact_duplicate_count must be non-negative')
+        if not isinstance(self.is_cluster_representative, bool):
+            raise TypeError('is_cluster_representative must be a boolean')
+        if self.vector is not None:
+            if isinstance(self.vector, (str, bytes)):
+                raise TypeError('vector must be a sequence of real numbers')
+            try:
+                vector = tuple(self.vector)
+            except TypeError:
+                raise TypeError('vector must be a sequence of real numbers') from None
+            object.__setattr__(self, 'vector', vector)
+
+    @property
+    def title(self) -> str | None:
+        """Compatibility alias for the canonical title field."""
+
+        return self.canonical_title
+
+    @property
+    def embedding(self) -> tuple[Real, ...] | None:
+        """Compatibility alias for callers naming vectors embeddings."""
+
+        return self.vector
+
+
+SimilarityArticle = ArticleCandidate
+
+
+@dataclass(frozen=True, slots=True)
+class SimilarityGroupMember:
+    """One ranked member of a persisted-ready similarity group."""
+
+    processed_article_id: int
+    similarity_score: float
+    is_representative: bool
+    article_rank: int
+
+    @property
+    def score(self) -> float:
+        """Return this member's average in-group similarity."""
+
+        return self.similarity_score
+
+
+@dataclass(frozen=True, slots=True)
+class SimilarityGroup:
+    """A complete-link group with one deterministic representative."""
+
+    group_rank: int
+    representative_article_id: int
+    members: tuple[SimilarityGroupMember, ...]
+
+    @property
+    def rank(self) -> int:
+        """Compatibility alias for the contiguous group rank."""
+
+        return self.group_rank
+
+    @property
+    def representative_id(self) -> int:
+        """Compatibility alias for the representative article ID."""
+
+        return self.representative_article_id
+
+
+@dataclass(frozen=True, slots=True)
+class SimilarityGroupingResult:
+    """Immutable output of one cluster's complete-link grouping run."""
+
+    groups: tuple[SimilarityGroup, ...]
+
+    @property
+    def article_count(self) -> int:
+        """Return the number of grouped articles."""
+
+        return sum(len(group.members) for group in self.groups)
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize grouping metadata without exposing input vectors."""
+
+        return {
+            'groups': [
+                {
+                    'groupRank': group.group_rank,
+                    'representativeArticleId': group.representative_article_id,
+                    'members': [
+                        {
+                            'processedArticleId': member.processed_article_id,
+                            'similarityScore': member.similarity_score,
+                            'isRepresentative': member.is_representative,
+                            'articleRank': member.article_rank,
+                        }
+                        for member in group.members
+                    ],
+                }
+                for group in self.groups
+            ]
+        }
 
 
 def safe_cosine_similarity(left: Sequence[Real], right: Sequence[Real]) -> float:
@@ -560,16 +706,317 @@ def has_contradiction(left: LexicalFeatures, right: LexicalFeatures) -> bool:
     return bool(_contradiction_reasons(left, right))
 
 
+def _candidate_field(article: Mapping[str, object] | object, *names: str) -> Any:
+    if isinstance(article, Mapping):
+        for name in names:
+            if name in article:
+                return article[name]
+        return None
+    for name in names:
+        value = getattr(article, name, None)
+        if value is not None:
+            return value
+    return None
+
+
+def _coerce_candidate(
+    article: ArticleCandidate | Mapping[str, object] | object,
+) -> ArticleCandidate:
+    if isinstance(article, ArticleCandidate):
+        return article
+    published_at = _candidate_field(article, 'published_at', 'publishedAt')
+    if isinstance(published_at, str):
+        try:
+            published_at = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+        except ValueError:
+            raise ValueError('published_at must be a valid datetime') from None
+    return ArticleCandidate(
+        processed_article_id=_candidate_field(
+            article, 'processed_article_id', 'processedArticleId', 'id'
+        ),
+        canonical_title=_candidate_field(article, 'canonical_title', 'title'),
+        source_summary=_candidate_field(article, 'source_summary', 'summary'),
+        article_body_excerpt=_candidate_field(
+            article, 'article_body_excerpt', 'body_excerpt', 'body'
+        ),
+        publisher_name=_candidate_field(article, 'publisher_name', 'publisher'),
+        origin_link=_candidate_field(article, 'origin_link', 'originLink'),
+        published_at=published_at,
+        vector=_candidate_field(article, 'vector', 'embedding', 'embeddings'),
+        exact_duplicate_count=_candidate_field(
+            article, 'exact_duplicate_count', 'exactDuplicateCount'
+        )
+        or 0,
+        is_cluster_representative=bool(
+            _candidate_field(
+                article, 'is_cluster_representative', 'isClusterRepresentative'
+            )
+            or False
+        ),
+    )
+
+
+def _normalise_published_at(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError('published_at must be timezone-aware')
+    return value.astimezone(UTC)
+
+
+def _article_sort_key(
+    article: ArticleCandidate, normalized_times: Mapping[int, datetime | None]
+) -> tuple[bool, float, int]:
+    published_at = normalized_times[article.processed_article_id]
+    if published_at is None:
+        return (True, 0.0, article.processed_article_id)
+    return (False, -published_at.timestamp(), article.processed_article_id)
+
+
+def _pair_key(left_id: int, right_id: int) -> tuple[int, int]:
+    return (left_id, right_id) if left_id < right_id else (right_id, left_id)
+
+
+def _validate_vector(vector: tuple[Real, ...] | None) -> None:
+    if not vector:
+        raise ValueError('vector is required and must not be empty')
+    for value in vector:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise TypeError('vector values must be real numbers')
+        try:
+            numeric_value = float(value)
+        except OverflowError, TypeError, ValueError:
+            raise ValueError('vector values must be finite') from None
+        if not math.isfinite(numeric_value):
+            raise ValueError('vector values must be finite')
+
+
+def _validate_threshold(threshold: float) -> float:
+    if isinstance(threshold, bool) or not isinstance(threshold, Real):
+        raise TypeError('threshold must be a real number')
+    value = float(threshold)
+    if not math.isfinite(value):
+        raise ValueError('threshold must be finite')
+    if not 0.0 <= value <= 1.0:
+        raise ValueError('threshold must be between 0 and 1')
+    return value
+
+
+def _has_information(value: str | None) -> bool:
+    return bool(value and value.strip())
+
+
+def _completeness(article: ArticleCandidate, published_at: datetime | None) -> float:
+    present = sum(
+        (
+            _has_information(article.source_summary),
+            _has_information(article.article_body_excerpt),
+            _has_information(article.publisher_name),
+            _has_information(article.origin_link),
+            published_at is not None,
+        )
+    )
+    return present / 5.0
+
+
+def _recency_values(
+    candidates: Sequence[ArticleCandidate],
+    normalized_times: Mapping[int, datetime | None],
+) -> dict[int, float]:
+    values = [
+        published_at.timestamp()
+        for article in candidates
+        if (published_at := normalized_times[article.processed_article_id]) is not None
+    ]
+    if not values:
+        return {article.processed_article_id: 0.0 for article in candidates}
+    oldest = min(values)
+    newest = max(values)
+    span = newest - oldest
+    recencies: dict[int, float] = {}
+    for article in candidates:
+        published_at = normalized_times[article.processed_article_id]
+        if published_at is None:
+            recencies[article.processed_article_id] = 0.0
+        elif span == 0.0:
+            recencies[article.processed_article_id] = 1.0
+        else:
+            recencies[article.processed_article_id] = (
+                published_at.timestamp() - oldest
+            ) / span
+    return recencies
+
+
+def _average_similarity(
+    article: ArticleCandidate,
+    members: Sequence[ArticleCandidate],
+    pair_scores: Mapping[tuple[int, int], SimilarityResult],
+) -> float:
+    if len(members) == 1:
+        return 1.0
+    scores = [
+        pair_scores[
+            _pair_key(article.processed_article_id, other.processed_article_id)
+        ].combined_score
+        for other in members
+        if other.processed_article_id != article.processed_article_id
+    ]
+    return math.fsum(scores) / len(scores)
+
+
+def group_similar_articles(
+    articles: Iterable[ArticleCandidate | Mapping[str, object] | object],
+    *,
+    threshold: float = 0.8,
+    parameters: SimilarityParameters | None = None,
+) -> SimilarityGroupingResult:
+    """Group article candidates with deterministic complete-link first-fit.
+
+    Candidates are sorted by UTC-normalized publication time descending and ID
+    ascending.  Every unordered pair is scored once before any group is built;
+    group admission then checks all existing members and contradiction vetoes.
+    """
+
+    selected_threshold = _validate_threshold(threshold)
+    candidates = tuple(_coerce_candidate(article) for article in articles)
+    ids = [article.processed_article_id for article in candidates]
+    if len(ids) != len(set(ids)):
+        raise ValueError('processed_article_id values must be unique')
+    normalized_times = {
+        article.processed_article_id: _normalise_published_at(article.published_at)
+        for article in candidates
+    }
+    for article in candidates:
+        _validate_vector(article.vector)
+    dimensions = {len(article.vector or ()) for article in candidates}
+    if len(dimensions) > 1:
+        raise ValueError('vectors must have the same dimension')
+
+    ordered = tuple(
+        sorted(candidates, key=lambda item: _article_sort_key(item, normalized_times))
+    )
+    recencies = _recency_values(ordered, normalized_times)
+    pair_scores: dict[tuple[int, int], SimilarityResult] = {}
+    for index, left in enumerate(ordered):
+        for right in ordered[index + 1 :]:
+            dense_score = safe_cosine_similarity(left.vector or (), right.vector or ())
+            pair_scores[
+                _pair_key(left.processed_article_id, right.processed_article_id)
+            ] = score_similarity(
+                left.canonical_title,
+                left.source_summary or left.article_body_excerpt,
+                right.canonical_title,
+                right.source_summary or right.article_body_excerpt,
+                dense_score=dense_score,
+                parameters=parameters,
+            )
+
+    groups: list[list[ArticleCandidate]] = []
+    for article in ordered:
+        for members in groups:
+            if all(
+                (
+                    pair := pair_scores[
+                        _pair_key(
+                            article.processed_article_id, member.processed_article_id
+                        )
+                    ]
+                ).combined_score
+                >= selected_threshold
+                and not pair.contradiction_veto
+                for member in members
+            ):
+                members.append(article)
+                break
+        else:
+            groups.append([article])
+
+    def representative(members: Sequence[ArticleCandidate]) -> ArticleCandidate:
+        def key(article: ArticleCandidate) -> tuple[float, float, int]:
+            average = (
+                _average_similarity(article, members, pair_scores)
+                if len(members) > 1
+                else 0.0
+            )
+            completeness = _completeness(
+                article, normalized_times[article.processed_article_id]
+            )
+            score = (
+                average * 0.70
+                + completeness * 0.20
+                + recencies[article.processed_article_id] * 0.10
+            )
+            published_at = normalized_times[article.processed_article_id]
+            timestamp = (
+                published_at.timestamp() if published_at is not None else float('-inf')
+            )
+            return (score, timestamp, -article.processed_article_id)
+
+        return max(members, key=key)
+
+    ranked_groups = sorted(
+        ((members, representative(members)) for members in groups),
+        key=lambda item: _article_sort_key(item[1], normalized_times),
+    )
+    output_groups: list[SimilarityGroup] = []
+    for group_rank, (members, representative_article) in enumerate(
+        ranked_groups, start=1
+    ):
+        ordered_members = [
+            representative_article,
+            *(
+                article
+                for article in sorted(
+                    members, key=lambda item: _article_sort_key(item, normalized_times)
+                )
+                if article.processed_article_id
+                != representative_article.processed_article_id
+            ),
+        ]
+        output_members = tuple(
+            SimilarityGroupMember(
+                processed_article_id=article.processed_article_id,
+                similarity_score=_average_similarity(article, members, pair_scores),
+                is_representative=article.processed_article_id
+                == representative_article.processed_article_id,
+                article_rank=article_rank,
+            )
+            for article_rank, article in enumerate(ordered_members, start=1)
+        )
+        output_groups.append(
+            SimilarityGroup(
+                group_rank=group_rank,
+                representative_article_id=representative_article.processed_article_id,
+                members=output_members,
+            )
+        )
+    return SimilarityGroupingResult(groups=tuple(output_groups))
+
+
+build_similarity_groups = group_similar_articles
+build_article_similarity_groups = group_similar_articles
+group_articles = group_similar_articles
+
+
 __all__ = [
+    'ArticleCandidate',
     'LexicalFeatures',
+    'SimilarityArticle',
+    'SimilarityGroup',
+    'SimilarityGroupMember',
+    'SimilarityGroupingResult',
     'SimilarityParameters',
     'SimilarityResult',
     'StructuredNumericValue',
+    'build_article_similarity_groups',
+    'build_similarity_groups',
     'compare_articles',
     'compute_similarity',
     'cosine_similarity',
     'dice_score',
     'extract_lexical_features',
+    'group_articles',
+    'group_similar_articles',
     'has_contradiction',
     'safe_cosine_similarity',
     'safe_cosine',

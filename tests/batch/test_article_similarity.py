@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
+import app.batch.article_similarity as similarity_module
 from app.batch.article_similarity import (
+    ArticleCandidate,
     SimilarityParameters,
     extract_lexical_features,
+    group_similar_articles,
     safe_cosine_similarity,
     score_similarity,
 )
@@ -294,3 +298,111 @@ def test_score_is_deterministic_for_repeated_inputs():
     assert score_similarity(*args, dense_score=0.42) == score_similarity(
         *args, dense_score=0.42
     )
+
+
+def _candidate(
+    article_id: int,
+    vector: tuple[float, ...],
+    *,
+    published_at: datetime | None = datetime(2026, 8, 14, tzinfo=UTC),
+    summary: str | None = '요약',
+    body: str | None = '본문',
+    publisher: str | None = '매체',
+    origin_link: str | None = 'https://example.test/article',
+) -> ArticleCandidate:
+    return ArticleCandidate(
+        processed_article_id=article_id,
+        canonical_title=None,
+        source_summary=summary,
+        article_body_excerpt=body,
+        publisher_name=publisher,
+        origin_link=origin_link,
+        published_at=published_at,
+        vector=vector,
+    )
+
+
+def test_grouping_prevents_similarity_chain_and_scores_each_pair_once(monkeypatch):
+    original = similarity_module.score_similarity
+    calls: list[tuple[int, int]] = []
+
+    def spy(*args, **kwargs):
+        calls.append((len(calls), len(calls)))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(similarity_module, 'score_similarity', spy)
+    candidates = [
+        _candidate(1, (1.0, 0.0)),
+        _candidate(2, (0.8660254, 0.5)),
+        _candidate(3, (0.5, 0.8660254)),
+    ]
+
+    result = group_similar_articles(candidates, threshold=0.55)
+
+    assert [
+        [member.processed_article_id for member in group.members]
+        for group in result.groups
+    ] == [[1, 2], [3]]
+    assert len(calls) == 3
+
+
+def test_grouping_is_invariant_to_input_order_and_ranks_by_published_time():
+    newer = datetime(2026, 8, 14, 12, tzinfo=UTC)
+    older = newer - timedelta(hours=1)
+    candidates = [
+        _candidate(20, (1.0, 0.0), published_at=older),
+        _candidate(10, (1.0, 0.0), published_at=newer),
+        _candidate(30, (0.0, 1.0), published_at=newer),
+    ]
+
+    first = group_similar_articles(candidates, threshold=0.55)
+    second = group_similar_articles(tuple(reversed(candidates)), threshold=0.55)
+
+    assert first == second
+    assert first.groups[0].group_rank == 1
+    assert first.groups[0].representative_article_id == 10
+    assert first.groups[0].members[0].article_rank == 1
+    assert first.groups[0].members[0].is_representative
+    assert first.groups[1].members[0].similarity_score == pytest.approx(1.0)
+
+
+def test_grouping_representative_score_uses_completeness_and_recency():
+    newest = datetime(2026, 8, 14, 12, tzinfo=UTC)
+    oldest = datetime(2026, 8, 13, 12, tzinfo=UTC)
+    result = group_similar_articles(
+        [
+            _candidate(
+                1,
+                (1.0, 0.0),
+                published_at=newest,
+                summary=None,
+                body=None,
+                publisher=None,
+                origin_link=None,
+            ),
+            _candidate(2, (1.0, 0.0), published_at=oldest),
+        ],
+        threshold=0.55,
+    )
+
+    assert result.groups[0].representative_article_id == 2
+
+
+@pytest.mark.parametrize(
+    ('candidates', 'threshold', 'error'),
+    [
+        ([_candidate(1, (1.0,))], math.nan, 'finite'),
+        ([_candidate(1, (1.0,))], -0.1, 'between 0 and 1'),
+        ([_candidate(1, (1.0,)), _candidate(1, (1.0,))], 0.5, 'unique'),
+        (
+            [_candidate(1, (1.0,), published_at=datetime(2026, 8, 14))],
+            0.5,
+            'timezone-aware',
+        ),
+        ([_candidate(1, ())], 0.5, 'vector'),
+        ([_candidate(1, (1.0,)), _candidate(2, (1.0, 2.0))], 0.5, 'dimension'),
+    ],
+)
+def test_grouping_rejects_ambiguous_or_invalid_inputs(candidates, threshold, error):
+    with pytest.raises((TypeError, ValueError), match=error):
+        group_similar_articles(candidates, threshold=threshold)
