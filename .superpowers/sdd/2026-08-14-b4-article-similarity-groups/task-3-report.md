@@ -8,8 +8,9 @@
 
 ## Contract
 
-- `safe_cosine_similarity` returns the signed cosine for valid vectors, returns
-  `0.0` for a zero vector, and rejects dimension mismatch/non-finite values.
+- `safe_cosine_similarity` returns the signed cosine for valid vectors using
+  scale-normalized components and `math.fsum`, returns `0.0` for a zero vector,
+  and rejects dimension mismatch/non-finite values without overflow.
 - `SimilarityParameters` is frozen and validates non-negative lexical component
   weights and dense/lexical weights whose sums are exactly one (within a small
   floating-point tolerance).
@@ -23,11 +24,16 @@
   explicit non-overlapping dates, and direction vetoes require exclusively
   opposing positive/negative claims. Veto reasons remain independent from the
   combined score.
+- Grouped decimal numbers are parsed as one value; malformed separators and
+  impossible calendar dates are ignored conservatively. Entity extraction only
+  retains Korean organization suffixes, explicit organization suffixes, and
+  multi-word proper names; common headline words and ticker fragments are not
+  entities.
 
 ## Verification
 
 ```text
-20 focused pytest tests passed
+40 focused pytest tests passed
 ruff format/check passed
 pyright app/batch/article_similarity.py: 0 errors, 0 warnings
 ```

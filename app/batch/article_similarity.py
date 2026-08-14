@@ -12,6 +12,7 @@ import re
 import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from numbers import Real
 
@@ -19,7 +20,8 @@ from app.core.text import normalize_text
 
 _TOKEN_RE = re.compile(r'[0-9A-Za-z가-힣]+')
 _NUMBER_RE = re.compile(
-    r'(?<![\w])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)(?:\s*%|\s*퍼센트)?'
+    r'(?<![0-9.,])[-+]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)'
+    r'(?:\s*%|\s*퍼센트)?(?![0-9.,])'
 )
 _ISO_DATE_RE = re.compile(
     r'(?<!\d)(\d{4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})(?!\d)'
@@ -50,7 +52,28 @@ _NEGATIVE_DIRECTION_RE = re.compile(
 )
 _ORGANIZATION_SUFFIX_RE = re.compile(
     r'(?:전자|증권|은행|그룹|기업|회사|공사|정부|위원회|대학교|대학|병원|'
-    r'재단|협회|공단|연구원|산업|금융|통신|센터|청|원)$'
+    r'재단|협회|공단|연구원|산업|금융|통신|센터)$'
+)
+_EN_ORGANIZATION_SUFFIX_RE = re.compile(
+    r'(?:inc|corp|corporation|ltd|llc|plc|company|bank|group|holdings|'
+    r'university)$',
+    re.IGNORECASE,
+)
+_PROPER_TOKEN_RE = re.compile(r'[A-Z][a-zA-Z]{2,}')
+_ENTITY_STOP_WORDS = frozenset(
+    {
+        'a',
+        'an',
+        'and',
+        'daily',
+        'latest',
+        'market',
+        'markets',
+        'news',
+        'report',
+        'the',
+        'today',
+    }
 )
 _METRIC_SUFFIXES = (
     '으로',
@@ -215,23 +238,35 @@ def safe_cosine_similarity(left: Sequence[Real], right: Sequence[Real]) -> float
     for value in left:
         if isinstance(value, bool) or not isinstance(value, Real):
             raise TypeError('vector values must be real numbers')
-        numeric_value = float(value)
+        try:
+            numeric_value = float(value)
+        except OverflowError, TypeError, ValueError:
+            raise ValueError('vector values must be finite') from None
         if not math.isfinite(numeric_value):
             raise ValueError('vector values must be finite')
         left_values.append(numeric_value)
     for value in right:
         if isinstance(value, bool) or not isinstance(value, Real):
             raise TypeError('vector values must be real numbers')
-        numeric_value = float(value)
+        try:
+            numeric_value = float(value)
+        except OverflowError, TypeError, ValueError:
+            raise ValueError('vector values must be finite') from None
         if not math.isfinite(numeric_value):
             raise ValueError('vector values must be finite')
         right_values.append(numeric_value)
-    left_norm = math.sqrt(sum(value * value for value in left_values))
-    right_norm = math.sqrt(sum(value * value for value in right_values))
-    if left_norm == 0.0 or right_norm == 0.0:
+    left_scale = max((abs(value) for value in left_values), default=0.0)
+    right_scale = max((abs(value) for value in right_values), default=0.0)
+    if left_scale == 0.0 or right_scale == 0.0:
         return 0.0
-    result = sum(a * b for a, b in zip(left_values, right_values, strict=True)) / (
-        left_norm * right_norm
+    left_scaled = [value / left_scale for value in left_values]
+    right_scaled = [value / right_scale for value in right_values]
+    left_norm = math.hypot(*left_scaled)
+    right_norm = math.hypot(*right_scaled)
+    left_normalized = [value / left_norm for value in left_scaled]
+    right_normalized = [value / right_norm for value in right_scaled]
+    result = math.fsum(
+        a * b for a, b in zip(left_normalized, right_normalized, strict=True)
     )
     return max(-1.0, min(1.0, result))
 
@@ -245,14 +280,12 @@ def _date_features(value: str) -> tuple[set[str], set[tuple[int, int]]]:
     for pattern in (_ISO_DATE_RE, _KOREAN_DATE_RE):
         for match in pattern.finditer(value):
             year, month, day = (int(part) for part in match.groups())
+            spans.add(match.span())
             try:
-                date = f'{year:04d}-{month:02d}-{day:02d}'
-                if not 1 <= month <= 12 or not 1 <= day <= 31:
-                    continue
+                parsed_date = date(year, month, day)
             except ValueError:
                 continue
-            dates.add(date)
-            spans.add(match.span())
+            dates.add(parsed_date.isoformat())
     return dates, spans
 
 
@@ -328,20 +361,52 @@ def _structured_values(
 
 
 def _name_org_tokens(value: str, tickers: set[str]) -> set[str]:
+    """Extract only explicit organization/name evidence.
+
+    Single title-case words and all-uppercase news words are intentionally not
+    entities.  They are too common in headlines and would inflate the entity
+    agreement component.  Korean organization suffixes, English organization
+    suffixes, and multi-word proper-name runs are retained.
+    """
+
     names: set[str] = set()
-    for match in _TOKEN_RE.finditer(value):
+    ticker_words = {
+        part for ticker in tickers for part in re.findall(r'[A-Z]+', ticker.upper())
+    }
+    matches = list(_TOKEN_RE.finditer(value))
+    proper_run: list[str] = []
+
+    def flush_proper_run() -> None:
+        if len(proper_run) >= 2:
+            names.add(normalize_text(' '.join(proper_run)))
+        proper_run.clear()
+
+    for match in matches:
         raw_token = match.group(0)
         canonical = normalize_text(raw_token)
         if any(character.isdigit() for character in raw_token):
+            flush_proper_run()
             continue
-        if canonical.upper() in tickers:
+        if canonical.upper() in ticker_words:
+            flush_proper_run()
             continue
         if _ORGANIZATION_SUFFIX_RE.search(raw_token):
             names.add(canonical)
-        elif re.fullmatch(r'[A-Z][a-z]{2,}(?:[A-Z][a-z]+)*', raw_token):
-            names.add(canonical)
-        elif raw_token.isupper() and len(raw_token) >= 2:
-            names.add(canonical)
+            flush_proper_run()
+            continue
+        if _EN_ORGANIZATION_SUFFIX_RE.fullmatch(raw_token):
+            if proper_run:
+                names.add(normalize_text(' '.join((*proper_run, raw_token))))
+            flush_proper_run()
+            continue
+        if (
+            _PROPER_TOKEN_RE.fullmatch(raw_token)
+            and canonical not in _ENTITY_STOP_WORDS
+        ):
+            proper_run.append(raw_token)
+            continue
+        flush_proper_run()
+    flush_proper_run()
     return names
 
 
