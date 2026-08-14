@@ -1,0 +1,63 @@
+{
+  "algorithm_version": "complete-link-v1;lexical-v1;veto-v1",
+  "bge_m3_model_digest": "NOT_COLLECTED (mock mode)",
+  "calibration_metrics": {
+    "determinism_rate": 0.0,
+    "hard_negative_count": 56,
+    "hard_negative_false_merge_count": 0,
+    "hard_negative_false_merge_rate": 0.0,
+    "other_event_count": 56,
+    "other_event_false_merge_count": 0,
+    "other_event_false_merge_rate": 0.0,
+    "pair_precision": 1.0,
+    "predicted_positive_count": 112,
+    "same_event_count": 112,
+    "same_event_recall": 1.0,
+    "true_positive_count": 112
+  },
+  "calibration_pair_count": 224,
+  "dataset_schema_version": "article-similarity-pairs-v1",
+  "dataset_sha256": "1eac122304c274f5b8279ae1abc7a47c03cf5a6641409094b9100101369895dd",
+  "embedding_algorithm": "mock-token-hash-v1",
+  "embedding_algorithm_sha256": "d4c43fd72cbb39b37a51695df5d316c7cda977ca3528428b95dab912c3419134",
+  "gates": {
+    "determinism_100_percent": true,
+    "hard_negative_false_merge_zero": true,
+    "mock_pipeline_p95_le_30_seconds": true,
+    "other_event_false_merge_le_3_percent": true,
+    "precision_ge_95_percent": true,
+    "same_event_recall_ge_85_percent": true
+  },
+  "grid_candidate_count": 147,
+  "holdout_metrics": {
+    "determinism_rate": 1.0,
+    "hard_negative_count": 24,
+    "hard_negative_false_merge_count": 0,
+    "hard_negative_false_merge_rate": 0.0,
+    "other_event_count": 24,
+    "other_event_false_merge_count": 0,
+    "other_event_false_merge_rate": 0.0,
+    "pair_precision": 1.0,
+    "predicted_positive_count": 48,
+    "same_event_count": 48,
+    "same_event_recall": 1.0,
+    "true_positive_count": 48
+  },
+  "holdout_pair_count": 96,
+  "mode": "mock",
+  "ollama_version": "NOT_COLLECTED (mock mode)",
+  "passed": true,
+  "runtime_evidence_scope": "mock-pipeline-only; non-production model/network latency evidence",
+  "runtime_p95_seconds": 2.559740733052604,
+  "schema_version": "article-similarity-calibration-result-v1",
+  "selected_parameters": {
+    "dense_weight": 0.6,
+    "full_text_weight": 0.3,
+    "lexical_weight": 0.4,
+    "numeric_date_weight": 0.3,
+    "ticker_name_org_weight": 0.2,
+    "title_weight": 0.2
+  },
+  "selected_threshold": 0.45,
+  "split_assignment_sha256": "0cffc017c2e3ffe6a03de76064c7006b15f406c09167a7bd2bb54475448469f4"
+}

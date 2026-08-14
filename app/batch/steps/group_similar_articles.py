@@ -28,7 +28,7 @@ from app.db.repositories.cluster_repo import ClusterRepository
 from app.db.repositories.news_cluster_write_repo import NewsClusterWriteRepository
 
 GROUP_SIMILAR_ARTICLES = 'GROUP_SIMILAR_ARTICLES'
-SIMILARITY_THRESHOLD = 0.8
+SIMILARITY_THRESHOLD = 0.45
 LEXICAL_FEATURE_VERSION = 'lexical-v1'
 VETO_VERSION = 'veto-v1'
 GROUPING_VERSION = 'complete-link-v1'

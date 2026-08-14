@@ -146,12 +146,12 @@ class SimilarityParameters:
     algorithm version explicit at every call site.
     """
 
-    title_weight: float = 0.30
+    title_weight: float = 0.20
     full_text_weight: float = 0.30
-    numeric_date_weight: float = 0.25
-    ticker_name_org_weight: float = 0.15
-    dense_weight: float = 0.70
-    lexical_weight: float = 0.30
+    numeric_date_weight: float = 0.30
+    ticker_name_org_weight: float = 0.20
+    dense_weight: float = 0.60
+    lexical_weight: float = 0.40
 
     def __post_init__(self) -> None:
         lexical = (
