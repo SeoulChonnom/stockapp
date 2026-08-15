@@ -6,6 +6,10 @@ from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError  # pyright: ignore[reportMissingImports]
 
+from app.batch.policies.news_collection_slot import (
+    NEWS_COLLECTION_SLOT_MINUTES,
+    resolve_completed_news_slot,
+)
 from app.batch.providers.naver_news import NAVER_NEWS_PROVIDER_NAME
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.settings import get_settings
@@ -477,20 +481,6 @@ def _validate_idempotent_replay(
         )
 
 
-def resolve_completed_news_slot(now: datetime) -> tuple[datetime, datetime]:
-    if now.tzinfo is None:
-        raise ValueError('News collection clock must be timezone-aware.')
-    local_now = now.astimezone(KST)
-    aligned_minute = 30 if local_now.minute >= 30 else 0
-    window_end_at = local_now.replace(
-        minute=aligned_minute,
-        second=0,
-        microsecond=0,
-    )
-    window_start_at = window_end_at - timedelta(minutes=30)
-    return window_start_at, window_end_at
-
-
 def resolve_news_collection_slot(
     *,
     now: datetime,
@@ -530,7 +520,10 @@ def resolve_news_collection_slot(
                 'NEWS_SLOT_OUT_OF_RANGE',
                 f'뉴스 수집 슬롯은 최근 {max_backfill_days}일 이내여야 합니다.',
             )
-    return window_end_at - timedelta(minutes=30), window_end_at
+    return (
+        window_end_at - timedelta(minutes=NEWS_COLLECTION_SLOT_MINUTES),
+        window_end_at,
+    )
 
 
 def _build_news_collection_payload(

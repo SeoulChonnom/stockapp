@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from app.batch.diagnostics import NEWS_COVERAGE_INCOMPLETE
@@ -13,6 +14,7 @@ from app.batch.normalizers import (
     excerpt_text,
     normalize_title,
 )
+from app.batch.policies.news_collection_slot import collectable_window_end
 from app.batch.providers.article_content import (
     ArticleContentProvider,
     ArticleContentResult,
@@ -59,6 +61,7 @@ class DedupeArticlesStep(BatchStep):
         market_context_repo_factory: Callable[[object], Any] | None = None,
         collection_run_repo_factory: Callable[[object], Any] | None = None,
         settings: Settings | None = None,
+        now_factory: Callable[[], datetime] | None = None,
     ) -> None:
         self._raw_repo_factory = raw_repo_factory or NewsArticleRawRepository
         self._processed_repo_factory = (
@@ -74,6 +77,7 @@ class DedupeArticlesStep(BatchStep):
             collection_run_repo_factory or NewsCollectionRunRepository
         )
         self._settings = settings or get_settings()
+        self._now_factory = now_factory or (lambda: datetime.now(UTC))
 
     async def run(
         self,
@@ -114,16 +118,24 @@ class DedupeArticlesStep(BatchStep):
                 context.raw_news_count_by_market.get(market_context.market_type, 0)
                 + len(raw_articles)
             )
+            # The news window ends at the instant this job started, which lands
+            # mid-slot; the slot containing it cannot have been collected yet.
+            # Judging coverage against the raw end made every run report an
+            # incomplete ingest, hiding the real gaps this diagnostic is for.
+            coverage_deadline = collectable_window_end(
+                market_context.news_window_end_at,
+                now=self._now_factory(),
+            )
             intervals = await collection_run_repo.list_complete_intervals(
                 provider_name=NAVER_NEWS_PROVIDER_NAME,
                 market_type=market_context.market_type,
                 window_start_at=market_context.news_window_start_at,
-                window_end_at=market_context.news_window_end_at,
+                window_end_at=coverage_deadline,
             )
             coverage_complete = intervals_cover_window(
                 intervals,
                 window_start_at=market_context.news_window_start_at,
-                window_end_at=market_context.news_window_end_at,
+                window_end_at=coverage_deadline,
             )
             await market_context_repo.set_news_coverage_complete(
                 job_id=context.job_id,

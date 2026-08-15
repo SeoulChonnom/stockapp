@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -381,3 +381,124 @@ async def test_dedupe_articles_preserves_same_raw_article_in_both_markets():
     assert len(processed_repo.mappings) == 2
     assert {item.raw_article_id for item in processed_repo.mappings} == {77}
     assert content_provider.calls == 1
+
+
+@pytest.mark.anyio
+async def test_dedupe_articles_does_not_require_coverage_of_an_unfinished_slot():
+    """The window ends mid-slot, so requiring coverage of it always fails.
+
+    Market contexts end the news window at the wall-clock instant the job
+    started (21:10:02 for job 507), while collection runs are 30-minute
+    KST-aligned slots recorded only once they end. Judging coverage against
+    the raw window end reported an incomplete ingest on every single run.
+    """
+    window_start_at = datetime(2026, 8, 13, 21, 10, 2, 505231, tzinfo=UTC)
+    window_end_at = datetime(2026, 8, 14, 21, 10, 2, 505231, tzinfo=UTC)
+
+    class MidSlotContextRepo(FakeMarketContextRepo):
+        async def list_for_job(self, job_id):
+            _ = job_id
+            return [
+                SimpleNamespace(
+                    market_type='US',
+                    news_window_start_at=window_start_at,
+                    news_window_end_at=window_end_at,
+                )
+            ]
+
+    class SlotAlignedRunRepo:
+        def __init__(self, session):
+            _ = session
+            self.requested_ends: list[datetime] = []
+
+        async def list_complete_intervals(self, **kwargs):
+            self.requested_ends.append(kwargs['window_end_at'])
+            # Contiguous 30-minute slots up to the last one that has ended.
+            slots = []
+            cursor = datetime(2026, 8, 13, 21, 0, tzinfo=UTC)
+            while cursor < datetime(2026, 8, 14, 21, 0, tzinfo=UTC):
+                slots.append(
+                    projections_module.NewsCoverageInterval(
+                        window_start_at=cursor,
+                        window_end_at=cursor + timedelta(minutes=30),
+                    )
+                )
+                cursor += timedelta(minutes=30)
+            return slots
+
+    context_repo_holder = {}
+
+    def context_repo_factory(session):
+        repo = MidSlotContextRepo(session)
+        context_repo_holder['repo'] = repo
+        return repo
+
+    repository = FakeBatchRepository(session=RecordingAsyncSession(), events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await DedupeArticlesStep(
+        raw_repo_factory=FakeRawRepo,
+        processed_repo_factory=FakeProcessedRepo,
+        content_provider_factory=FakeContentProvider,
+        market_context_repo_factory=context_repo_factory,
+        collection_run_repo_factory=SlotAlignedRunRepo,
+        now_factory=lambda: window_end_at + timedelta(seconds=5),
+    ).run(repository, context)
+
+    assert context.partial_reasons == []
+    assert context.partial_categories == {}
+    assert context_repo_holder['repo'].coverage_updates[0]['coverage_complete'] is True
+
+
+@pytest.mark.anyio
+async def test_dedupe_articles_still_reports_a_gap_before_the_open_slot():
+    """Clamping to the last finished slot must not hide a real ingest gap."""
+    window_start_at = datetime(2026, 8, 13, 21, 10, 2, 505231, tzinfo=UTC)
+    window_end_at = datetime(2026, 8, 14, 21, 10, 2, 505231, tzinfo=UTC)
+
+    class MidSlotContextRepo(FakeMarketContextRepo):
+        async def list_for_job(self, job_id):
+            _ = job_id
+            return [
+                SimpleNamespace(
+                    market_type='US',
+                    news_window_start_at=window_start_at,
+                    news_window_end_at=window_end_at,
+                )
+            ]
+
+    class GappedRunRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_complete_intervals(self, **_kwargs):
+            return [
+                projections_module.NewsCoverageInterval(
+                    window_start_at=datetime(2026, 8, 13, 21, 0, tzinfo=UTC),
+                    window_end_at=datetime(2026, 8, 14, 3, 0, tzinfo=UTC),
+                )
+            ]
+
+    repository = FakeBatchRepository(session=RecordingAsyncSession(), events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await DedupeArticlesStep(
+        raw_repo_factory=FakeRawRepo,
+        processed_repo_factory=FakeProcessedRepo,
+        content_provider_factory=FakeContentProvider,
+        market_context_repo_factory=MidSlotContextRepo,
+        collection_run_repo_factory=GappedRunRepo,
+        now_factory=lambda: window_end_at + timedelta(seconds=5),
+    ).run(repository, context)
+
+    assert context.partial_categories == {NEWS_COVERAGE_INCOMPLETE: 1}
