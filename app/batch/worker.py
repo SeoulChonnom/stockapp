@@ -225,6 +225,8 @@ class DurableBatchWorker:
                 error_code='LLM_TRANSIENT_RETRY',
                 error_message='Temporary LLM provider failure; retry scheduled.',
                 retry_delay_seconds=self._llm_retry_delay_seconds(job, exc),
+                extra_attempts=1,
+                llm_retry_count=_llm_retry_count(job) + 1,
             )
         except Exception as exc:
             log_dispatch_event(
@@ -292,11 +294,15 @@ class DurableBatchWorker:
         error_code: str = 'BATCH_ATTEMPT_FAILED',
         error_message: str | None = None,
         retry_delay_seconds: int | None = None,
+        extra_attempts: int = 0,
+        llm_retry_count: int | None = None,
     ) -> None:
         async with self._repository() as repository:
             await repository.release_failed_claim(
                 job_id=job.job_id,
                 lease_token=lease_token,
+                extra_attempts=extra_attempts,
+                llm_retry_count=llm_retry_count,
                 error_code=error_code,
                 error_message=error_message or f'{type(exc).__name__}: {exc}',
                 retry_delay_seconds=(
@@ -315,11 +321,10 @@ class DurableBatchWorker:
         try:
             await self._dispatch_with_heartbeat(job, lease_token)
         except LlmRetryableError:
-            llm_attempt_limit = min(
-                job.max_attempts,
-                self._settings.llm_max_retries + 1,
-            )
-            if job.attempt_count < llm_attempt_limit:
+            # Bounded by its own counter rather than by attempt_count, which is
+            # shared with every other failure mode: a provider outage must not
+            # leave the job without retries for an unrelated failure.
+            if _llm_retry_count(job) < self._settings.llm_max_retries:
                 raise
             with llm_retry_exhausted_mode():
                 await self._dispatch_with_heartbeat(job, lease_token)
@@ -332,7 +337,7 @@ class DurableBatchWorker:
         if exc.retry_after_seconds is not None:
             return max(0, math.ceil(exc.retry_after_seconds))
         base_delay = self._settings.llm_retry_base_delay_seconds * (
-            2 ** max(job.attempt_count - 1, 0)
+            2 ** _llm_retry_count(job)
         )
         capped_delay = min(base_delay, self._settings.llm_retry_max_delay_seconds)
         jitter = (
@@ -424,6 +429,17 @@ def _default_worker_id() -> str:
 
 def _job_page_id(job: BatchJobRecord) -> int | None:
     return job.page_id or getattr(job, 'source_page_id', None)
+
+
+def _llm_retry_count(job: BatchJobRecord) -> int:
+    """Read how often this job was already rescheduled for a provider failure."""
+    checkpoint = getattr(job, 'checkpoint_json', None)
+    if not isinstance(checkpoint, dict):
+        return 0
+    value = checkpoint.get('llmRetryCount')
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return max(value, 0)
 
 
 async def _run() -> None:

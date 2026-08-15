@@ -539,8 +539,45 @@ async def test_release_failed_claim_is_token_fenced_and_preserves_checkpoint():
     sql = ' '.join(str(session.statements[0]).split()).lower()
     assert 'lease_token = :lease_token' in sql
     assert 'lease_expires_at > now()' in sql
-    assert 'checkpoint_json' not in sql
     assert 'attempt_count >= max_attempts' in sql
+    # Durable step progress must survive the release: the checkpoint is only
+    # ever amended in place, and left untouched when no counter is supplied.
+    assert 'checkpoint_json = case when cast(:llm_retry_count as integer) is null' in (
+        sql
+    )
+    assert 'then checkpoint_json else jsonb_set( checkpoint_json,' in sql
+    assert session.parameters[0]['llm_retry_count'] is None
+    assert session.parameters[0]['extra_attempts'] == 0
+
+
+@pytest.mark.anyio
+async def test_release_failed_claim_grants_llm_retries_their_own_budget():
+    """A provider outage must not spend the retries reserved for real failures.
+
+    ``attempt_count`` is shared by every failure mode, so widening
+    ``max_attempts`` in step with an LLM-caused reschedule is what keeps a
+    later unrelated failure from finding the job out of attempts.
+    """
+    lease_token = uuid4()
+    session = RecordingAsyncSession(results=[DummyResult(['PENDING'])])
+    repo = BatchJobRepository(session)
+
+    await repo.release_failed_claim(
+        job_id=1001,
+        lease_token=lease_token,
+        error_code='LLM_TRANSIENT_RETRY',
+        error_message='Temporary LLM provider failure; retry scheduled.',
+        retry_delay_seconds=5,
+        extra_attempts=1,
+        llm_retry_count=2,
+    )
+
+    sql = ' '.join(str(session.statements[0]).split()).lower()
+    assert 'max_attempts = max_attempts + :extra_attempts' in sql
+    assert 'attempt_count >= max_attempts + :extra_attempts' in sql
+    assert "'{llmretrycount}'" in sql
+    assert session.parameters[0]['extra_attempts'] == 1
+    assert session.parameters[0]['llm_retry_count'] == 2
 
 
 @pytest.mark.anyio

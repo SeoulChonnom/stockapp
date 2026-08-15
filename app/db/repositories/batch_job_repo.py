@@ -672,34 +672,56 @@ class BatchJobRepository(PostgresRepository):
         error_code: str,
         error_message: str,
         retry_delay_seconds: int,
+        extra_attempts: int = 0,
+        llm_retry_count: int | None = None,
     ) -> str | None:
+        """Release a claimed job for retry, or fail it once the budget is spent.
+
+        ``extra_attempts`` widens ``max_attempts`` so a reschedule caused by a
+        transient provider failure does not spend the budget reserved for
+        genuine job failures. ``llm_retry_count`` bounds how often that may
+        happen, and is carried in the checkpoint so it survives the reschedule.
+        """
         statement = text(
             """
             UPDATE {batch_job_table}
             SET
                 status = CAST(
                     CASE
-                        WHEN attempt_count >= max_attempts THEN '{status_failed}'
+                        WHEN attempt_count >= max_attempts + :extra_attempts
+                        THEN '{status_failed}'
                         ELSE '{status_pending}'
                     END
                     AS {status_enum}
                 ),
+                max_attempts = max_attempts + :extra_attempts,
+                checkpoint_json = CASE
+                    WHEN CAST(:llm_retry_count AS INTEGER) IS NULL
+                    THEN checkpoint_json
+                    ELSE jsonb_set(
+                        checkpoint_json,
+                        '{{llmRetryCount}}',
+                        to_jsonb(CAST(:llm_retry_count AS INTEGER)),
+                        true
+                    )
+                END,
                 available_at = CASE
-                    WHEN attempt_count >= max_attempts THEN available_at
+                    WHEN attempt_count >= max_attempts + :extra_attempts
+                    THEN available_at
                     ELSE now() + make_interval(secs => :retry_delay_seconds)
                 END,
                 ended_at = CASE
-                    WHEN attempt_count >= max_attempts THEN now()
+                    WHEN attempt_count >= max_attempts + :extra_attempts THEN now()
                     ELSE NULL
                 END,
                 duration_seconds = CASE
-                    WHEN attempt_count >= max_attempts
+                    WHEN attempt_count >= max_attempts + :extra_attempts
                     THEN {duration_seconds_expr}
                     ELSE NULL
                 END,
                 {lease_null_assignments}
                 error_code = CASE
-                    WHEN attempt_count >= max_attempts
+                    WHEN attempt_count >= max_attempts + :extra_attempts
                     THEN 'BATCH_ATTEMPTS_EXHAUSTED'
                     ELSE :error_code
                 END,
@@ -729,6 +751,8 @@ class BatchJobRepository(PostgresRepository):
                 'error_code': error_code,
                 'error_message': error_message,
                 'retry_delay_seconds': retry_delay_seconds,
+                'extra_attempts': extra_attempts,
+                'llm_retry_count': llm_retry_count,
             },
         )
         return result.scalar_one_or_none()

@@ -37,6 +37,7 @@ def _job(
     *,
     attempt_count: int = 0,
     max_attempts: int = 3,
+    llm_retry_count: int | None = None,
 ) -> BatchJobRecord:
     now = datetime(2026, 7, 29, 0, 0, tzinfo=UTC)
     return BatchJobRecord(
@@ -56,6 +57,9 @@ def _job(
         run_mode='FULL',
         attempt_count=attempt_count,
         max_attempts=max_attempts,
+        checkpoint_json=(
+            {} if llm_retry_count is None else {'llmRetryCount': llm_retry_count}
+        ),
     )
 
 
@@ -232,18 +236,23 @@ async def test_worker_persists_retry_after_without_blocking_or_leaking_details(c
     assert state.release_options[0] == {
         'error_code': 'LLM_TRANSIENT_RETRY',
         'retry_delay_seconds': 18,
+        'extra_attempts': 1,
+        'llm_retry_count': 1,
     }
     assert 'provider' not in caplog.text.lower()
 
 
 @pytest.mark.anyio
 async def test_worker_uses_exponential_backoff_with_bounded_jitter():
-    state = QueueState(claims=[_job(attempt_count=2, max_attempts=4)])
+    state = QueueState(
+        claims=[_job(attempt_count=2, max_attempts=4, llm_retry_count=1)]
+    )
     dispatcher = RecordingDispatcher(error=LlmRetryableError())
 
     await _worker(state, dispatcher).run_once()
 
-    # 5 * 2^(2-1) plus 10% deterministic jitter.
+    # Backoff grows with the provider-failure count, not with attempt_count:
+    # 5 * 2^1 plus 10% deterministic jitter.
     assert state.release_options[0]['retry_delay_seconds'] == 11
 
 
@@ -259,7 +268,9 @@ async def test_worker_final_attempt_reexecutes_in_deterministic_fallback_mode():
             if self.calls == 1:
                 raise LlmRetryableError()
 
-    state = QueueState(claims=[_job(attempt_count=3, max_attempts=3)])
+    state = QueueState(
+        claims=[_job(attempt_count=3, max_attempts=3, llm_retry_count=2)]
+    )
     dispatcher = FinalFallbackDispatcher()
 
     processed = await _worker(state, dispatcher).run_once()
@@ -456,3 +467,49 @@ async def test_dispatcher_routes_full_and_ai_retry_run_modes():
         ('ai-retry', 1002, lease_token),
         ('news-collection', 1003, lease_token),
     ]
+
+
+@pytest.mark.anyio
+async def test_llm_retries_do_not_consume_the_general_attempt_budget():
+    """A provider outage must leave the job able to retry a later real failure.
+
+    attempt_count is shared by every failure mode, so an LLM reschedule widens
+    max_attempts in step with it. Without that, two provider blips would leave
+    a job with no attempts left for an unrelated failure.
+    """
+    state = QueueState(claims=[_job(attempt_count=1, max_attempts=3)])
+    dispatcher = RecordingDispatcher(error=LlmRetryableError(retry_after_seconds=0))
+
+    await _worker(state, dispatcher).run_once()
+
+    assert state.release_options[0]['extra_attempts'] == 1
+    assert state.release_options[0]['llm_retry_count'] == 1
+
+
+@pytest.mark.anyio
+async def test_llm_retry_budget_is_bounded_independently_of_attempt_count():
+    """A job fresh on attempt_count still degrades once its LLM budget is spent.
+
+    The old rule keyed off attempt_count, so a job that had spent its
+    provider retries could keep restarting whenever attempt_count was low.
+    """
+
+    class FinalFallbackDispatcher:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def dispatch(self, job, lease_token):
+            _ = (job, lease_token)
+            self.calls += 1
+            if self.calls == 1:
+                raise LlmRetryableError()
+
+    state = QueueState(
+        claims=[_job(attempt_count=1, max_attempts=9, llm_retry_count=2)]
+    )
+    dispatcher = FinalFallbackDispatcher()
+
+    await _worker(state, dispatcher).run_once()
+
+    assert dispatcher.calls == 2
+    assert state.released == []
