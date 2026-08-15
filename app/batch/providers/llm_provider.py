@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from collections.abc import Sequence
 from datetime import date, datetime
@@ -8,10 +9,12 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from app.core.llm import GeminiJsonClient
+from app.core.llm import GeminiJsonClient, estimate_input_tokens
 
 PROMPT_VERSION = 'v2'
 THEME_CLASSIFIER_PROMPT_VERSION = 'v1'
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _json_safe(value: Any, *, active_container_ids: set[int] | None = None) -> Any:
@@ -67,6 +70,49 @@ class BatchLlmProvider:
     def __init__(self, client: GeminiJsonClient | None = None) -> None:
         self._client = client or GeminiJsonClient()
 
+    def _fit_articles_prompt(
+        self,
+        *,
+        system_prompt: str,
+        payload: dict[str, Any],
+        articles: list[dict[str, Any]],
+    ) -> str:
+        """Serialize a payload, dropping trailing articles until it fits budget.
+
+        A single request estimated above the token budget is rejected by the
+        limiter instead of being queued, which would fail the whole target for
+        the day. Cluster article lists are unbounded, so the tail -- the
+        lowest-ranked articles -- is dropped until the request fits. Callers
+        pass articles in priority order.
+        """
+        budget = self._client.input_token_budget
+
+        def prompt_for(count: int) -> str:
+            return _serialize_prompt({**payload, 'articles': articles[:count]})
+
+        def fits(count: int) -> bool:
+            return estimate_input_tokens(system_prompt, prompt_for(count)) <= budget
+
+        if fits(len(articles)):
+            return prompt_for(len(articles))
+
+        low, high = 0, len(articles)
+        while low < high:
+            midpoint = (low + high + 1) // 2
+            if fits(midpoint):
+                low = midpoint
+            else:
+                high = midpoint - 1
+        LOGGER.warning(
+            'Trimmed LLM prompt articles to fit the input token budget.',
+            extra={
+                'articleCount': len(articles),
+                'keptArticleCount': low,
+                'inputTokenBudget': budget,
+            },
+        )
+        return prompt_for(low)
+
     def is_configured(self) -> bool:
         return self._client.is_configured()
 
@@ -89,11 +135,10 @@ class BatchLlmProvider:
             'object with keys: title, summary_short, summary_long, tags, '
             'representative_article_index, analysis_paragraphs.'
         )
-        user_prompt = _serialize_prompt(
-            {
-                'marketType': market_type,
-                'articles': articles,
-            }
+        user_prompt = self._fit_articles_prompt(
+            system_prompt=system_prompt,
+            payload={'marketType': market_type},
+            articles=articles,
         )
         return await self._client.invoke_json(
             system_prompt=system_prompt, user_prompt=user_prompt
@@ -128,12 +173,10 @@ class BatchLlmProvider:
             f'codes only: {formatted_theme_codes}. Never return a parent, inactive, '
             'or unknown code.'
         )
-        user_prompt = _serialize_prompt(
-            {
-                'marketType': market_type,
-                'cluster': cluster,
-                'articles': articles,
-            }
+        user_prompt = self._fit_articles_prompt(
+            system_prompt=system_prompt,
+            payload={'marketType': market_type, 'cluster': cluster},
+            articles=articles,
         )
         return await self._client.invoke_json(
             system_prompt=system_prompt,
@@ -227,12 +270,10 @@ class BatchLlmProvider:
             'You are a financial news card summarizer. Return a JSON object with '
             'keys: title, body.'
         )
-        user_prompt = _serialize_prompt(
-            {
-                'marketType': market_type,
-                'cluster': cluster,
-                'articles': articles,
-            }
+        user_prompt = self._fit_articles_prompt(
+            system_prompt=system_prompt,
+            payload={'marketType': market_type, 'cluster': cluster},
+            articles=articles,
         )
         return await self._client.invoke_json(
             system_prompt=system_prompt, user_prompt=user_prompt
@@ -267,12 +308,10 @@ class BatchLlmProvider:
             'the discrepancy without deciding which article is correct. '
             'sourceArticleIds and conflictingSourceArticleIds must be disjoint.'
         )
-        user_prompt = _serialize_prompt(
-            {
-                'marketType': market_type,
-                'cluster': cluster,
-                'articles': articles,
-            }
+        user_prompt = self._fit_articles_prompt(
+            system_prompt=system_prompt,
+            payload={'marketType': market_type, 'cluster': cluster},
+            articles=articles,
         )
         return await self._client.invoke_json(
             system_prompt=system_prompt, user_prompt=user_prompt

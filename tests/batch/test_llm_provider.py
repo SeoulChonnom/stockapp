@@ -32,6 +32,10 @@ class RecordingClient:
     def concurrency_limit(self) -> int:
         return 1
 
+    @property
+    def input_token_budget(self) -> int:
+        return 250_000
+
     async def invoke_json(self, *, system_prompt: str, user_prompt: str) -> dict:
         self.system_prompt = system_prompt
         self.user_prompt = user_prompt
@@ -354,3 +358,70 @@ async def test_cluster_detail_prompt_requires_grounded_ordered_sections(monkeypa
             ('human', expected_user_prompt),
         ]
     ]
+
+
+class BudgetedClient(RecordingClient):
+    """Client double whose single-request token budget is tight enough to trim."""
+
+    def __init__(self, budget: int) -> None:
+        super().__init__()
+        self._budget = budget
+
+    @property
+    def input_token_budget(self) -> int:
+        return self._budget
+
+
+def _budget_articles(count: int) -> list[dict[str, object]]:
+    return [
+        {
+            'processedArticleId': 1000 + index,
+            'title': '가' * 200,
+            'summary': '나' * 200,
+            'excerpt': '다' * 200,
+        }
+        for index in range(count)
+    ]
+
+
+@pytest.mark.anyio
+async def test_cluster_card_prompt_is_trimmed_to_the_input_token_budget():
+    """An oversized single request is rejected by the limiter, not queued.
+
+    Without trimming, one large cluster fails its summary for the whole day, so
+    the payload is cut to the budget instead of being sent whole.
+    """
+    client = BudgetedClient(5_000)
+    provider = BatchLlmProvider(client)
+    articles = _budget_articles(100)
+
+    await provider.summarize_cluster_card(
+        market_type='KR',
+        cluster={'title': '클러스터', 'summary': '요약'},
+        articles=articles,
+    )
+
+    assert client.user_prompt is not None
+    payload = json.loads(client.user_prompt)
+    kept = payload['articles']
+    assert 0 < len(kept) < len(articles)
+    assert kept == articles[: len(kept)]
+    assert (
+        estimate_input_tokens(client.system_prompt or '', client.user_prompt) <= 5_000
+    )
+
+
+@pytest.mark.anyio
+async def test_cluster_prompt_keeps_every_article_within_budget():
+    client = BudgetedClient(250_000)
+    provider = BatchLlmProvider(client)
+    articles = _budget_articles(20)
+
+    await provider.summarize_cluster_detail(
+        market_type='KR',
+        cluster={'title': '클러스터', 'summary': '요약'},
+        articles=articles,
+    )
+
+    assert client.user_prompt is not None
+    assert json.loads(client.user_prompt)['articles'] == articles

@@ -405,6 +405,16 @@ class GeminiJsonClient:
     def concurrency_limit(self) -> int:
         return self._settings.llm_concurrency_limit
 
+    @property
+    def input_token_budget(self) -> int:
+        """Largest estimated input a single request may reserve.
+
+        A request estimated above this is rejected outright by the token
+        limiter rather than queued, so callers that build a variable-length
+        payload must fit it to this budget before invoking.
+        """
+        return self._settings.llm_tokens_per_minute
+
     def _build_model(self) -> ChatGoogleGenerativeAI:
         if not self.is_configured():
             raise LlmConfigurationError('Gemini API key is not configured.')
