@@ -26,6 +26,15 @@ SIMILARITY_ALEMBIC_REVISION = (
     / 'versions'
     / '20260814_03_article_similarity_groups.py'
 )
+GROUP_RANK_MIGRATION = (
+    MIGRATIONS_DIRECTORY / '20260815_10_article_link_group_rank_not_null.sql'
+)
+GROUP_RANK_ALEMBIC_REVISION = (
+    REPOSITORY_ROOT
+    / 'alembic'
+    / 'versions'
+    / '20260815_01_article_link_group_rank_not_null.py'
+)
 
 THEME_CODES = (
     'MACRO',
@@ -406,7 +415,7 @@ def test_article_similarity_schema_has_source_snapshot_and_group_contract():
             schema_sql.index('CREATE TABLE market_daily_page_market_cluster') :
         ]
     )
-    assert 'similar_group_rank SMALLINT NULL' in schema_sql
+    assert 'similar_group_rank SMALLINT NOT NULL DEFAULT 1' in schema_sql
     assert 'is_similar_group_representative BOOLEAN NOT NULL DEFAULT TRUE' in schema_sql
     assert 'exact_duplicate_count INTEGER NOT NULL DEFAULT 0' in schema_sql
     assert 'vector' not in schema_sql.lower()
@@ -449,3 +458,44 @@ def test_article_similarity_is_connected_to_the_sequential_alembic_head():
     assert "revision = '20260814_03_article_similarity_groups'" in revision_sql
     assert "down_revision = '20260814_02_page_search_document'" in revision_sql
     assert '20260813_09_article_similarity_groups.sql' in revision_sql
+
+
+def test_group_rank_migration_backfills_before_pinning_the_column_not_null():
+    assert GROUP_RANK_MIGRATION.exists()
+    migration_sql = _read_sql(GROUP_RANK_MIGRATION)
+
+    assert migration_sql.startswith('BEGIN;')
+    assert migration_sql.endswith('COMMIT;')
+
+    backfill_index = migration_sql.index('UPDATE stock.market_daily_page_article_link')
+    not_null_index = migration_sql.index('ALTER COLUMN similar_group_rank SET NOT NULL')
+    assert backfill_index < not_null_index
+    assert 'SET similar_group_rank = 1' in migration_sql
+    assert 'WHERE similar_group_rank IS NULL' in migration_sql
+    assert 'ALTER COLUMN similar_group_rank SET DEFAULT 1' in migration_sql
+    assert 'chk_market_daily_page_article_link_group_rank_positive' in migration_sql
+    assert 'CHECK (similar_group_rank > 0)' in migration_sql
+    # The canonical exact-duplicate check is longer than PostgreSQL's 63-byte
+    # identifier limit, so both guards must match on the constraint definition
+    # instead of the truncated name to stay idempotent.
+    assert (
+        "strpos(pg_get_constraintdef(oid), 'similar_group_rank > 0') > 0"
+        in migration_sql
+    )
+    assert (
+        "strpos(pg_get_constraintdef(oid), 'exact_duplicate_count >= 0') > 0"
+        in migration_sql
+    )
+    # psycopg reads a literal percent sign as a parameter placeholder, so the
+    # shared SQL body must stay percent-free to survive the Alembic path.
+    assert '%' not in migration_sql
+    assert 'CREATE EXTENSION' not in migration_sql
+
+
+def test_group_rank_not_null_is_connected_to_the_sequential_alembic_head():
+    assert GROUP_RANK_ALEMBIC_REVISION.exists()
+    revision_sql = _read_sql(GROUP_RANK_ALEMBIC_REVISION)
+
+    assert "revision = '20260815_01_group_rank_not_null'" in revision_sql
+    assert "down_revision = '20260814_03_article_similarity_groups'" in revision_sql
+    assert '20260815_10_article_link_group_rank_not_null.sql' in revision_sql

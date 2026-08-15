@@ -29,7 +29,7 @@ MANIFEST_PATH = (
 # NOTE: literal, not derived from ScriptDirectory — update this whenever a new
 # alembic revision becomes the head, so this test independently catches a
 # broken/forked revision chain instead of trivially agreeing with production code.
-LATEST_ALEMBIC_HEAD = '20260814_03_article_similarity_groups'
+LATEST_ALEMBIC_HEAD = '20260815_01_group_rank_not_null'
 
 
 def _canonical_manifest() -> dict:

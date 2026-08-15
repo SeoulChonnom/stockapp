@@ -43,4 +43,16 @@ source. The standalone transaction guards are stripped when Alembic executes
 the body inside its revision transaction; direct legacy migration runs retain
 the guards.
 
+The article-similarity revision
+`alembic/versions/20260814_03_article_similarity_groups.py` added
+`market_daily_page_article_link.similar_group_rank` as a nullable, defaultless
+column, so every row written before it kept NULL and failed page assembly.
+`alembic/versions/20260815_01_article_link_group_rank_not_null.py` backfills
+those rows to rank 1, pins the column `NOT NULL DEFAULT 1`, and adds the
+positive-rank check. It also adds the canonical exact-duplicate check that the
+earlier revision declared in `db/schema_postgresql.sql` but never applied to
+upgraded databases. Both constraint guards match on the constraint definition
+rather than its name, because the canonical exact-duplicate name exceeds
+PostgreSQL's 63-byte identifier limit and is stored truncated.
+
 Automatic startup migration supports only the canonical `stock` schema.

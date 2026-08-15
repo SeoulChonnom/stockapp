@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 from alembic.config import Config
 from sqlalchemy import create_engine, pool, text
-from sqlalchemy.exc import DataError
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alembic import command
@@ -53,13 +53,17 @@ PAGE_SEARCH_MIGRATION = MIGRATIONS_DIRECTORY / '20260814_09_page_search_document
 SIMILARITY_MIGRATION = (
     MIGRATIONS_DIRECTORY / '20260813_09_article_similarity_groups.sql'
 )
+GROUP_RANK_MIGRATION = (
+    MIGRATIONS_DIRECTORY / '20260815_10_article_link_group_rank_not_null.sql'
+)
 ALEMBIC_BASELINE_SQL = (
     REPOSITORY_ROOT / 'db' / 'alembic' / 'baselines' / '20260731_schema.sql'
 )
 ALEMBIC_PREVIOUS_HEAD = '20260810_01_step_errors'
 ALEMBIC_THEME_REVISION = '20260814_01_theme_archive_search'
 ALEMBIC_PAGE_SEARCH_REVISION = '20260814_02_page_search_document'
-ALEMBIC_HEAD = '20260814_03_article_similarity_groups'
+ALEMBIC_SIMILARITY_REVISION = '20260814_03_article_similarity_groups'
+ALEMBIC_HEAD = '20260815_01_group_rank_not_null'
 
 
 def _execute_file(connection, path: Path) -> None:
@@ -1823,8 +1827,8 @@ def _assert_article_similarity_contract(connection) -> None:
         (
             'market_daily_page_article_link',
             'similar_group_rank',
-            'YES',
-            None,
+            'NO',
+            '1',
         ),
         (
             'market_daily_page_market_cluster',
@@ -2707,6 +2711,163 @@ def test_alembic_previous_head_upgrade_applies_article_similarity_revision():
                 text('SELECT version_num FROM stock.alembic_version')
             ).scalar_one()
             assert version == ALEMBIC_HEAD
+    finally:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+        engine.dispose()
+
+
+def test_alembic_head_backfills_and_pins_legacy_null_similarity_rank():
+    database_url = os.getenv('STOCKAPP_MIGRATION_TEST_DSN')
+    if database_url is None:
+        pytest.skip('STOCKAPP_MIGRATION_TEST_DSN is not configured.')
+
+    sqlalchemy_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_engine(sqlalchemy_url, poolclass=pool.NullPool)
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
+            connection.commit()
+
+        _run_alembic(
+            engine,
+            database_url,
+            command.upgrade,
+            ALEMBIC_SIMILARITY_REVISION,
+        )
+
+        with engine.connect() as connection:
+            job_id = connection.execute(
+                text(
+                    """
+                    INSERT INTO stock.batch_job (
+                        business_date,
+                        status,
+                        trigger_type,
+                        run_mode
+                    )
+                    VALUES (DATE '2026-08-15', 'SUCCESS', 'MANUAL', 'FULL')
+                    RETURNING id
+                    """
+                )
+            ).scalar_one()
+            page_id = connection.execute(
+                text(
+                    """
+                    INSERT INTO stock.market_daily_page (
+                        business_date,
+                        version_no,
+                        page_title,
+                        status,
+                        batch_job_id
+                    )
+                    VALUES (DATE '2026-08-15', 1, 'Legacy page', 'READY', :job_id)
+                    RETURNING id
+                    """
+                ),
+                {'job_id': job_id},
+            ).scalar_one()
+            page_market_id = connection.execute(
+                text(
+                    """
+                    INSERT INTO stock.market_daily_page_market (
+                        page_id,
+                        market_type,
+                        display_order,
+                        market_label
+                    )
+                    VALUES (:page_id, 'KR', 1, 'KR market')
+                    RETURNING id
+                    """
+                ),
+                {'page_id': page_id},
+            ).scalar_one()
+            link_id = connection.execute(
+                text(
+                    """
+                    INSERT INTO stock.market_daily_page_article_link (
+                        page_market_id,
+                        display_order,
+                        title,
+                        origin_link
+                    )
+                    VALUES (
+                        :page_market_id,
+                        1,
+                        'Legacy link',
+                        'https://example.test/legacy'
+                    )
+                    RETURNING id
+                    """
+                ),
+                {'page_market_id': page_market_id},
+            ).scalar_one()
+            # The similarity revision leaves the column nullable and
+            # defaultless, which is exactly how production rows written before
+            # it ended up NULL.
+            assert (
+                connection.execute(
+                    text(
+                        'SELECT similar_group_rank '
+                        'FROM stock.market_daily_page_article_link '
+                        'WHERE id = :id'
+                    ),
+                    {'id': link_id},
+                ).scalar_one()
+                is None
+            )
+            connection.commit()
+
+        _run_alembic(engine, database_url, command.upgrade, 'head')
+
+        with engine.connect() as connection:
+            assert (
+                connection.execute(
+                    text(
+                        'SELECT similar_group_rank '
+                        'FROM stock.market_daily_page_article_link '
+                        'WHERE id = :id'
+                    ),
+                    {'id': link_id},
+                ).scalar_one()
+                == 1
+            )
+            _assert_article_similarity_contract(connection)
+            version = connection.execute(
+                text('SELECT version_num FROM stock.alembic_version')
+            ).scalar_one()
+            assert version == ALEMBIC_HEAD
+
+        for display_order, rank_sql in ((2, 'NULL'), (3, '0')):
+            with engine.connect() as connection:
+                with pytest.raises(IntegrityError):
+                    connection.execute(
+                        text(
+                            f"""
+                            INSERT INTO stock.market_daily_page_article_link (
+                                page_market_id,
+                                display_order,
+                                title,
+                                origin_link,
+                                similar_group_rank
+                            )
+                            VALUES (
+                                :page_market_id,
+                                {display_order},
+                                'Rejected link',
+                                'https://example.test/rejected',
+                                {rank_sql}
+                            )
+                            """
+                        ),
+                        {'page_market_id': page_market_id},
+                    )
+                connection.rollback()
     finally:
         with engine.connect() as connection:
             connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))

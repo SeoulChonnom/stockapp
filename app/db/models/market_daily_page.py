@@ -175,7 +175,7 @@ class MarketDailyPageArticleLink(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     origin_link: Mapped[str] = mapped_column(Text)
     naver_link: Mapped[str | None] = mapped_column(Text)
-    similar_group_rank: Mapped[int | None] = mapped_column(SmallInteger)
+    similar_group_rank: Mapped[int] = mapped_column(SmallInteger)
     is_similar_group_representative: Mapped[bool] = mapped_column(Boolean)
     exact_duplicate_count: Mapped[int] = mapped_column(Integer)
 

@@ -1124,13 +1124,15 @@ CREATE TABLE market_daily_page_article_link (
     published_at TIMESTAMPTZ NULL,
     origin_link TEXT NOT NULL,
     naver_link TEXT NULL,
-    similar_group_rank SMALLINT NULL,
+    similar_group_rank SMALLINT NOT NULL DEFAULT 1,
     is_similar_group_representative BOOLEAN NOT NULL DEFAULT TRUE,
     exact_duplicate_count INTEGER NOT NULL DEFAULT 0,
     CONSTRAINT uq_market_daily_page_article_link_order
         UNIQUE (page_market_id, display_order),
     CONSTRAINT chk_market_daily_page_article_link_order_positive
         CHECK (display_order > 0),
+    CONSTRAINT chk_market_daily_page_article_link_group_rank_positive
+        CHECK (similar_group_rank > 0),
     CONSTRAINT chk_market_daily_page_article_link_exact_duplicate_count_non_negative
         CHECK (exact_duplicate_count >= 0)
 );
