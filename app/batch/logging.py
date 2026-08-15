@@ -46,14 +46,17 @@ def log_safe_exception(
     """Log an exception class and traceback frames without its message or payload."""
     exception_class = type(exception).__name__
     traceback_frames = _safe_traceback_frames(exception)
+    cause_chain = _safe_cause_chain(exception)
     logger.log(
         level,
-        '%s exception_class=%s traceback=%s',
+        '%s exception_class=%s caused_by=%s traceback=%s',
         message,
         exception_class,
+        cause_chain,
         traceback_frames,
         extra={
             'batch_exception_class': exception_class,
+            'batch_caused_by': cause_chain,
             'batch_traceback': traceback_frames,
         },
     )
@@ -81,6 +84,7 @@ def log_batch_lifecycle(
     traceback_frames = (
         _safe_traceback_frames(exception) if exception is not None else None
     )
+    cause_chain = _safe_cause_chain(exception) if exception is not None else None
     duration_value = (
         round(duration_seconds, 3) if duration_seconds is not None else None
     )
@@ -88,7 +92,8 @@ def log_batch_lifecycle(
         level,
         (
             'batch_lifecycle event=%s job_id=%s page_id=%s reference_date=%s '
-            'stage=%s duration_seconds=%s exception_class=%s traceback=%s'
+            'stage=%s duration_seconds=%s exception_class=%s caused_by=%s '
+            'traceback=%s'
         ),
         event,
         job_id,
@@ -97,6 +102,7 @@ def log_batch_lifecycle(
         stage,
         duration_value,
         exception_class,
+        cause_chain,
         traceback_frames,
         extra={
             'batch_event': event,
@@ -106,9 +112,41 @@ def log_batch_lifecycle(
             'batch_stage': stage,
             'batch_duration_seconds': duration_value,
             'batch_exception_class': exception_class,
+            'batch_caused_by': cause_chain,
             'batch_traceback': traceback_frames,
         },
     )
+
+
+def _safe_cause_chain(exception: BaseException) -> str | None:
+    """Name the wrapped causes, with any HTTP status, but never their messages.
+
+    Sanitized wrappers such as ``LlmRetryableError`` hide which provider
+    failure actually occurred, and a 429 and a 503 call for opposite responses.
+    Class names and status codes carry no response body or credentials, so they
+    are safe to record where the message is not.
+    """
+    causes: list[str] = []
+    seen: list[int] = []
+    current = exception.__cause__ or exception.__context__
+    while current is not None and id(current) not in seen and len(causes) < 5:
+        seen.append(id(current))
+        status_code = _safe_status_code(current)
+        name = type(current).__name__
+        causes.append(f'{name}({status_code})' if status_code is not None else name)
+        current = current.__cause__ or current.__context__
+    return ' <- '.join(causes) or None
+
+
+def _safe_status_code(exception: BaseException) -> int | None:
+    for value in (
+        getattr(exception, 'code', None),
+        getattr(exception, 'status_code', None),
+        getattr(getattr(exception, 'response', None), 'status_code', None),
+    ):
+        if isinstance(value, int):
+            return value
+    return None
 
 
 def _safe_traceback_frames(exception: BaseException) -> str:

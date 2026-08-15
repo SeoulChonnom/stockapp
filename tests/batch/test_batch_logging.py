@@ -92,3 +92,38 @@ def test_log_batch_lifecycle_exposes_safe_structured_failure(
         record.batch_traceback
     )
     assert 'secret-token' not in caplog.text
+
+
+def test_log_safe_exception_names_the_wrapped_cause_and_status(caplog) -> None:
+    """A sanitized wrapper hides which provider failure actually happened.
+
+    LlmRetryableError covers both 429 and 503, which call for opposite
+    responses, so the cause class and status must survive into the log while
+    the message -- which can carry a response body -- must not.
+    """
+    logger = logging.getLogger('test.batch.cause_chain')
+    caplog.set_level(logging.WARNING, logger=logger.name)
+
+    class ProviderError(Exception):
+        def __init__(self) -> None:
+            self.code = 503
+            super().__init__('UNAVAILABLE: api-key=secret-token')
+
+    try:
+        try:
+            raise ProviderError()
+        except ProviderError as provider_exc:
+            raise RuntimeError('temporary provider failure') from provider_exc
+    except RuntimeError as exc:
+        log_safe_exception(
+            logger,
+            logging.WARNING,
+            'LLM provider request failed.',
+            exception=exc,
+        )
+
+    record = caplog.records[-1]
+    assert record.batch_exception_class == 'RuntimeError'
+    assert record.batch_caused_by == 'ProviderError(503)'
+    assert 'secret-token' not in caplog.text
+    assert 'UNAVAILABLE' not in caplog.text
