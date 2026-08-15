@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from app.batch.diagnostics import SIMILAR_GROUP_FAILURE
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.ollama_embedding_provider import OllamaEmbeddingProvider
 from app.batch.steps.group_similar_articles import (
@@ -318,7 +319,8 @@ async def test_mock_transport_pipeline_isolates_grouping_failures_and_builds_pub
         301,
         302,
     ]
-    assert context.partial_reasons == []
+    # An isolated grouping failure still has to reach the job's summary.
+    assert context.partial_reasons == [SIMILAR_GROUP_FAILURE['message']]
     assert all(
         not hasattr(member, 'vector')
         for grouping in cluster_repo.groupings.values()

@@ -9,6 +9,10 @@ from uuid import UUID
 import httpx
 import pytest
 
+from app.batch.diagnostics import (
+    SIMILAR_GROUP_FAILURE,
+    SIMILARITY_GROUPING_FAILED,
+)
 from app.batch.exceptions import BatchLeaseLostError
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.ollama_embedding_provider import (
@@ -231,7 +235,11 @@ async def test_provider_failure_persists_unavailable_singletons_and_continues():
     assert [row[0] for row in group_repo.unavailable] == [1]
     assert group_repo.unavailable[0][2] == {11: 6, 12: 7}
     assert [row[0] for row in group_repo.ready] == [2]
-    assert context.partial_reasons == []
+    # A step that degraded every cluster used to finish with a silent summary;
+    # the reason is a fixed public string, so it carries no provider detail.
+    assert context.partial_reasons == [SIMILAR_GROUP_FAILURE['message']]
+    assert context.partial_categories == {SIMILARITY_GROUPING_FAILED: 1}
+    assert '1 degraded' in context.log_messages[-1]
     event_text = repr(repository.events)
     assert 'https://secret.example/article' not in event_text
     assert 'raw article content' not in event_text

@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from app.batch.ai_output_contracts import KEY_POINT_FAILURE
+from app.batch.diagnostics import SIMILAR_GROUP_FAILURE
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import metadata_optional_string, metadata_string_list
 from app.batch.snapshot_contract import require_snapshot_cluster_id
@@ -133,6 +134,9 @@ def _structured_page_issues(
     for reason in sanitize_public_diagnostics(context.partial_reasons):
         if reason == KEY_POINT_FAILURE['message']:
             issues.append(dict(KEY_POINT_FAILURE))
+            continue
+        if reason == SIMILAR_GROUP_FAILURE['message']:
+            issues.append(dict(SIMILAR_GROUP_FAILURE))
             continue
         theme_issue = theme_classification_missing_issue(reason)
         if theme_issue is not None:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from types import MappingProxyType
+from typing import Final
+
 from app.batch.models import BatchExecutionContext
 
 AI_SUMMARY_FALLBACK = 'AI_SUMMARY_FALLBACK'
@@ -13,6 +16,15 @@ NEWS_COLLECT_FAILED = 'NEWS_COLLECT_FAILED'
 NEWS_COVERAGE_INCOMPLETE = 'NEWS_COVERAGE_INCOMPLETE'
 NEWS_PAGINATION_CAP = 'NEWS_PAGINATION_CAP'
 PARTIAL_UNCATEGORIZED = 'UNCATEGORIZED'
+SIMILARITY_GROUPING_FAILED = 'SIMILARITY_GROUPING_FAILED'
+
+SIMILAR_GROUP_FAILURE: Final = MappingProxyType(
+    {
+        'category': 'SIMILAR_GROUP',
+        'code': SIMILARITY_GROUPING_FAILED,
+        'message': '유사 기사 묶음을 준비하지 못했습니다.',
+    }
+)
 
 
 def build_diagnostic_log_line(context: BatchExecutionContext) -> str | None:
@@ -69,6 +81,8 @@ __all__ = [
     'NEWS_COVERAGE_INCOMPLETE',
     'NEWS_PAGINATION_CAP',
     'PARTIAL_UNCATEGORIZED',
+    'SIMILARITY_GROUPING_FAILED',
+    'SIMILAR_GROUP_FAILURE',
     'build_diagnostic_log_line',
     'build_log_summary',
 ]

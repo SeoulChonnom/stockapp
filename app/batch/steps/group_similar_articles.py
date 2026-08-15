@@ -12,6 +12,7 @@ from app.batch.article_similarity import (
     SimilarityParameters,
     group_similar_articles,
 )
+from app.batch.diagnostics import SIMILAR_GROUP_FAILURE, SIMILARITY_GROUPING_FAILED
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.ollama_embedding_provider import (
     EmbeddingArticle,
@@ -169,6 +170,7 @@ class GroupSimilarArticlesStep(BatchStep):
             job_id=context.job_id,
             step_code=self.step_code,
         )
+        degraded_cluster_count = 0
         for cluster in ordered_clusters:
             cluster_id = _as_int(_row_value(cluster, 'id', 'cluster_id'))
             target = await self._load_target(cluster_repo, cluster_id, cluster)
@@ -221,6 +223,14 @@ class GroupSimilarArticlesStep(BatchStep):
                     parameters=self._parameters,
                 )
             except _EXPECTED_CLUSTER_ERRORS as exc:
+                degraded_cluster_count += 1
+                # One reason for the whole step, not one per cluster: the reason
+                # list is rendered as page issues, and an embedding outage hits
+                # every cluster at once. Per-cluster detail stays in the events.
+                context.add_partial(
+                    SIMILARITY_GROUPING_FAILED,
+                    SIMILAR_GROUP_FAILURE['message'],
+                )
                 await repository.add_event(
                     job_id=context.job_id,
                     step_code=self.step_code,
@@ -251,7 +261,8 @@ class GroupSimilarArticlesStep(BatchStep):
             await progress.commit_target(target_key, context)
 
         context.log_messages.append(
-            f'Grouped similar articles for {len(ordered_clusters)} cluster(s).'
+            f'Grouped similar articles for {len(ordered_clusters)} cluster(s) '
+            f'({degraded_cluster_count} degraded).'
         )
         return context
 
