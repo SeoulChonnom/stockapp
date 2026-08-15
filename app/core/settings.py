@@ -362,6 +362,30 @@ class Settings(BaseSettings):
             'llm_retry_jitter_ratio',
         ),
     )
+    llm_call_max_attempts: int = Field(
+        default=3,
+        ge=1,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_CALL_MAX_ATTEMPTS',
+            'llm_call_max_attempts',
+        ),
+    )
+    llm_call_retry_base_delay_seconds: float = Field(
+        default=2.0,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_CALL_RETRY_BASE_DELAY_SECONDS',
+            'llm_call_retry_base_delay_seconds',
+        ),
+    )
+    llm_call_retry_max_delay_seconds: float = Field(
+        default=8.0,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_CALL_RETRY_MAX_DELAY_SECONDS',
+            'llm_call_retry_max_delay_seconds',
+        ),
+    )
     gemini_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices('STOCKAPP_GEMINI_API_KEY', 'gemini_api_key'),

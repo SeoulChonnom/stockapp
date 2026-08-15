@@ -43,6 +43,8 @@ KEY_POINTS = [
         'text': '물가 지표와 금리 경로를 지켜봐야 합니다.',
     },
 ]
+# Settings.llm_call_max_attempts default: attempts made inside one invoke_json.
+CALL_ATTEMPTS = 3
 CLUSTERS = [
     {
         'title': '반도체 강세',
@@ -592,9 +594,11 @@ async def test_cluster_detail_provider_exhaustion_is_unavailable(monkeypatch):
 
 @pytest.mark.anyio
 async def test_cluster_detail_propagates_transient_error(monkeypatch):
+    # Every in-call attempt must fail before the error is deferred to the
+    # durable worker; a provider that recovers on retry never gets this far.
     harness = build_mock_gemini_harness(
         monkeypatch,
-        [httpx.ReadTimeout('cluster detail provider timed out')],
+        [httpx.ReadTimeout('cluster detail provider timed out')] * CALL_ATTEMPTS,
     )
 
     with pytest.raises(LlmRetryableError):
@@ -604,6 +608,8 @@ async def test_cluster_detail_propagates_transient_error(monkeypatch):
             CLUSTER_DETAIL_CLUSTER,
             CLUSTER_DETAIL_ARTICLES,
         )
+
+    assert harness.model.call_count == CALL_ATTEMPTS
 
 
 @pytest.mark.anyio
@@ -839,7 +845,7 @@ async def test_global_outputs_propagate_key_point_transient_error(monkeypatch):
         monkeypatch,
         [
             gemini_ai_message(HEADLINE),
-            httpx.ReadTimeout('key point provider timed out'),
+            *([httpx.ReadTimeout('key point provider timed out')] * CALL_ATTEMPTS),
         ],
     )
 

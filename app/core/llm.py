@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
+import random
 import ssl
 from collections import deque
 from collections.abc import Awaitable, Callable, Iterator, Mapping
@@ -16,7 +18,10 @@ from weakref import WeakKeyDictionary
 import httpx
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from app.batch.logging import log_safe_exception
 from app.core.settings import Settings, get_settings
+
+LOGGER = logging.getLogger(__name__)
 
 
 class LlmConfigurationError(RuntimeError):
@@ -327,9 +332,20 @@ def _duration_seconds(value: object) -> float | None:
     return None
 
 
-def _is_retryable_provider_error(exc: BaseException) -> bool:
+def _is_rate_limited_provider_error(exc: BaseException) -> bool:
+    """Report a quota rejection, which retrying immediately would only worsen."""
+    return _provider_status_code(exc) == 429
+
+
+def _is_transient_provider_error(exc: BaseException) -> bool:
+    """Report a provider-side blip that usually clears within seconds.
+
+    A 5xx or a transport failure says the request never got a verdict, so
+    reissuing it shortly is both safe and usually sufficient. This is kept
+    apart from a 429 so the two can be answered differently.
+    """
     status_code = _provider_status_code(exc)
-    if status_code == 429 or (status_code is not None and 500 <= status_code <= 599):
+    if status_code is not None and 500 <= status_code <= 599:
         return True
 
     exception_chain = _exception_chain(exc)
@@ -347,6 +363,10 @@ def _is_retryable_provider_error(exc: BaseException) -> bool:
         )
         for current in exception_chain
     )
+
+
+def _is_retryable_provider_error(exc: BaseException) -> bool:
+    return _is_rate_limited_provider_error(exc) or _is_transient_provider_error(exc)
 
 
 def estimate_input_tokens(system_prompt: str, user_prompt: str) -> int:
@@ -389,10 +409,14 @@ class GeminiJsonClient:
         *,
         rate_limiter: _AsyncRateLimiter | None = None,
         token_limiter: _AsyncTokenLimiter | None = None,
+        sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        jitter_random: Callable[[], float] = random.random,
     ) -> None:
         self._settings = settings or get_settings()
         self._rate_limiter = rate_limiter
         self._token_limiter = token_limiter
+        self._sleeper = sleeper
+        self._jitter_random = jitter_random
 
     def is_configured(self) -> bool:
         return bool(self._settings.gemini_api_key)
@@ -414,6 +438,19 @@ class GeminiJsonClient:
         payload must fit it to this budget before invoking.
         """
         return self._settings.llm_tokens_per_minute
+
+    def _call_retry_delay(self, attempt: int, retry_after: float | None) -> float:
+        """Back off before reissuing a call, honouring a provider-sent delay."""
+        if retry_after is not None:
+            return max(0.0, retry_after)
+        base_delay = self._settings.llm_call_retry_base_delay_seconds * (
+            2 ** max(attempt - 1, 0)
+        )
+        capped_delay = min(base_delay, self._settings.llm_call_retry_max_delay_seconds)
+        jitter = (
+            capped_delay * self._settings.llm_retry_jitter_ratio * self._jitter_random()
+        )
+        return max(0.0, capped_delay + jitter)
 
     def _build_model(self) -> ChatGoogleGenerativeAI:
         if not self.is_configured():
@@ -452,33 +489,67 @@ class GeminiJsonClient:
             ('human', user_prompt),
         ]
         estimated_tokens = estimate_input_tokens(system_prompt, user_prompt)
+        # The reservation covers the whole call: in-call retries reissue the same
+        # request within seconds, so re-reserving would double-spend the window.
         await rate_limiter.acquire()
         reservation = await token_limiter.acquire(estimated_tokens)
-        try:
-            response = await asyncio.wait_for(
-                model.ainvoke(messages),
-                timeout=self._settings.llm_timeout_seconds,
-            )
-        except TimeoutError as exc:
-            if _llm_retry_exhausted.get():
-                raise LlmRetryExhaustedError(
-                    'LLM retries were exhausted after a timeout.'
-                ) from exc
-            raise LlmTimeoutError('LLM invocation timed out.') from exc
-        except Exception as exc:
-            if not _is_retryable_provider_error(exc):
-                raise
-            if _llm_retry_exhausted.get():
-                raise LlmRetryExhaustedError(
-                    'LLM retries were exhausted after a transient provider failure.'
-                ) from exc
-            raise LlmRetryableError(
-                retry_after_seconds=_retry_after_seconds(exc)
-            ) from exc
+        response = await self._invoke_with_call_retries(
+            model,
+            messages,
+            rate_limiter=rate_limiter,
+        )
         actual_tokens = _actual_input_tokens(response)
         if actual_tokens is not None:
             await token_limiter.reconcile(reservation, actual_tokens)
         return self._parse_json(self._extract_text_content(response.content))
+
+    async def _invoke_with_call_retries(
+        self,
+        model: Any,
+        messages: list[tuple[str, str]],
+        *,
+        rate_limiter: _AsyncRateLimiter,
+    ) -> Any:
+        """Issue one request, reissuing it while the provider is merely blipping.
+
+        A 429 is a quota verdict, so reissuing it now would only deepen the
+        overage; it escalates to the durable worker's backoff instead. A 5xx or
+        transport failure usually clears within seconds, so it is reissued here
+        rather than costing the whole job a restart.
+        """
+        max_attempts = max(1, self._settings.llm_call_max_attempts)
+        for attempt in range(1, max_attempts + 1):
+            if attempt > 1:
+                await rate_limiter.acquire()
+            try:
+                return await asyncio.wait_for(
+                    model.ainvoke(messages),
+                    timeout=self._settings.llm_timeout_seconds,
+                )
+            except TimeoutError as exc:
+                if _llm_retry_exhausted.get():
+                    raise LlmRetryExhaustedError(
+                        'LLM retries were exhausted after a timeout.'
+                    ) from exc
+                raise LlmTimeoutError('LLM invocation timed out.') from exc
+            except Exception as exc:
+                if not _is_retryable_provider_error(exc):
+                    raise
+                if _llm_retry_exhausted.get():
+                    raise LlmRetryExhaustedError(
+                        'LLM retries were exhausted after a transient provider failure.'
+                    ) from exc
+                retry_after = _retry_after_seconds(exc)
+                if attempt >= max_attempts or not _is_transient_provider_error(exc):
+                    raise LlmRetryableError(retry_after_seconds=retry_after) from exc
+                log_safe_exception(
+                    LOGGER,
+                    logging.WARNING,
+                    'Retrying a transient LLM provider failure in place.',
+                    exception=exc,
+                )
+                await self._sleeper(self._call_retry_delay(attempt, retry_after))
+        raise LlmRetryableError()
 
     @staticmethod
     def _extract_text_content(content: object) -> str:

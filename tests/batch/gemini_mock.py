@@ -18,6 +18,10 @@ class MockGeminiModel:
         self._responses = list(responses)
         self.messages: list[list[tuple[str, str]]] = []
 
+    @property
+    def call_count(self) -> int:
+        return len(self.messages)
+
     async def ainvoke(self, messages: list[tuple[str, str]]) -> AIMessage:
         self.messages.append(messages)
         response = self._responses.pop(0)
@@ -57,6 +61,7 @@ class MockGeminiHarness:
     model: MockGeminiModel
     rate_limiter: RecordingRateLimiter
     token_limiter: RecordingTokenLimiter
+    slept: list[float]
 
 
 def build_mock_gemini_harness(
@@ -67,6 +72,11 @@ def build_mock_gemini_harness(
     model = MockGeminiModel(responses)
     rate_limiter = RecordingRateLimiter()
     token_limiter = RecordingTokenLimiter()
+    slept: list[float] = []
+
+    async def record_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
     client = GeminiJsonClient(
         Settings(
             app_env='development',
@@ -76,6 +86,8 @@ def build_mock_gemini_harness(
         ),
         rate_limiter=rate_limiter,
         token_limiter=token_limiter,
+        sleeper=record_sleep,
+        jitter_random=lambda: 0.0,
     )
     monkeypatch.setattr(client, '_build_model', lambda: model)
     return MockGeminiHarness(
@@ -83,6 +95,7 @@ def build_mock_gemini_harness(
         model=model,
         rate_limiter=rate_limiter,
         token_limiter=token_limiter,
+        slept=slept,
     )
 
 

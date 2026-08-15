@@ -471,21 +471,31 @@ async def test_gemini_json_client_defers_transient_transport_errors(
 
     limiter = CountingLimiter()
     model = FailingTransportModel()
+    slept: list[float] = []
+
+    async def record_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
     client = llm_module.GeminiJsonClient(
         settings_module.Settings(
             app_env='development',
             gemini_api_key='test-key',
             llm_max_retries=1,
+            llm_call_max_attempts=3,
         ),
         rate_limiter=limiter,
+        sleeper=record_sleep,
     )
     monkeypatch.setattr(client, '_build_model', lambda: model)
 
     with pytest.raises(llm_module.LlmRetryableError):
         await client.invoke_json(system_prompt='system', user_prompt='user')
 
-    assert model.call_count == 1
-    assert limiter.acquire_count == 1
+    # Reissued in place first; only a still-failing provider is deferred to the
+    # durable worker, which restarts the whole job.
+    assert model.call_count == 3
+    assert limiter.acquire_count == 3
+    assert len(slept) == 2
 
 
 @pytest.mark.asyncio
@@ -794,3 +804,103 @@ def test_gemini_json_client_exposes_configured_model_identity():
 
     assert client.model_name == 'test-model'
     assert client.concurrency_limit == 3
+
+
+class _StatusError(Exception):
+    def __init__(self, status_code: int, retry_after: str | None = None) -> None:
+        self.code = status_code
+        self.response = SimpleNamespace(
+            headers={'Retry-After': retry_after} if retry_after else {}
+        )
+        super().__init__(f'provider status {status_code}')
+
+
+def _recovering_client(monkeypatch, errors, *, slept):
+    class RecoveringModel:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        async def ainvoke(self, _messages):
+            self.call_count += 1
+            if self.call_count <= errors:
+                try:
+                    raise _StatusError(503)
+                except _StatusError as exc:
+                    raise RuntimeError('wrapped provider error') from exc
+            return SimpleNamespace(content='{"ok": true}')
+
+    async def record_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    model = RecoveringModel()
+    client = llm_module.GeminiJsonClient(
+        settings_module.Settings(
+            app_env='development',
+            gemini_api_key='test-key',
+            llm_call_max_attempts=3,
+            llm_call_retry_base_delay_seconds=2.0,
+        ),
+        rate_limiter=SimpleNamespace(acquire=_noop_acquire),
+        sleeper=record_sleep,
+        jitter_random=lambda: 0.0,
+    )
+    monkeypatch.setattr(client, '_build_model', lambda: model)
+    return client, model
+
+
+async def _noop_acquire() -> None:
+    return None
+
+
+@pytest.mark.asyncio
+async def test_gemini_json_client_recovers_from_a_transient_failure_in_place(
+    monkeypatch,
+):
+    """A 503 clears in seconds, so reissuing beats restarting the whole job."""
+    slept: list[float] = []
+    client, model = _recovering_client(monkeypatch, errors=1, slept=slept)
+
+    result = await client.invoke_json(system_prompt='system', user_prompt='user')
+
+    assert result == {'ok': True}
+    assert model.call_count == 2
+    assert slept == [2.0]
+
+
+@pytest.mark.asyncio
+async def test_gemini_json_client_does_not_reissue_a_rate_limited_call(monkeypatch):
+    """A 429 is a quota verdict: reissuing now would only deepen the overage."""
+    slept: list[float] = []
+
+    class RateLimitedModel:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        async def ainvoke(self, _messages):
+            self.call_count += 1
+            try:
+                raise _StatusError(429, retry_after='3')
+            except _StatusError as exc:
+                raise RuntimeError('wrapped provider error') from exc
+
+    async def record_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    model = RateLimitedModel()
+    client = llm_module.GeminiJsonClient(
+        settings_module.Settings(
+            app_env='development',
+            gemini_api_key='test-key',
+            llm_call_max_attempts=3,
+        ),
+        rate_limiter=SimpleNamespace(acquire=_noop_acquire),
+        sleeper=record_sleep,
+    )
+    monkeypatch.setattr(client, '_build_model', lambda: model)
+
+    with pytest.raises(llm_module.LlmRetryableError) as exc_info:
+        await client.invoke_json(system_prompt='system', user_prompt='user')
+
+    assert model.call_count == 1
+    assert slept == []
+    assert exc_info.value.retry_after_seconds == 3.0
