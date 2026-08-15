@@ -56,6 +56,9 @@ class BuildClustersStep(BatchStep):
         self._processed_article_limit = (
             resolved_settings.batch_clustering_processed_article_limit
         )
+        self._max_articles_per_cluster = (
+            resolved_settings.batch_max_articles_per_cluster
+        )
 
     async def run(
         self,
@@ -113,7 +116,11 @@ class BuildClustersStep(BatchStep):
         total_selected_count = 0
         for market_type in sorted(grouped_articles):
             articles = grouped_articles[market_type]
-            grouped = await asyncio.to_thread(_group_articles, articles)
+            grouped = await asyncio.to_thread(
+                _group_articles,
+                articles,
+                max_articles_per_group=self._max_articles_per_cluster,
+            )
             candidate_clusters = _rank_market_clusters(grouped)
             selected_clusters = candidate_clusters[: self._max_clusters_per_market]
             total_selected_count += len(selected_clusters)

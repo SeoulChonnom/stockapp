@@ -244,6 +244,7 @@ async def test_build_clusters_restart_skips_persisted_enrichment_and_awaits_canc
         settings=SimpleNamespace(
             batch_max_clusters_per_market=12,
             batch_clustering_processed_article_limit=5000,
+            batch_max_articles_per_cluster=60,
         ),
     )
 

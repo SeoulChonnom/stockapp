@@ -30,7 +30,19 @@ def _derive_tags(titles: list[str]) -> list[str]:
     return tokens
 
 
-def _group_articles(articles: list) -> list[list]:
+def _group_articles(
+    articles: list, *, max_articles_per_group: int | None = None
+) -> list[list]:
+    """Group articles by title-token overlap against each group's seed article.
+
+    Tokens are compared against the tokens of the article that opened the group,
+    never against a set accumulated from every member. Accumulating widened a
+    group's token set on every merge, so a large group matched almost any title
+    through shared common vocabulary and absorbed the market's whole feed into
+    one bucket. ``max_articles_per_group`` is a backstop for a genuinely large
+    news day: a group at the cap stops accepting members instead of growing
+    without bound.
+    """
     groups: list[list] = []
     group_tokens: list[set[str]] = []
     for article in sorted(
@@ -40,6 +52,11 @@ def _group_articles(articles: list) -> list[list]:
         article_tokens = set(tokenize_text(article.canonical_title))
         matched_index: int | None = None
         for group_index, tokens in enumerate(group_tokens):
+            if (
+                max_articles_per_group is not None
+                and len(groups[group_index]) >= max_articles_per_group
+            ):
+                continue
             if article_tokens and len(article_tokens.intersection(tokens)) >= 2:
                 matched_index = group_index
                 break
@@ -48,7 +65,6 @@ def _group_articles(articles: list) -> list[list]:
             group_tokens.append(set(article_tokens))
         else:
             groups[matched_index].append(article)
-            group_tokens[matched_index].update(article_tokens)
     return groups
 
 

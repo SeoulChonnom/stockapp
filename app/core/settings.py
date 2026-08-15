@@ -117,6 +117,14 @@ class Settings(BaseSettings):
             'batch_clustering_processed_article_limit',
         ),
     )
+    batch_max_articles_per_cluster: int = Field(
+        default=60,
+        ge=2,
+        validation_alias=AliasChoices(
+            'STOCKAPP_BATCH_MAX_ARTICLES_PER_CLUSTER',
+            'batch_max_articles_per_cluster',
+        ),
+    )
     batch_startup_recovery_enabled: bool = Field(
         default=False,
         validation_alias=AliasChoices(

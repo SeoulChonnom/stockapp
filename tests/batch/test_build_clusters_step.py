@@ -182,6 +182,7 @@ async def _run_step_with_articles(articles, *, provider, max_per_market=12):
         settings=SimpleNamespace(
             batch_max_clusters_per_market=max_per_market,
             batch_clustering_processed_article_limit=5000,
+            batch_max_articles_per_cluster=60,
         ),
     )
 
@@ -624,6 +625,7 @@ async def test_force_rerun_failure_preserves_untouched_market_clusters():
         settings=SimpleNamespace(
             batch_max_clusters_per_market=12,
             batch_clustering_processed_article_limit=5000,
+            batch_max_articles_per_cluster=60,
         ),
     )
 
@@ -796,3 +798,68 @@ async def test_large_market_inputs_cap_persisted_clusters_and_llm_calls(caplog):
     }
     assert 'candidate=160, selected=12, omitted=148' in ' '.join(context.log_messages)
     assert 'candidate_count=160 selected_count=12 omitted_count=148' in caplog.text
+
+
+def _chaining_feed() -> list:
+    """A feed where each title shares two tokens with the previous one only.
+
+    Token accumulation used to merge this whole chain into one bucket: every
+    merge widened the group's token set, so an article matched a group it had
+    no vocabulary in common with beyond a long-since-absorbed member.
+    """
+    base_time = datetime(2026, 3, 17, tzinfo=UTC)
+    titles = [
+        f'토큰{step} 토큰{step + 1} 토큰{step + 2} 토큰{step + 3}'
+        for step in range(0, 60, 2)
+    ]
+    return [
+        _processed_article(
+            5000 + index,
+            market_type='KR',
+            title=title,
+            published_at=base_time + timedelta(minutes=index),
+        )
+        for index, title in enumerate(titles)
+    ]
+
+
+def test_group_articles_does_not_chain_through_accumulated_tokens():
+    grouped = build_clusters_module._group_articles(_chaining_feed())
+
+    assert len(grouped) > 1
+    assert max(len(group) for group in grouped) < 30
+
+
+def test_group_articles_caps_group_size():
+    base_time = datetime(2026, 3, 17, tzinfo=UTC)
+    articles = [
+        _processed_article(
+            6000 + index,
+            market_type='KR',
+            title='코스피 상승 마감',
+            published_at=base_time + timedelta(minutes=index),
+        )
+        for index in range(25)
+    ]
+
+    grouped = build_clusters_module._group_articles(articles, max_articles_per_group=10)
+
+    assert [len(group) for group in grouped] == [10, 10, 5]
+    assert sum(len(group) for group in grouped) == len(articles)
+
+
+def test_group_articles_without_cap_keeps_identical_titles_together():
+    base_time = datetime(2026, 3, 17, tzinfo=UTC)
+    articles = [
+        _processed_article(
+            7000 + index,
+            market_type='KR',
+            title='코스피 상승 마감',
+            published_at=base_time + timedelta(minutes=index),
+        )
+        for index in range(25)
+    ]
+
+    grouped = build_clusters_module._group_articles(articles)
+
+    assert [len(group) for group in grouped] == [25]
