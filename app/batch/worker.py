@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.batch.exceptions import BatchLeaseLostError
 from app.batch.logging import log_batch_lifecycle, log_safe_exception
+from app.batch.models import checkpoint_llm_retry_count
 from app.batch.orchestrators.market_daily import MarketDailyBatchOrchestrator
 from app.batch.orchestrators.news_collection import NaverNewsCollectionOrchestrator
 from app.core.llm import LlmRetryableError, llm_retry_exhausted_mode
@@ -433,13 +434,7 @@ def _job_page_id(job: BatchJobRecord) -> int | None:
 
 def _llm_retry_count(job: BatchJobRecord) -> int:
     """Read how often this job was already rescheduled for a provider failure."""
-    checkpoint = getattr(job, 'checkpoint_json', None)
-    if not isinstance(checkpoint, dict):
-        return 0
-    value = checkpoint.get('llmRetryCount')
-    if isinstance(value, bool) or not isinstance(value, int):
-        return 0
-    return max(value, 0)
+    return checkpoint_llm_retry_count(getattr(job, 'checkpoint_json', None))
 
 
 async def _run() -> None:

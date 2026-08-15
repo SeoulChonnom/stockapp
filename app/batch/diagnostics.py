@@ -54,6 +54,23 @@ def build_diagnostic_log_line(context: BatchExecutionContext) -> str | None:
     return f'PARTIAL diagnostics: {body}.'
 
 
+def build_attempt_log_line(context: BatchExecutionContext) -> str | None:
+    """Report that a job needed more than one attempt to reach its result.
+
+    A restart leaves no trace in the PARTIAL categories -- a job can burn
+    attempts and still finish SUCCESS -- so without this the only evidence is
+    step-run rows nobody reads. It stays out of ``partial_reasons`` on purpose:
+    those are rendered as public page issues, and a retry is an operational
+    fact rather than something wrong with the day's content.
+    """
+    if context.attempt_count <= 1:
+        return None
+    line = f'Job ran on attempt {context.attempt_count}'
+    if context.llm_retry_count > 0:
+        line += f' after {context.llm_retry_count} transient LLM retry(s)'
+    return f'{line}.'
+
+
 def build_log_summary(context: BatchExecutionContext) -> str | None:
     """Join the step log with the degradation summary, without mutating context.
 
@@ -61,9 +78,11 @@ def build_log_summary(context: BatchExecutionContext) -> str | None:
     orchestrator go through here so a degraded job reports the same summary
     whichever way it ends.
     """
+    attempt_log_line = build_attempt_log_line(context)
     diagnostic_log_line = build_diagnostic_log_line(context)
     messages = [
         *context.log_messages,
+        *([attempt_log_line] if attempt_log_line is not None else []),
         *([diagnostic_log_line] if diagnostic_log_line is not None else []),
     ]
     return ' '.join(messages) or None
@@ -83,6 +102,7 @@ __all__ = [
     'PARTIAL_UNCATEGORIZED',
     'SIMILARITY_GROUPING_FAILED',
     'SIMILAR_GROUP_FAILURE',
+    'build_attempt_log_line',
     'build_diagnostic_log_line',
     'build_log_summary',
 ]

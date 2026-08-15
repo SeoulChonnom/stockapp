@@ -12,9 +12,11 @@ from tests.support import DummyResult, RecordingAsyncSession, load_module
 
 orchestrator_module = load_module('app.batch.orchestrators.market_daily')
 projections_module = load_module('app.db.repositories.projections')
+diagnostics_module = load_module('app.batch.diagnostics')
 
 MarketDailyBatchOrchestrator = orchestrator_module.MarketDailyBatchOrchestrator
 BatchJobRecord = projections_module.BatchJobRecord
+build_log_summary = diagnostics_module.build_log_summary
 
 
 class FakeSession:
@@ -796,3 +798,95 @@ async def test_failing_step_run_is_closed_as_failed(monkeypatch):
     assert 'RuntimeError' in finished_step['error_log']
     assert 'secret-token' not in finished_step['error_log']
     assert '[REDACTED]' in finished_step['error_log']
+
+
+@pytest.mark.anyio
+async def test_resumed_job_reports_its_attempt_in_the_log_summary(monkeypatch):
+    """A restarted job left no trace in its own summary.
+
+    Job 507 spent two attempts on Gemini 503s and finished on the third, but
+    the summary read like a clean single run. attempt_count and the retry
+    counter are read fresh from the job so a resumed run reports where it is.
+    """
+    lease_token = uuid4()
+    captured: dict[str, object] = {}
+
+    class RetriedRepository:
+        def __init__(self):
+            self.session = RecordingAsyncSession()
+            self.step_run_seq = 0
+
+        async def get_job_by_id(self, job_id):
+            return BatchJobRecord(
+                job_id=job_id,
+                job_name='market_daily_batch',
+                business_date=date(2026, 3, 17),
+                status='RUNNING',
+                started_at=datetime(2026, 3, 18, 6, 10, tzinfo=UTC),
+                ended_at=None,
+                duration_seconds=None,
+                market_scope='GLOBAL',
+                raw_news_count=0,
+                processed_news_count=0,
+                cluster_count=0,
+                page_id=None,
+                page_version_no=None,
+                force_run=False,
+                rebuild_page_only=False,
+                attempt_count=3,
+                checkpoint_json={
+                    'completedSteps': [],
+                    'context': {},
+                    'llmRetryCount': 2,
+                },
+            )
+
+        async def add_event(self, **_kwargs):
+            return None
+
+        async def begin_step(self, *, step_code, **_kwargs):
+            _ = step_code
+            self.step_run_seq += 1
+            return self.step_run_seq
+
+        async def finish_step_run(self, **_kwargs):
+            return True
+
+        async def save_checkpoint(self, **_kwargs):
+            return True
+
+        async def commit(self):
+            await self.session.commit()
+
+        async def rollback(self):
+            await self.session.rollback()
+
+    repository = RetriedRepository()
+
+    class CapturingStep:
+        step_code = 'BUILD_PAGE_SNAPSHOT'
+
+        async def execute(self, repository, context):
+            _ = repository
+            context.log_messages.append('Built page snapshot pageId=4, versionNo=1.')
+            captured['context'] = context
+            return context
+
+    monkeypatch.setattr(
+        orchestrator_module,
+        'BatchJobRepository',
+        lambda session, lease_token=None: repository,
+    )
+    orchestrator = MarketDailyBatchOrchestrator(session_maker=FakeSessionMaker())
+    orchestrator._steps = [CapturingStep()]
+
+    await orchestrator.run(1001, lease_token=lease_token)
+
+    context = captured['context']
+    assert context.attempt_count == 3
+    assert context.llm_retry_count == 2
+    summary = build_log_summary(context)
+    assert summary is not None
+    assert 'Job ran on attempt 3 after 2 transient LLM retry(s).' in summary
+    # Operational, not a content problem: it must not become a page issue.
+    assert context.partial_reasons == []

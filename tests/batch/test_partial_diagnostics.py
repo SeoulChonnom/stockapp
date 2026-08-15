@@ -11,7 +11,9 @@ from app.batch.diagnostics import (
     INDEX_STALE_SOURCE_DATE,
     NEWS_COLLECT_FAILED,
     PARTIAL_UNCATEGORIZED,
+    build_attempt_log_line,
     build_diagnostic_log_line,
+    build_log_summary,
 )
 from app.batch.models import BatchExecutionContext
 from app.batch.steps.finalize_job import FinalizeJobStep
@@ -174,3 +176,63 @@ async def test_finalize_job_leaves_log_summary_clean_on_success() -> None:
     assert repository.completed is not None
     assert repository.completed['status'] == 'SUCCESS'
     assert repository.completed['log_summary'] == 'Collected 5 market index row(s).'
+
+
+def test_attempt_log_line_is_absent_on_a_first_attempt() -> None:
+    assert build_attempt_log_line(build_context()) is None
+
+
+def test_attempt_log_line_reports_a_restart_without_llm_retries() -> None:
+    context = build_context()
+    context.attempt_count = 2
+
+    assert build_attempt_log_line(context) == 'Job ran on attempt 2.'
+
+
+def test_attempt_log_line_reports_transient_llm_retries() -> None:
+    """Job 507 burned two attempts on Gemini 503s before completing.
+
+    Nothing in the PARTIAL categories recorded that, and a job can restart and
+    still finish SUCCESS, so the restart needs its own line in the summary.
+    """
+    context = build_context()
+    context.attempt_count = 3
+    context.llm_retry_count = 2
+
+    assert build_attempt_log_line(context) == (
+        'Job ran on attempt 3 after 2 transient LLM retry(s).'
+    )
+
+
+def test_log_summary_reports_a_restart_even_without_degradation() -> None:
+    context = build_context()
+    context.attempt_count = 2
+    context.llm_retry_count = 1
+    context.log_messages = ['Built page snapshot pageId=4, versionNo=1.']
+
+    assert build_log_summary(context) == (
+        'Built page snapshot pageId=4, versionNo=1. '
+        'Job ran on attempt 2 after 1 transient LLM retry(s).'
+    )
+
+
+def test_log_summary_keeps_the_restart_out_of_public_reasons() -> None:
+    """A retry is operational, not something wrong with the day's content.
+
+    partial_reasons is rendered as public page issues, so the restart must
+    reach the log summary without ever entering that list.
+    """
+    context = build_context()
+    context.attempt_count = 3
+    context.llm_retry_count = 2
+    context.partial_categories = {AI_SUMMARY_FALLBACK: 2}
+    context.partial_reasons = ['AI summary fallback for CLUSTER_CARD_SUMMARY/KR: x']
+
+    summary = build_log_summary(context)
+
+    assert summary is not None
+    assert 'Job ran on attempt 3 after 2 transient LLM retry(s).' in summary
+    assert 'PARTIAL diagnostics: AI_SUMMARY_FALLBACK x2.' in summary
+    assert context.partial_reasons == [
+        'AI summary fallback for CLUSTER_CARD_SUMMARY/KR: x'
+    ]

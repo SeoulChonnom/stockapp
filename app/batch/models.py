@@ -4,6 +4,23 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+LLM_RETRY_COUNT_CHECKPOINT_KEY = 'llmRetryCount'
+
+
+def checkpoint_llm_retry_count(checkpoint: object) -> int:
+    """Read how often a job was rescheduled for a transient provider failure.
+
+    The counter lives at the checkpoint root rather than inside the serialized
+    context because the durable queue writes it while releasing the claim, and
+    it must survive the reschedule that follows.
+    """
+    if not isinstance(checkpoint, dict):
+        return 0
+    value = checkpoint.get(LLM_RETRY_COUNT_CHECKPOINT_KEY)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return max(value, 0)
+
 
 @dataclass(slots=True)
 class BatchExecutionContext:
@@ -11,6 +28,10 @@ class BatchExecutionContext:
     business_date: date
     force_run: bool
     rebuild_page_only: bool
+    # Read fresh from the job on every attempt, never restored from the
+    # serialized context, so a resumed run reports the attempt it is on.
+    attempt_count: int = 1
+    llm_retry_count: int = 0
     source_job_id: int | None = None
     source_page_id: int | None = None
     raw_news_count: int = 0
@@ -106,6 +127,8 @@ class BatchExecutionContext:
         rebuild_page_only: bool,
         source_job_id: int | None = None,
         source_page_id: int | None = None,
+        attempt_count: int = 1,
+        llm_retry_count: int = 0,
     ) -> BatchExecutionContext:
         """Restore a context while treating malformed checkpoint data as empty."""
         if not isinstance(payload, dict):
@@ -115,6 +138,8 @@ class BatchExecutionContext:
             business_date=business_date,
             force_run=force_run,
             rebuild_page_only=rebuild_page_only,
+            attempt_count=attempt_count,
+            llm_retry_count=llm_retry_count,
             source_job_id=(
                 source_job_id
                 if source_job_id is not None

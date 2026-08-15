@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.batch.diagnostics import build_log_summary
 from app.batch.exceptions import BatchLeaseLostError, BatchPipelineError
 from app.batch.logging import log_batch_lifecycle
-from app.batch.models import BatchExecutionContext
+from app.batch.models import (
+    BatchExecutionContext,
+    checkpoint_llm_retry_count,
+)
 from app.batch.steps import (
     BuildClustersStep,
     BuildPageSnapshotStep,
@@ -108,6 +111,8 @@ class MarketDailyBatchOrchestrator:
                     rebuild_page_only=bool(job.rebuild_page_only),
                     source_job_id=getattr(job, 'source_job_id', None),
                     source_page_id=getattr(job, 'source_page_id', None),
+                    attempt_count=max(int(getattr(job, 'attempt_count', 1) or 1), 1),
+                    llm_retry_count=checkpoint_llm_retry_count(checkpoint),
                 )
                 log_stage_event('started', logging.INFO, 'ORCHESTRATE')
                 completed_steps = _completed_steps(checkpoint)
