@@ -371,6 +371,28 @@ async def _generate_market_summary(
     )
 
 
+def _build_prompt_articles(articles: list[dict]) -> list[dict[str, Any]]:
+    """Project processed article rows down to the fields a prompt may carry.
+
+    Rows loaded for cluster summaries come straight from
+    ``news_article_processed`` and carry ``content_json`` -- the untrimmed
+    article body plus the raw provider payload. Serializing a row as-is inflates
+    the prompt by an order of magnitude over the capped title/summary/excerpt
+    fields, so every cluster prompt is built from this projection instead.
+    """
+    return [
+        {
+            'processedArticleId': article['id'],
+            'title': article.get('canonical_title'),
+            'summary': article.get('source_summary'),
+            'excerpt': article.get('article_body_excerpt'),
+        }
+        for article in articles
+        if isinstance(article.get('id'), int)
+        and not isinstance(article.get('id'), bool)
+    ]
+
+
 async def _generate_cluster_card_summary(
     llm_provider: BatchLlmProvider,
     market_type: str,
@@ -403,7 +425,7 @@ async def _generate_cluster_card_summary(
         request=lambda: llm_provider.summarize_cluster_card(
             market_type=market_type,
             cluster={'title': cluster['title'], 'summary': cluster['summary_short']},
-            articles=articles,
+            articles=_build_prompt_articles(articles),
         ),
         validate=lambda result: _validate_summary_result(
             result, summary_name='Cluster card summary', string_fields=('title', 'body')
@@ -435,17 +457,7 @@ async def _generate_cluster_detail_summary(
     if not llm_provider.is_configured():
         return fallback
 
-    prompt_articles = [
-        {
-            'processedArticleId': article['id'],
-            'title': article.get('canonical_title'),
-            'summary': article.get('source_summary'),
-            'excerpt': article.get('article_body_excerpt'),
-        }
-        for article in articles
-        if isinstance(article.get('id'), int)
-        and not isinstance(article.get('id'), bool)
-    ]
+    prompt_articles = _build_prompt_articles(articles)
     valid_article_ids = {article['processedArticleId'] for article in prompt_articles}
     try:
         result = await llm_provider.summarize_cluster_detail(

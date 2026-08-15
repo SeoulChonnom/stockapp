@@ -8,6 +8,7 @@ import pytest
 
 from app.batch.providers.llm_provider import BatchLlmProvider
 from app.batch.steps.generate_ai_summaries import (
+    _generate_cluster_card_summary,
     _generate_cluster_detail_summary,
     _generate_global_outputs,
     _generate_market_summary,
@@ -108,6 +109,55 @@ async def test_market_summary_normalizes_string_list_fields():
     assert result['fallback_used'] is False
     assert result['metadata_json']['background'] == ['단일 배경']
     assert result['metadata_json']['keyThemes'] == ['단일 테마']
+
+
+@pytest.mark.anyio
+async def test_cluster_card_prompt_excludes_raw_article_content(monkeypatch):
+    """A processed row's content_json must never reach the card summary prompt.
+
+    ``get_processed_articles`` returns ``content_json``, which carries the full
+    article body and the raw provider payload. Serializing those inflates the
+    prompt past the token budget and leaks the provider payload, so the prompt
+    is built from the capped title/summary/excerpt projection instead.
+    """
+    body_text = '본문' * 20_000
+    articles = [
+        {
+            **article,
+            'content_json': {
+                'bodyText': body_text,
+                'payload': {'description': body_text, 'link': 'https://example.com'},
+                'providerName': 'NAVER_NEWS',
+            },
+        }
+        for article in CLUSTER_DETAIL_ARTICLES
+    ]
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [
+            gemini_ai_message(
+                {'title': '반도체주 조정', 'body': '반도체주가 하락했습니다.'}
+            )
+        ],
+    )
+
+    result = await _generate_cluster_card_summary(
+        BatchLlmProvider(harness.client),
+        'KR',
+        CLUSTER_DETAIL_CLUSTER,
+        articles,
+    )
+
+    assert result['status'] == 'SUCCESS'
+    assert result['fallback_used'] is False
+
+    user_prompt = harness.model.messages[0][1][1]
+    assert body_text not in user_prompt
+    assert 'content_json' not in user_prompt
+    assert 'bodyText' not in user_prompt
+    assert 'providerName' not in user_prompt
+    assert '반도체주 약세' in user_prompt
+    assert harness.token_limiter.estimates[0] < 2_000
 
 
 def _analysis_sentence(**overrides: object) -> dict[str, object]:
