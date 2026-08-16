@@ -444,33 +444,61 @@ def test_build_unavailable_analysis_fails_closed_for_unknown_issue_codes() -> No
     }
 
 
-def test_validate_analysis_sections_returns_unavailable_for_top_or_nested_shape_errors() -> (
-    None
-):
-    malformed_payloads = [
-        None,
-        {'sections': {}},
-        _analysis_payload(sections=[{'kind': 'impact', 'title': '시장 영향'}]),
-        _analysis_payload(sections=[_section(paragraphs={})]),
-        _analysis_payload(sections=[_section(paragraphs=[None])]),
-        _analysis_payload(sections=[_section(paragraphs=[{'sentences': {}}])]),
-        _analysis_payload(
-            sections=[_section(paragraphs=[_paragraph(sentences=[None])])]
+@pytest.mark.parametrize(
+    ('payload', 'expected_reason'),
+    [
+        pytest.param(None, 'payload_not_object', id='payload-not-object'),
+        pytest.param({'sections': {}}, 'sections_not_list', id='sections-not-list'),
+        pytest.param(
+            _analysis_payload(sections=[{'kind': 'impact', 'title': '시장 영향'}]),
+            'section_paragraphs_not_list',
+            id='section-without-paragraphs',
         ),
-    ]
+        pytest.param(
+            _analysis_payload(sections=[_section(paragraphs={})]),
+            'section_paragraphs_not_list',
+            id='paragraphs-not-list',
+        ),
+        pytest.param(
+            _analysis_payload(sections=[_section(paragraphs=[None])]),
+            'paragraph_not_object',
+            id='paragraph-not-object',
+        ),
+        pytest.param(
+            _analysis_payload(sections=[_section(paragraphs=[{'sentences': {}}])]),
+            'paragraph_sentences_not_list',
+            id='sentences-not-list',
+        ),
+        pytest.param(
+            _analysis_payload(
+                sections=[_section(paragraphs=[_paragraph(sentences=[None])])]
+            ),
+            'sentence_not_object',
+            id='sentence-not-object',
+        ),
+    ],
+)
+def test_validate_analysis_sections_names_the_rule_that_rejected_the_shape(
+    payload: object, expected_reason: str
+) -> None:
+    """Each malformation must be tellable apart from the others.
 
-    for payload in malformed_payloads:
-        assert validate_analysis_sections(payload, {1024}) == {
-            'analysisStatus': 'UNAVAILABLE',
-            'analysisIssues': [
-                {
-                    'code': 'ANALYSIS_GENERATION_FAILED',
-                    'message': '분석을 생성하지 못했습니다.',
-                }
-            ],
-            'conflictStatus': 'NOT_CHECKED',
-            'sections': [],
-        }
+    The public issue code is the same for all of them by design, so the reason
+    is the only thing that says which rule fired -- without it an operator sees
+    one ANALYSIS_GENERATION_FAILED and has nothing to act on.
+    """
+    assert validate_analysis_sections(payload, {1024}) == {
+        'analysisStatus': 'UNAVAILABLE',
+        'analysisIssues': [
+            {
+                'code': 'ANALYSIS_GENERATION_FAILED',
+                'message': '분석을 생성하지 못했습니다.',
+            }
+        ],
+        'conflictStatus': 'NOT_CHECKED',
+        'sections': [],
+        'failureReason': expected_reason,
+    }
 
 
 @pytest.mark.parametrize(
@@ -487,9 +515,15 @@ def test_validate_analysis_sections_returns_unavailable_for_top_or_nested_shape_
         'object',
     ],
 )
-def test_validate_analysis_sections_fails_closed_for_malformed_sentence_text(
+def test_validate_analysis_sections_drops_only_the_sentence_missing_its_text(
     text: object,
 ) -> None:
+    """One unusable sentence must not discard its sound siblings.
+
+    Failing the whole analysis here threw away every grounded sentence in the
+    cluster over a single empty one, which is the opposite of the isolation
+    this function promises.
+    """
     malformed_sentence = _sentence(text=text)
     payload = _analysis_payload(
         sections=[
@@ -503,15 +537,33 @@ def test_validate_analysis_sections_fails_closed_for_malformed_sentence_text(
     )
 
     assert validate_analysis_sections(payload, {1024}) == {
-        'analysisStatus': 'UNAVAILABLE',
+        'analysisStatus': 'PARTIAL',
         'analysisIssues': [
             {
-                'code': 'ANALYSIS_GENERATION_FAILED',
-                'message': '분석을 생성하지 못했습니다.',
+                'code': 'INVALID_SOURCE_REFERENCE',
+                'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
             }
         ],
-        'conflictStatus': 'NOT_CHECKED',
-        'sections': [],
+        'conflictStatus': 'NONE',
+        'sections': [
+            {
+                'kind': 'impact',
+                'title': '시장 영향',
+                'paragraphs': [
+                    {
+                        'sentences': [
+                            {
+                                'text': '유효한 형제 문장입니다.',
+                                'sourceArticleIds': [1024],
+                                'conflictStatus': 'NONE',
+                                'conflictingSourceArticleIds': [],
+                                'conflictNote': None,
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
     }
 
 
@@ -623,6 +675,7 @@ def test_validate_analysis_sections_rejects_all_invalid_primary_sources_with_cau
         ],
         'conflictStatus': 'NOT_CHECKED',
         'sections': [],
+        'failureReason': 'no_grounded_sentences',
     }
 
 
@@ -998,6 +1051,7 @@ def test_validate_analysis_sections_returns_unavailable_for_empty_analysis() -> 
         ],
         'conflictStatus': 'NOT_CHECKED',
         'sections': [],
+        'failureReason': 'no_grounded_sentences',
     }
 
 
@@ -1038,6 +1092,7 @@ def test_validate_analysis_sections_rejects_malformed_section_alongside_valid_si
         ],
         'conflictStatus': 'NOT_CHECKED',
         'sections': [],
+        'failureReason': 'section_not_object',
     }
 
 
@@ -1358,3 +1413,61 @@ def test_validate_analysis_sections_keeps_valid_found_with_found_aggregate() -> 
             }
         ],
     }
+
+
+@pytest.mark.parametrize(
+    'title',
+    [
+        '관련 업종ㆍ종목',
+        '관련 업종・종목',
+        '관련 업종·종목',
+        '관련 업종 · 종목',
+        '관련업종/종목',
+    ],
+    ids=['hangul-dot', 'katakana-dot', 'greek-ano-teleia', 'spaced', 'slash'],
+)
+def test_validate_analysis_sections_accepts_separator_variants_in_a_fixed_title(
+    title: str,
+) -> None:
+    """A separator no reader can tell apart must not discard the analysis.
+
+    The contract fixes the title, and the model is told exactly what it is, but
+    demanding one particular codepoint threw away a whole cluster's analysis
+    over a character that renders the same.
+    """
+    result = validate_analysis_sections(
+        {
+            'sections': [
+                {
+                    'kind': 'related',
+                    'title': title,
+                    'paragraphs': [_paragraph(sentences=[_sentence()])],
+                }
+            ]
+        },
+        {1024},
+    )
+
+    assert result['analysisStatus'] == 'READY'
+    # The canonical spelling is what gets stored, because the public schema
+    # still requires an exact match on the persisted row.
+    assert result['sections'][0]['title'] == '관련 업종·종목'
+
+
+def test_validate_analysis_sections_still_rejects_a_different_title() -> None:
+    """Folding punctuation must not turn the title check into no check."""
+    result = validate_analysis_sections(
+        {
+            'sections': [
+                {
+                    'kind': 'related',
+                    'title': '관련 종목 정리',
+                    'paragraphs': [_paragraph(sentences=[_sentence()])],
+                }
+            ]
+        },
+        {1024},
+    )
+
+    assert result['analysisStatus'] == 'UNAVAILABLE'
+    assert result['failureReason'] == 'section_title_mismatch'

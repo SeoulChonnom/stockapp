@@ -23,13 +23,16 @@ LOGGER = logging.getLogger(__name__)
 
 
 def _with_malformed_fallback(fallback: dict[str, Any], reason: str) -> dict[str, Any]:
-    _ = reason
     return {
         **fallback,
         'error_message': public_ai_invalid_response()['message'],
         'metadata_json': {
             **fallback.get('metadata_json', {}),
             'reason': 'llm_malformed_response',
+            # The validator builds this from a summary name and a field name it
+            # was given, never from the response, so it carries no provider
+            # text. Discarding it left every malformed shape looking alike.
+            'malformedReason': reason,
             'error': public_ai_invalid_response(),
         },
     }
@@ -120,6 +123,14 @@ async def _run_llm_summary(
             result = normalize(result)
         malformed_reason = validate(result)
         if malformed_reason:
+            # A rejected response raises nothing, so this used to leave the
+            # application log silent while the row recorded only that some
+            # response had been invalid.
+            LOGGER.warning(
+                'AI response rejected by its output contract. reason=%s model=%s',
+                malformed_reason,
+                model_name,
+            )
             return _with_malformed_fallback(fallback, malformed_reason)
         return build_success(_as_summary_mapping(result), model_name)
     except LlmRetryableError:
@@ -515,7 +526,18 @@ async def _generate_cluster_detail_summary(
             for issue in analysis['analysisIssues']
         ):
             error_message = public_ai_invalid_response()['message']
-            metadata = {**metadata, 'error': public_ai_invalid_response()}
+            failure_reason = analysis.get('failureReason')
+            metadata = {
+                **metadata,
+                'error': public_ai_invalid_response(),
+                'analysisFailureReason': failure_reason,
+            }
+            LOGGER.warning(
+                'Cluster detail analysis rejected the provider response. '
+                'reason=%s model=%s',
+                failure_reason,
+                getattr(llm_provider, 'model_name', None),
+            )
         return {
             **fallback,
             'error_message': error_message,

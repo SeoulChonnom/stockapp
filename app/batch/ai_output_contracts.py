@@ -32,6 +32,13 @@ KEY_POINT_FAILURE: Final = MappingProxyType(
         'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
     }
 )
+# A fixed title is worth enforcing; the exact codepoint a model picks for its
+# punctuation is not. Every one of these reads as the same separator, and
+# rejecting a whole analysis because the model wrote U+318D where the contract
+# says U+00B7 discards work over a character no reader can tell apart.
+_SECTION_TITLE_PUNCTUATION_FOLD: Final = str.maketrans(
+    dict.fromkeys('ㆍ‧•⋅∙・･/··', '·')
+)
 
 
 def normalize_key_points(payload: object) -> dict[str, object]:
@@ -48,8 +55,18 @@ def normalize_key_points(payload: object) -> dict[str, object]:
     return {'keyPoints': key_points}
 
 
-def build_unavailable_analysis(*issue_codes: str) -> AnalysisResult:
-    """Build the single public fallback shape with stable, unique issue codes."""
+def build_unavailable_analysis(
+    *issue_codes: str, reason: str | None = None
+) -> AnalysisResult:
+    """Build the single public fallback shape with stable, unique issue codes.
+
+    ``reason`` names the rule that rejected the payload. It is deliberately not
+    one of the public keys -- callers copy only the three of those -- but
+    without it the twelve distinct malformations below all reach the persisted
+    row and the log as one ANALYSIS_GENERATION_FAILED, which says nothing about
+    what to change. The strings come from this module's own vocabulary, never
+    from provider text, so they are safe to record.
+    """
     # CONFLICT_CHECK_FAILED describes a retained sentence degraded to
     # NOT_CHECKED.  An UNAVAILABLE response has no retained sentences, so that
     # issue would create an impossible public model state.
@@ -58,12 +75,15 @@ def build_unavailable_analysis(*issue_codes: str) -> AnalysisResult:
         for code in issue_codes
     ):
         issue_codes = ('ANALYSIS_GENERATION_FAILED',)
-    return {
+    result: AnalysisResult = {
         'analysisStatus': 'UNAVAILABLE',
         'analysisIssues': _issues_for(issue_codes),
         'conflictStatus': 'NOT_CHECKED',
         'sections': [],
     }
+    if reason is not None:
+        result['failureReason'] = reason
+    return result
 
 
 def canonical_key_point_issue(value: object) -> dict[str, str] | None:
@@ -81,14 +101,22 @@ def validate_analysis_sections(
 ) -> AnalysisResult:
     """Normalize analysis sections while isolating invalid evidence to a sentence."""
     if not isinstance(payload, Mapping):
-        return build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
+        return build_unavailable_analysis(
+            'ANALYSIS_GENERATION_FAILED', reason='payload_not_object'
+        )
     sections_payload = payload.get('sections')
     if not isinstance(sections_payload, list):
-        return build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
+        return build_unavailable_analysis(
+            'ANALYSIS_GENERATION_FAILED', reason='sections_not_list'
+        )
 
-    structural_sections = _validate_section_structure(sections_payload)
+    structural_sections, structure_reason = _validate_section_structure(
+        sections_payload
+    )
     if structural_sections is None:
-        return build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
+        return build_unavailable_analysis(
+            'ANALYSIS_GENERATION_FAILED', reason=structure_reason
+        )
 
     issue_codes: list[str] = []
     normalized_sections: list[dict[str, object]] = []
@@ -98,8 +126,11 @@ def validate_analysis_sections(
         for paragraph in section['paragraphs']:
             normalized_sentences: list[dict[str, object]] = []
             for sentence in paragraph['sentences']:
-                if not _has_valid_sentence_text(sentence):
-                    return build_unavailable_analysis('ANALYSIS_GENERATION_FAILED')
+                # A sentence with no usable text is dropped like any other
+                # ungroundable one, which is what ``_normalize_analysis_sentence``
+                # already does with it. Failing the whole analysis here threw
+                # away every sound sentence in the cluster over a single empty
+                # one, against this function's own stated contract.
                 normalized_sentence, issue_code = _normalize_analysis_sentence(
                     sentence,
                     valid_article_ids,
@@ -130,7 +161,7 @@ def validate_analysis_sections(
     ]
     if not flattened_sentences:
         _append_issue(issue_codes, 'NO_GROUNDED_SENTENCES')
-        return build_unavailable_analysis(*issue_codes)
+        return build_unavailable_analysis(*issue_codes, reason='no_grounded_sentences')
 
     analysis_status = 'PARTIAL' if issue_codes else 'READY'
     return {
@@ -181,49 +212,61 @@ def _key_point_failure() -> dict[str, object]:
 
 def _validate_section_structure(
     sections: list[object],
-) -> list[dict[str, object]] | None:
+) -> tuple[list[dict[str, object]] | None, str | None]:
+    """Validate the section shape, naming the rule that rejects it."""
     normalized_sections: list[dict[str, object]] = []
     kinds: list[str] = []
     for section in sections:
         if not isinstance(section, Mapping):
-            return None
+            return None, 'section_not_object'
         kind = section.get('kind')
-        title = section.get('title')
         paragraphs = section.get('paragraphs')
-        if (
-            not isinstance(kind, str)
-            or kind not in ANALYSIS_SECTION_TITLES
-            or title != ANALYSIS_SECTION_TITLES[kind]
-            or not isinstance(paragraphs, list)
-        ):
-            return None
+        if not isinstance(kind, str) or kind not in ANALYSIS_SECTION_TITLES:
+            return None, 'section_kind_unknown'
+        if not _matches_section_title(section.get('title'), kind):
+            return None, 'section_title_mismatch'
+        if not isinstance(paragraphs, list):
+            return None, 'section_paragraphs_not_list'
         normalized_paragraphs: list[dict[str, object]] = []
         for paragraph in paragraphs:
             if not isinstance(paragraph, Mapping):
-                return None
+                return None, 'paragraph_not_object'
             sentences = paragraph.get('sentences')
             if not isinstance(sentences, list):
-                return None
+                return None, 'paragraph_sentences_not_list'
             normalized_sentences: list[dict[str, object]] = []
             for sentence in sentences:
                 if not isinstance(sentence, Mapping):
-                    return None
+                    return None, 'sentence_not_object'
                 normalized_sentences.append(dict(sentence))
             normalized_paragraphs.append({'sentences': normalized_sentences})
         kinds.append(kind)
         normalized_sections.append(
-            {'kind': kind, 'title': title, 'paragraphs': normalized_paragraphs}
+            # The canonical title is stored rather than the model's spelling of
+            # it, so an accepted variant cannot reach the persisted row, where
+            # the public schema still requires the exact string.
+            {
+                'kind': kind,
+                'title': ANALYSIS_SECTION_TITLES[kind],
+                'paragraphs': normalized_paragraphs,
+            }
         )
     if len(kinds) != len(set(kinds)):
-        return None
+        return None, 'section_kind_duplicated'
     if kinds != sorted(kinds, key=ANALYSIS_SECTION_KIND_ORDER.index):
-        return None
-    return normalized_sections
+        return None, 'section_order_invalid'
+    return normalized_sections, None
 
 
-def _has_valid_sentence_text(sentence: Mapping[str, object]) -> bool:
-    text = sentence.get('text')
-    return isinstance(text, str) and bool(text.strip())
+def _matches_section_title(title: object, kind: str) -> bool:
+    """Accept the fixed title through the spacing and punctuation models vary."""
+    if not isinstance(title, str):
+        return False
+    return _folded_title(title) == _folded_title(ANALYSIS_SECTION_TITLES[kind])
+
+
+def _folded_title(value: str) -> str:
+    return ''.join(value.translate(_SECTION_TITLE_PUNCTUATION_FOLD).split())
 
 
 def _normalize_analysis_sentence(

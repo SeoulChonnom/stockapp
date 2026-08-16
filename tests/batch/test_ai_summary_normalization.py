@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import httpx
 import pytest
@@ -441,9 +442,9 @@ async def test_cluster_detail_empty_sections_are_unavailable(monkeypatch):
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    'malformed_payload',
+    ('malformed_payload', 'expected_reason'),
     [
-        pytest.param({'sections': {}}, id='non-array-sections'),
+        pytest.param({'sections': {}}, 'sections_not_list', id='non-array-sections'),
         pytest.param(
             {
                 'sections': [
@@ -457,6 +458,7 @@ async def test_cluster_detail_empty_sections_are_unavailable(monkeypatch):
                     None,
                 ]
             },
+            'section_not_object',
             id='non-object-section-with-valid-sibling',
         ),
         pytest.param(
@@ -469,6 +471,7 @@ async def test_cluster_detail_empty_sections_are_unavailable(monkeypatch):
                     }
                 ]
             },
+            'section_paragraphs_not_list',
             id='non-array-paragraphs',
         ),
         pytest.param(
@@ -484,6 +487,7 @@ async def test_cluster_detail_empty_sections_are_unavailable(monkeypatch):
                     }
                 ]
             },
+            'paragraph_not_object',
             id='non-object-paragraph-with-valid-sibling',
         ),
         pytest.param(
@@ -496,6 +500,7 @@ async def test_cluster_detail_empty_sections_are_unavailable(monkeypatch):
                     }
                 ]
             },
+            'paragraph_sentences_not_list',
             id='non-array-sentences',
         ),
         pytest.param(
@@ -515,6 +520,7 @@ async def test_cluster_detail_empty_sections_are_unavailable(monkeypatch):
                     }
                 ]
             },
+            'sentence_not_object',
             id='non-object-sentence-with-valid-sibling',
         ),
     ],
@@ -522,6 +528,7 @@ async def test_cluster_detail_empty_sections_are_unavailable(monkeypatch):
 async def test_cluster_detail_malformed_structure_discards_valid_siblings(
     monkeypatch,
     malformed_payload,
+    expected_reason,
 ):
     result, _ = await _generate_cluster_detail_with_gemini(
         monkeypatch,
@@ -547,6 +554,10 @@ async def test_cluster_detail_malformed_structure_discards_valid_siblings(
             ),
             'errorClass': 'ValueError',
         },
+        # The public error is identical for every malformation, so the row has
+        # to carry the rejecting rule or the failure is undiagnosable once the
+        # response itself is gone.
+        'analysisFailureReason': expected_reason,
     }
     assert '유효한 형제' not in repr(result)
 
@@ -672,6 +683,11 @@ async def test_market_summary_keeps_structured_non_string_list_as_fallback():
     assert result['status'] == 'FALLBACK'
     assert result['fallback_used'] is True
     assert result['metadata_json']['reason'] == 'llm_malformed_response'
+    # The validator's verdict was computed and then discarded, leaving every
+    # malformed summary indistinguishable in the row and absent from the log.
+    assert result['metadata_json']['malformedReason'] == (
+        'Market summary background must be a list of strings.'
+    )
 
 
 @pytest.mark.anyio
@@ -888,3 +904,28 @@ async def test_global_outputs_propagate_key_point_cancellation(monkeypatch):
             CLUSTERS,
             [],
         )
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_rejection_reaches_the_application_log(
+    monkeypatch, caplog
+):
+    """A rejected response raises nothing, so nothing used to be logged.
+
+    The nineteen detail analyses that failed in production left the container
+    log completely silent, and the row named only the public issue code, so the
+    rejecting rule had to be guessed at from the outside.
+    """
+    with caplog.at_level(
+        logging.WARNING, logger='app.batch.steps.ai_summary_generators'
+    ):
+        await _generate_cluster_detail_with_gemini(
+            monkeypatch,
+            gemini_ai_message({'sections': {}}),
+        )
+
+    assert any(
+        'Cluster detail analysis rejected the provider response' in record.message
+        and 'sections_not_list' in record.getMessage()
+        for record in caplog.records
+    )
