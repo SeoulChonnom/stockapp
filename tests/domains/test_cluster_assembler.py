@@ -1180,6 +1180,70 @@ def test_cluster_builder_structural_failure_wins_over_persisted_metadata(
     assert payload['summary']['sections'] == []
 
 
+def test_cluster_builder_keeps_batch_diagnostics_out_of_the_response(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    """The validator's diagnostic keys are for the batch, never for a reader.
+
+    They are added on the write path to explain a degradation, and the public
+    summary model forbids extra fields -- so a diagnostic that reached here
+    would not merely leak, it would fail the whole response.
+    """
+    article_id = sample_processed_article_rows[0]['id']
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        _summary_record(
+            paragraphs=[
+                {
+                    'kind': 'impact',
+                    'title': '시장 영향',
+                    'paragraphs': [
+                        {
+                            'sentences': [
+                                {
+                                    'text': '충돌 비교를 하지 않은 문장입니다.',
+                                    'sourceArticleIds': [article_id],
+                                    'conflictStatus': 'NOT_CHECKED',
+                                    'conflictingSourceArticleIds': [],
+                                    'conflictNote': None,
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ],
+            metadata={
+                'analysisStatus': 'PARTIAL',
+                'analysisIssues': [
+                    {
+                        'code': 'CONFLICT_CHECK_FAILED',
+                        'message': '일부 분석 문장의 충돌 근거를 확인하지 못했습니다.',
+                    }
+                ],
+                'conflictStatus': 'NOT_CHECKED',
+            },
+        ),
+        article_grouping=_unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
+        ),
+    )
+
+    assert payload['summary']['analysisStatus'] == 'PARTIAL'
+    assert set(payload['summary']) == {
+        'short',
+        'long',
+        'analysisStatus',
+        'analysisGeneratedAt',
+        'analysisIssues',
+        'conflictStatus',
+        'sections',
+    }
+    assemble_cluster_detail_response(payload)
+
+
 def test_cluster_builder_rejects_a_persisted_tree_with_a_dropped_section(
     sample_cluster_row,
     sample_processed_article_rows,

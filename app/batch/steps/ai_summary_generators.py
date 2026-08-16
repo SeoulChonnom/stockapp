@@ -526,6 +526,19 @@ async def _generate_cluster_detail_summary(
             ','.join(dropped_reasons),
             getattr(llm_provider, 'model_name', None),
         )
+    conflict_reasons = analysis.get('conflictDegradeReasons')
+    if conflict_reasons:
+        # CONFLICT_CHECK_FAILED reaches readers for two unrelated causes: a
+        # model that declined to compare, and one that wrote the comparison
+        # wrong. The first calls for a prompt change and the second for a
+        # schema fix, so the row has to say which of them it was.
+        metadata = {**metadata, 'analysisConflictReasons': conflict_reasons}
+        LOGGER.warning(
+            'Cluster detail analysis degraded conflict evidence. '
+            'conflictReasons=%s model=%s',
+            ','.join(conflict_reasons),
+            getattr(llm_provider, 'model_name', None),
+        )
     if analysis['analysisStatus'] == 'UNAVAILABLE':
         error_message = None
         # An analysis can be unavailable simply because nothing in the cluster

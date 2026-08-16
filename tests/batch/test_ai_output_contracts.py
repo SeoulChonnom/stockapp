@@ -808,6 +808,7 @@ def test_validate_analysis_sections_degrades_invalid_conflict_without_losing_gro
 
     assert result == {
         'analysisStatus': 'PARTIAL',
+        'conflictDegradeReasons': ['found_without_evidence'],
         'analysisIssues': [
             {
                 'code': 'CONFLICT_CHECK_FAILED',
@@ -925,6 +926,7 @@ def test_validate_analysis_sections_retains_not_checked_as_partial() -> None:
         {1024},
     ) == {
         'analysisStatus': 'PARTIAL',
+        'conflictDegradeReasons': ['model_reported_not_checked'],
         'analysisIssues': [
             {
                 'code': 'CONFLICT_CHECK_FAILED',
@@ -1019,6 +1021,7 @@ def test_validate_analysis_sections_found_and_not_checked_is_partial_found() -> 
 
     assert result == {
         'analysisStatus': 'PARTIAL',
+        'conflictDegradeReasons': ['model_reported_not_checked'],
         'analysisIssues': [
             {
                 'code': 'CONFLICT_CHECK_FAILED',
@@ -1292,7 +1295,25 @@ def test_validate_analysis_sections_degrades_missing_or_unhashable_conflict_fiel
         },
     ]
 
-    for invalid_sentence in invalid_sentences:
+    # Every one of these reaches the reader as the same CONFLICT_CHECK_FAILED,
+    # so the reason is the only thing that says which rule the model broke.
+    expected_reasons = [
+        'conflict_fields_missing',
+        'conflict_status_invalid',
+        'conflict_fields_missing',
+        'conflict_fields_missing',
+        'conflicting_ids_invalid',
+        'conflicting_ids_invalid',
+        'conflicting_ids_invalid',
+        'conflicting_ids_invalid',
+        'conflicting_ids_overlap_sources',
+        'conflicting_ids_invalid',
+        'conflict_status_invalid',
+    ]
+
+    for invalid_sentence, expected_reason in zip(
+        invalid_sentences, expected_reasons, strict=True
+    ):
         assert validate_analysis_sections(
             {
                 'sections': [
@@ -1306,6 +1327,7 @@ def test_validate_analysis_sections_degrades_missing_or_unhashable_conflict_fiel
             {1024},
         ) == {
             'analysisStatus': 'PARTIAL',
+            'conflictDegradeReasons': [expected_reason],
             'analysisIssues': [
                 {
                     'code': 'CONFLICT_CHECK_FAILED',
@@ -1377,6 +1399,7 @@ def test_validate_analysis_sections_reports_mixed_causal_issues_once_in_discover
         {1024},
     ) == {
         'analysisStatus': 'PARTIAL',
+        'conflictDegradeReasons': ['conflicting_ids_invalid'],
         'analysisIssues': [
             {
                 'code': 'INVALID_SOURCE_REFERENCE',
@@ -1591,3 +1614,91 @@ def test_validate_analysis_sections_still_rejects_a_different_title() -> None:
     assert result['analysisStatus'] == 'UNAVAILABLE'
     assert result['failureReason'] == 'all_sections_dropped'
     assert result['droppedSectionReasons'] == ['section_title_mismatch']
+
+
+def test_validate_analysis_sections_separates_a_declined_check_from_a_broken_one() -> (
+    None
+):
+    """The two causes of CONFLICT_CHECK_FAILED must not look alike.
+
+    A model that answers NOT_CHECKED with every field in order declined to
+    compare; one whose evidence breaks a rule failed to. The first is a prompt
+    outcome and the second a schema defect, and the reader sees the identical
+    issue for both -- so the reasons are the only place they come apart.
+    """
+    declined = validate_analysis_sections(
+        _analysis_payload(
+            sections=[
+                _section(
+                    paragraphs=[
+                        _paragraph(sentences=[_sentence(conflictStatus='NOT_CHECKED')])
+                    ]
+                )
+            ]
+        ),
+        {1024},
+    )
+    broken = validate_analysis_sections(
+        _analysis_payload(
+            sections=[
+                _section(
+                    paragraphs=[
+                        _paragraph(
+                            sentences=[
+                                _sentence(
+                                    conflictStatus='FOUND',
+                                    conflictingSourceArticleIds=[],
+                                    conflictNote='근거 없는 충돌입니다.',
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ]
+        ),
+        {1024},
+    )
+
+    assert declined['analysisIssues'] == broken['analysisIssues']
+    assert declined['conflictDegradeReasons'] == ['model_reported_not_checked']
+    assert broken['conflictDegradeReasons'] == ['found_without_evidence']
+
+
+def test_validate_analysis_sections_reports_each_conflict_reason_once() -> None:
+    result = validate_analysis_sections(
+        _analysis_payload(
+            sections=[
+                _section(
+                    paragraphs=[
+                        _paragraph(
+                            sentences=[
+                                _sentence(conflictStatus='NOT_CHECKED'),
+                                _sentence(conflictStatus='NOT_CHECKED'),
+                                _sentence(conflictStatus='INVALID'),
+                            ]
+                        )
+                    ]
+                )
+            ]
+        ),
+        {1024},
+    )
+
+    assert result['conflictDegradeReasons'] == [
+        'model_reported_not_checked',
+        'conflict_status_invalid',
+    ]
+
+
+def test_validate_analysis_sections_omits_the_diagnostic_keys_when_sound() -> None:
+    """A clean answer carries no diagnostics, so their presence always means something."""
+    result = validate_analysis_sections(
+        _analysis_payload(
+            sections=[_section(paragraphs=[_paragraph(sentences=[_sentence()])])]
+        ),
+        {1024},
+    )
+
+    assert 'conflictDegradeReasons' not in result
+    assert 'droppedSectionReasons' not in result
+    assert result['analysisStatus'] == 'READY'

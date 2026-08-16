@@ -321,8 +321,14 @@ def _build_persisted_analysis(
         if persisted['analysisStatus'] != 'UNAVAILABLE'
         else None
     )
+    # The validator also returns keys meant for the batch's own diagnostics.
+    # They are named here rather than spread, so a diagnostic added later
+    # cannot reach the public response by being forgotten about.
     return {
-        **persisted,
+        'analysisStatus': persisted['analysisStatus'],
+        'analysisIssues': persisted['analysisIssues'],
+        'conflictStatus': persisted['conflictStatus'],
+        'sections': persisted['sections'],
         'analysisGeneratedAt': generated_at,
     }
 

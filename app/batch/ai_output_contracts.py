@@ -115,6 +115,7 @@ def validate_analysis_sections(
     )
 
     issue_codes: list[str] = []
+    conflict_reasons: list[str] = []
     normalized_sections: list[dict[str, object]] = []
 
     for section in structural_sections:
@@ -130,6 +131,7 @@ def validate_analysis_sections(
                 normalized_sentence, issue_code = _normalize_analysis_sentence(
                     sentence,
                     valid_article_ids,
+                    conflict_reasons,
                 )
                 if issue_code == 'INVALID_SOURCE_REFERENCE':
                     _append_issue(issue_codes, issue_code)
@@ -160,20 +162,22 @@ def validate_analysis_sections(
             # Not one section could be read. Reporting "no grounded sentences"
             # would describe a model that had nothing to say, when in fact it
             # answered and every section it wrote was malformed.
-            return _with_dropped_reasons(
+            return _with_diagnostics(
                 build_unavailable_analysis(
                     'ANALYSIS_GENERATION_FAILED', reason='all_sections_dropped'
                 ),
                 dropped_reasons,
+                conflict_reasons,
             )
         _append_issue(issue_codes, 'NO_GROUNDED_SENTENCES')
-        return _with_dropped_reasons(
+        return _with_diagnostics(
             build_unavailable_analysis(*issue_codes, reason='no_grounded_sentences'),
             dropped_reasons,
+            conflict_reasons,
         )
 
     analysis_status = 'PARTIAL' if issue_codes else 'READY'
-    return _with_dropped_reasons(
+    return _with_diagnostics(
         {
             'analysisStatus': analysis_status,
             'analysisIssues': _issues_for(issue_codes),
@@ -181,20 +185,28 @@ def validate_analysis_sections(
             'sections': normalized_sections,
         },
         dropped_reasons,
+        conflict_reasons,
     )
 
 
-def _with_dropped_reasons(
-    result: AnalysisResult, dropped_reasons: list[str]
+def _with_diagnostics(
+    result: AnalysisResult,
+    dropped_reasons: list[str],
+    conflict_reasons: list[str],
 ) -> AnalysisResult:
-    """Attach what was discarded, on a key no public consumer reads.
+    """Attach what was discarded or degraded, on keys no public consumer reads.
 
     A dropped section is invisible in the result -- the contract already lets
     the model omit one -- so without this the only trace of a malformed section
-    would be the analysis quietly getting shorter.
+    would be the analysis quietly getting shorter. A conflict degradation is
+    worse: a model that declined to compare and a model that wrote the evidence
+    wrong reach the reader as the identical public issue, and only these
+    reasons say which one to go and fix.
     """
     if dropped_reasons:
         result['droppedSectionReasons'] = dropped_reasons
+    if conflict_reasons:
+        result['conflictDegradeReasons'] = conflict_reasons
     return result
 
 
@@ -322,6 +334,7 @@ def _folded_title(value: str) -> str:
 def _normalize_analysis_sentence(
     sentence: Mapping[str, object],
     valid_article_ids: Set[int],
+    conflict_reasons: list[str],
 ) -> tuple[dict[str, object] | None, str | None]:
     text = sentence.get('text')
     if not isinstance(text, str) or not text.strip():
@@ -341,23 +354,19 @@ def _normalize_analysis_sentence(
         'conflictingSourceArticleIds',
         'conflictNote',
     }
-    if not required_conflict_fields <= sentence.keys() or not _valid_conflict_fields(
+    if not required_conflict_fields <= sentence.keys():
+        _append_issue(conflict_reasons, 'conflict_fields_missing')
+        return _unchecked_sentence(text, source_article_ids), 'CONFLICT_CHECK_FAILED'
+    defect = _conflict_field_defect(
         conflict_status,
         conflicting_ids,
         conflict_note,
         source_article_ids,
         valid_article_ids,
-    ):
-        return (
-            {
-                'text': text,
-                'sourceArticleIds': list(source_article_ids),
-                'conflictStatus': 'NOT_CHECKED',
-                'conflictingSourceArticleIds': [],
-                'conflictNote': None,
-            },
-            'CONFLICT_CHECK_FAILED',
-        )
+    )
+    if defect is not None:
+        _append_issue(conflict_reasons, defect)
+        return _unchecked_sentence(text, source_article_ids), 'CONFLICT_CHECK_FAILED'
     normalized_sentence = {
         'text': text,
         'sourceArticleIds': list(source_article_ids),
@@ -365,8 +374,24 @@ def _normalize_analysis_sentence(
         'conflictingSourceArticleIds': list(conflicting_ids),
         'conflictNote': conflict_note,
     }
-    issue_code = 'CONFLICT_CHECK_FAILED' if conflict_status == 'NOT_CHECKED' else None
-    return normalized_sentence, issue_code
+    if conflict_status != 'NOT_CHECKED':
+        return normalized_sentence, None
+    # The model answered NOT_CHECKED with every field in order: it declined to
+    # compare rather than failing to. That is a prompt outcome, not a defect,
+    # and it must not look like one -- both reach the reader as the same public
+    # issue, so this reason is the only thing that separates them.
+    _append_issue(conflict_reasons, 'model_reported_not_checked')
+    return normalized_sentence, 'CONFLICT_CHECK_FAILED'
+
+
+def _unchecked_sentence(text: str, source_article_ids: object) -> dict[str, object]:
+    return {
+        'text': text,
+        'sourceArticleIds': list(source_article_ids),  # pyright: ignore[reportArgumentType]
+        'conflictStatus': 'NOT_CHECKED',
+        'conflictingSourceArticleIds': [],
+        'conflictNote': None,
+    }
 
 
 def _valid_article_id_list(
@@ -388,22 +413,27 @@ def _valid_article_id_list(
     )
 
 
-def _valid_conflict_fields(
+def _conflict_field_defect(
     status: object,
     conflicting_ids: object,
     note: object,
     source_article_ids: object,
     valid_article_ids: Set[int],
-) -> bool:
+) -> str | None:
+    """Name the conflict-evidence rule a sentence breaks, or None if it is sound."""
     if not isinstance(status, str) or status not in {'NOT_CHECKED', 'NONE', 'FOUND'}:
-        return False
+        return 'conflict_status_invalid'
     if not _valid_article_id_list(conflicting_ids, valid_article_ids, allow_empty=True):
-        return False
-    if set(source_article_ids) & set(conflicting_ids):
-        return False
+        return 'conflicting_ids_invalid'
+    if set(source_article_ids) & set(conflicting_ids):  # pyright: ignore[reportArgumentType]
+        return 'conflicting_ids_overlap_sources'
     if status == 'FOUND':
-        return bool(conflicting_ids) and isinstance(note, str) and bool(note.strip())
-    return not conflicting_ids and note is None
+        if not conflicting_ids or not isinstance(note, str) or not note.strip():
+            return 'found_without_evidence'
+        return None
+    if conflicting_ids or note is not None:
+        return 'unchecked_status_with_evidence'
+    return None
 
 
 def _append_issue(issue_codes: list[str], code: str) -> None:

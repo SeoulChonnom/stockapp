@@ -362,6 +362,7 @@ async def test_cluster_detail_degrades_only_malformed_conflict_evidence(monkeypa
     assert result['fallback_used'] is False
     assert result['metadata_json'] == {
         'analysisStatus': 'PARTIAL',
+        'analysisConflictReasons': ['conflicting_ids_overlap_sources'],
         'analysisIssues': [
             {
                 'code': 'CONFLICT_CHECK_FAILED',
@@ -399,6 +400,7 @@ async def test_cluster_detail_retains_not_checked_sentence_as_partial(monkeypatc
     assert result['fallback_used'] is False
     assert result['metadata_json'] == {
         'analysisStatus': 'PARTIAL',
+        'analysisConflictReasons': ['model_reported_not_checked'],
         'analysisIssues': [
             {
                 'code': 'CONFLICT_CHECK_FAILED',
