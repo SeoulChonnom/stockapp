@@ -540,6 +540,13 @@ async def test_cluster_detail_malformed_structure_discards_valid_siblings(
             }
         ],
         'conflictStatus': 'NOT_CHECKED',
+        'error': {
+            'code': 'AI_PROVIDER_RESPONSE_INVALID',
+            'message': (
+                'AI provider returned an invalid response; fallback content was used.'
+            ),
+            'errorClass': 'ValueError',
+        },
     }
     assert '유효한 형제' not in repr(result)
 
@@ -579,6 +586,9 @@ async def test_cluster_detail_provider_exhaustion_is_unavailable(monkeypatch):
     assert result['paragraphs'] == []
     assert result['status'] == 'FALLBACK'
     assert result['fallback_used'] is True
+    # The provider error must survive into the metadata: a detail analysis that
+    # is unavailable because the call failed has to stay distinguishable from
+    # one that is unavailable because nothing in the cluster was groundable.
     assert result['metadata_json'] == {
         'analysisStatus': 'UNAVAILABLE',
         'analysisIssues': [
@@ -588,6 +598,11 @@ async def test_cluster_detail_provider_exhaustion_is_unavailable(monkeypatch):
             }
         ],
         'conflictStatus': 'NOT_CHECKED',
+        'error': {
+            'code': 'AI_PROVIDER_REQUEST_FAILED',
+            'message': 'AI provider request failed; fallback content was used.',
+            'errorClass': 'LlmRetryExhaustedError',
+        },
     }
     assert 'secret-project-token' not in repr(result)
 

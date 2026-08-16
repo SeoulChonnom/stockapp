@@ -183,6 +183,7 @@ async def _enrich_cluster(
             logging.WARNING,
             'Cluster enrichment provider request failed.',
             exception=exc,
+            context={'model': getattr(llm_provider, 'model_name', None)},
         )
         fallback['error_context'] = public_ai_provider_error(exc)
         return fallback

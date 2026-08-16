@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import weakref
+from collections.abc import Mapping
 from datetime import date
 from traceback import extract_tb
 
@@ -42,21 +43,32 @@ def log_safe_exception(
     message: str,
     *,
     exception: BaseException,
+    context: Mapping[str, object] | None = None,
 ) -> None:
-    """Log an exception class and traceback frames without its message or payload."""
+    """Log an exception class and traceback frames without its message or payload.
+
+    ``context`` carries caller-supplied identifiers that are known to be safe --
+    configured values such as a model name, never anything read back from the
+    provider. A provider can reject a request for a reason that only its
+    (redacted) message names, so the request's own configuration has to be
+    recorded alongside the failure for it to be diagnosable at all.
+    """
     exception_class = type(exception).__name__
     traceback_frames = _safe_traceback_frames(exception)
     cause_chain = _safe_cause_chain(exception)
+    context_text = _safe_context(context)
     logger.log(
         level,
-        '%s exception_class=%s caused_by=%s traceback=%s',
+        '%s exception_class=%s caused_by=%s context=%s traceback=%s',
         message,
         exception_class,
         cause_chain,
+        context_text,
         traceback_frames,
         extra={
             'batch_exception_class': exception_class,
             'batch_caused_by': cause_chain,
+            'batch_error_context': context_text,
             'batch_traceback': traceback_frames,
         },
     )
@@ -136,6 +148,15 @@ def _safe_cause_chain(exception: BaseException) -> str | None:
         causes.append(f'{name}({status_code})' if status_code is not None else name)
         current = current.__cause__ or current.__context__
     return ' <- '.join(causes) or None
+
+
+def _safe_context(context: Mapping[str, object] | None) -> str | None:
+    if not context:
+        return None
+    pairs = [
+        f'{key}={context[key]}' for key in sorted(context) if context[key] is not None
+    ]
+    return ' '.join(pairs) or None
 
 
 def _safe_status_code(exception: BaseException) -> int | None:

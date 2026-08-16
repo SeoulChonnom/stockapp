@@ -265,6 +265,7 @@ async def _classify_target(
             logging.WARNING,
             'Cluster theme classifier request failed.',
             exception=exc,
+            context={'model': getattr(llm_provider, 'model_name', None)},
         )
         return {
             'response': {},

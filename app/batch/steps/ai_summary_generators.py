@@ -125,7 +125,13 @@ async def _run_llm_summary(
     except LlmRetryableError:
         raise
     except Exception as exc:
-        log_safe_exception(LOGGER, logging.WARNING, log_message, exception=exc)
+        log_safe_exception(
+            LOGGER,
+            logging.WARNING,
+            log_message,
+            exception=exc,
+            context={'model': model_name},
+        )
         fallback['error_message'] = AI_PROVIDER_FAILURE_MESSAGE
         fallback['metadata_json'] = {
             **fallback['metadata_json'],
@@ -476,10 +482,20 @@ async def _generate_cluster_detail_summary(
             logging.WARNING,
             'Cluster detail summary provider request failed.',
             exception=exc,
+            context={'model': getattr(llm_provider, 'model_name', None)},
         )
+        # Detail analysis carries its own fallback metadata rather than going
+        # through ``_run_llm_summary``, so the provider error has to be recorded
+        # here too. Without it the persisted row and its batch event both report
+        # a fallback with no cause, which is indistinguishable from a model that
+        # answered with unusable content.
         return {
             **fallback,
             'error_message': AI_PROVIDER_FAILURE_MESSAGE,
+            'metadata_json': {
+                **fallback['metadata_json'],
+                'error': public_ai_provider_error(exc),
+            },
         }
 
     analysis = validate_analysis_sections(result, valid_article_ids)
@@ -490,11 +506,16 @@ async def _generate_cluster_detail_summary(
     }
     if analysis['analysisStatus'] == 'UNAVAILABLE':
         error_message = None
+        # An analysis can be unavailable simply because nothing in the cluster
+        # was groundable, which is not an error. Only a generation failure names
+        # a cause, and it is recorded in the metadata as well so the persisted
+        # row is distinguishable from the ordinary empty case.
         if any(
             issue.get('code') == 'ANALYSIS_GENERATION_FAILED'
             for issue in analysis['analysisIssues']
         ):
             error_message = public_ai_invalid_response()['message']
+            metadata = {**metadata, 'error': public_ai_invalid_response()}
         return {
             **fallback,
             'error_message': error_message,

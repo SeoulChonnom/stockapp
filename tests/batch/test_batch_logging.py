@@ -127,3 +127,52 @@ def test_log_safe_exception_names_the_wrapped_cause_and_status(caplog) -> None:
     assert record.batch_caused_by == 'ProviderError(503)'
     assert 'secret-token' not in caplog.text
     assert 'UNAVAILABLE' not in caplog.text
+
+
+def test_log_safe_exception_records_the_caller_supplied_request_context(
+    caplog,
+) -> None:
+    """A provider can reject a request for a reason only its message names.
+
+    A 404 naming the model is redacted down to the status code, so without the
+    configured model in the record there is nothing to tell a wrong model name
+    apart from an outage.
+    """
+    logger = logging.getLogger('test.batch.error_context')
+    caplog.set_level(logging.WARNING, logger=logger.name)
+
+    class ProviderError(Exception):
+        def __init__(self) -> None:
+            self.code = 404
+            super().__init__("Error calling model 'x' (404): key=secret-token")
+
+    try:
+        raise ProviderError()
+    except ProviderError as exc:
+        log_safe_exception(
+            logger,
+            logging.WARNING,
+            'LLM provider request failed.',
+            exception=exc,
+            context={'model': 'gemini-3.1-flash-lite', 'unset': None},
+        )
+
+    record = caplog.records[-1]
+    assert record.batch_error_context == 'model=gemini-3.1-flash-lite'
+    assert 'gemini-3.1-flash-lite' in caplog.text
+    assert 'unset' not in caplog.text
+    assert 'secret-token' not in caplog.text
+
+
+def test_log_safe_exception_omits_the_context_field_when_not_supplied(
+    caplog,
+) -> None:
+    logger = logging.getLogger('test.batch.error_context_absent')
+    caplog.set_level(logging.WARNING, logger=logger.name)
+
+    try:
+        raise RuntimeError('boom')
+    except RuntimeError as exc:
+        log_safe_exception(logger, logging.WARNING, 'Failed.', exception=exc)
+
+    assert caplog.records[-1].batch_error_context is None

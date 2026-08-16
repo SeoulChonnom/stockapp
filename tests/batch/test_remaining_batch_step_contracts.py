@@ -1110,22 +1110,22 @@ async def test_generate_ai_summaries_step_records_fallback_error_metadata(monkey
         )
         if row.summary_type == 'CLUSTER_DETAIL_ANALYSIS':
             assert row.paragraphs_json == []
-            assert row.metadata_json == {
-                'analysisStatus': 'UNAVAILABLE',
-                'analysisIssues': [
-                    {
-                        'code': 'ANALYSIS_GENERATION_FAILED',
-                        'message': '분석을 생성하지 못했습니다.',
-                    }
-                ],
-                'conflictStatus': 'NOT_CHECKED',
-            }
-        else:
-            assert row.metadata_json['error'] == {
-                'code': 'AI_PROVIDER_REQUEST_FAILED',
-                'errorClass': 'TimeoutError',
-                'message': 'AI provider request failed; fallback content was used.',
-            }
+            assert row.metadata_json['analysisStatus'] == 'UNAVAILABLE'
+            assert row.metadata_json['analysisIssues'] == [
+                {
+                    'code': 'ANALYSIS_GENERATION_FAILED',
+                    'message': '분석을 생성하지 못했습니다.',
+                }
+            ]
+            assert row.metadata_json['conflictStatus'] == 'NOT_CHECKED'
+        # Every fallback row records its cause, detail analysis included: a row
+        # whose error is absent is otherwise indistinguishable from one the
+        # provider answered with unusable content.
+        assert row.metadata_json['error'] == {
+            'code': 'AI_PROVIDER_REQUEST_FAILED',
+            'errorClass': 'TimeoutError',
+            'message': 'AI provider request failed; fallback content was used.',
+        }
         serialized = repr(row)
         assert 'secret-token' not in serialized
         assert 'RetryInfo' not in serialized
