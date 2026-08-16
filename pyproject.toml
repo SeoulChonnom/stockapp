@@ -20,7 +20,10 @@ dependencies = [
   "PyJWT>=2.10.1",
   "psycopg[binary]>=3.2.12",
   "sqlalchemy>=2.0.44",
-  "yfinance>=0.2.66",
+  # yfinance reads an API Yahoo does not publish, so an old release breaks
+  # against a live endpoint rather than at import. The floor stays on a version
+  # confirmed against the real endpoint, not merely against the mocked tests.
+  "yfinance>=1.6.0",
   "exchange-calendars>=4.13.2",
   "alembic>=1.17.2",
   "pyyaml>=6.0.3",
