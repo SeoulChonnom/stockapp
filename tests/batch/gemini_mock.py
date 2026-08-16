@@ -7,7 +7,11 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
-from app.core.llm import GeminiJsonClient, TokenReservation
+from app.core.llm import (
+    GeminiJsonClient,
+    TokenReservation,
+    build_llm_configuration_error_circuit,
+)
 from app.core.settings import Settings
 
 
@@ -62,30 +66,51 @@ class MockGeminiHarness:
     rate_limiter: RecordingRateLimiter
     token_limiter: RecordingTokenLimiter
     slept: list[float]
+    clock: FakeClock
+
+
+class FakeClock:
+    """A monotonic clock a test advances by hand."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
 
 
 def build_mock_gemini_harness(
     monkeypatch: Any,
     responses: Sequence[AIMessage | BaseException],
+    *,
+    settings: Settings | None = None,
 ) -> MockGeminiHarness:
     """Inject a deterministic model into the production Gemini JSON client."""
     model = MockGeminiModel(responses)
     rate_limiter = RecordingRateLimiter()
     token_limiter = RecordingTokenLimiter()
+    clock = FakeClock()
     slept: list[float] = []
 
     async def record_sleep(seconds: float) -> None:
         slept.append(seconds)
 
+    resolved_settings = settings or Settings(
+        app_env='development',
+        gemini_api_key='mock-api-key',
+        llm_model='gemini-2.5-flash',
+        llm_timeout_seconds=1,
+    )
+    # The circuit is supplied rather than resolved from the running loop so each
+    # harness starts closed; the loop-scoped registry is deliberately shared.
     client = GeminiJsonClient(
-        Settings(
-            app_env='development',
-            gemini_api_key='mock-api-key',
-            llm_model='gemini-2.5-flash',
-            llm_timeout_seconds=1,
-        ),
+        resolved_settings,
         rate_limiter=rate_limiter,
         token_limiter=token_limiter,
+        circuit=build_llm_configuration_error_circuit(resolved_settings, clock=clock),
         sleeper=record_sleep,
         jitter_random=lambda: 0.0,
     )
@@ -96,6 +121,7 @@ def build_mock_gemini_harness(
         rate_limiter=rate_limiter,
         token_limiter=token_limiter,
         slept=slept,
+        clock=clock,
     )
 
 
@@ -142,6 +168,7 @@ def malformed_gemini_ai_message(content: str = '{"keyPoints":') -> AIMessage:
 
 
 __all__ = [
+    'FakeClock',
     'MockGeminiHarness',
     'build_mock_gemini_harness',
     'gemini_ai_message',

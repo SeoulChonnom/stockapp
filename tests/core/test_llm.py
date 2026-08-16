@@ -19,6 +19,7 @@ settings_module = load_module('app.core.settings')
 def reset_loop_llm_rate_limiters(monkeypatch):
     monkeypatch.setattr(llm_module, '_loop_llm_rate_limiters', WeakKeyDictionary())
     monkeypatch.setattr(llm_module, '_loop_llm_token_limiters', WeakKeyDictionary())
+    monkeypatch.setattr(llm_module, '_loop_llm_config_circuits', WeakKeyDictionary())
 
 
 class FakeClock:
@@ -904,3 +905,142 @@ async def test_gemini_json_client_does_not_reissue_a_rate_limited_call(monkeypat
     assert model.call_count == 1
     assert slept == []
     assert exc_info.value.retry_after_seconds == 3.0
+
+
+class _ConfigRejectingModel:
+    """A model that answers every call with the same configuration verdict."""
+
+    def __init__(self, status_code: int = 404) -> None:
+        self._status_code = status_code
+        self.call_count = 0
+
+    async def ainvoke(self, _messages):
+        self.call_count += 1
+        raise _StatusError(self._status_code)
+
+
+def _circuit_client(monkeypatch, model, *, threshold=2):
+    client = llm_module.GeminiJsonClient(
+        settings_module.Settings(
+            app_env='development',
+            gemini_api_key='test-key',
+            llm_model='gemini-3.1-flash-lite',
+            llm_config_error_circuit_threshold=threshold,
+        ),
+        rate_limiter=SimpleNamespace(acquire=_noop_acquire),
+    )
+    monkeypatch.setattr(client, '_build_model', lambda: model)
+    return client
+
+
+@pytest.mark.asyncio
+async def test_configuration_rejections_open_the_circuit_and_stop_further_calls(
+    monkeypatch,
+):
+    """A 404 is a verdict on the request's configuration, not on its timing.
+
+    Every later call in the run would be rejected identically, so once the
+    threshold is reached the client must stop reaching the provider at all --
+    that queueing is where a misconfigured run loses its whole runtime.
+    """
+    model = _ConfigRejectingModel()
+    client = _circuit_client(monkeypatch, model, threshold=2)
+
+    for _ in range(2):
+        with pytest.raises(_StatusError):
+            await client.invoke_json(system_prompt='system', user_prompt='user')
+
+    assert model.call_count == 2
+
+    with pytest.raises(llm_module.LlmConfigurationError):
+        await client.invoke_json(system_prompt='system', user_prompt='user')
+
+    assert model.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_success_between_rejections_keeps_the_circuit_closed(monkeypatch):
+    class IntermittentModel:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        async def ainvoke(self, _messages):
+            self.call_count += 1
+            if self.call_count == 2:
+                return AIMessage(content='{"ok": true}')
+            raise _StatusError(404)
+
+    model = IntermittentModel()
+    client = _circuit_client(monkeypatch, model, threshold=2)
+
+    with pytest.raises(_StatusError):
+        await client.invoke_json(system_prompt='system', user_prompt='user')
+    assert await client.invoke_json(system_prompt='system', user_prompt='user') == {
+        'ok': True
+    }
+    with pytest.raises(_StatusError):
+        await client.invoke_json(system_prompt='system', user_prompt='user')
+
+    assert model.call_count == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status_code', [400, 429, 503])
+async def test_non_configuration_statuses_never_open_the_circuit(
+    status_code,
+    monkeypatch,
+):
+    """A 400 can name one malformed prompt rather than the deployment.
+
+    Silencing the whole run on a single bad payload would trade a partial
+    outage for a total one, and a 429/503 is answered by backoff instead.
+    """
+    model = _ConfigRejectingModel(status_code)
+    client = _circuit_client(monkeypatch, model, threshold=2)
+
+    for _ in range(3):
+        with pytest.raises((_StatusError, llm_module.LlmRetryableError)):
+            await client.invoke_json(system_prompt='system', user_prompt='user')
+
+    assert model.call_count >= 3
+
+
+def test_the_circuit_half_opens_once_the_reset_window_passes():
+    clock = FakeClock()
+    circuit = llm_module.LlmConfigurationErrorCircuit(
+        threshold=2,
+        reset_seconds=300.0,
+        clock=clock.monotonic,
+    )
+
+    assert circuit.record_rejection() is False
+    assert circuit.record_rejection() is True
+    assert circuit.allow_request() is False
+
+    clock.now += 299.0
+    assert circuit.allow_request() is False
+
+    clock.now += 1.0
+    # Half-open: one probe is admitted so a corrected deployment recovers
+    # without the process being restarted.
+    assert circuit.allow_request() is True
+    assert circuit.record_rejection() is True
+    assert circuit.allow_request() is False
+
+
+def test_a_successful_probe_closes_the_circuit():
+    clock = FakeClock()
+    circuit = llm_module.LlmConfigurationErrorCircuit(
+        threshold=2,
+        reset_seconds=300.0,
+        clock=clock.monotonic,
+    )
+    circuit.record_rejection()
+    circuit.record_rejection()
+
+    clock.now += 300.0
+    assert circuit.allow_request() is True
+    circuit.record_success()
+
+    assert circuit.allow_request() is True
+    assert circuit.record_rejection() is False

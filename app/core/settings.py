@@ -386,6 +386,22 @@ class Settings(BaseSettings):
             'llm_call_retry_max_delay_seconds',
         ),
     )
+    llm_config_error_circuit_threshold: int = Field(
+        default=3,
+        ge=1,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_CONFIG_ERROR_CIRCUIT_THRESHOLD',
+            'llm_config_error_circuit_threshold',
+        ),
+    )
+    llm_config_error_circuit_reset_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_LLM_CONFIG_ERROR_CIRCUIT_RESET_SECONDS',
+            'llm_config_error_circuit_reset_seconds',
+        ),
+    )
     gemini_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices('STOCKAPP_GEMINI_API_KEY', 'gemini_api_key'),

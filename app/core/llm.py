@@ -63,6 +63,7 @@ class _AsyncTokenLimiter(Protocol):
 _RETRY_AFTER_MAX_SECONDS = 3600.0
 _INPUT_TOKEN_BYTES_PER_TOKEN = 4
 _INPUT_TOKEN_MESSAGE_OVERHEAD = 16
+_CONFIGURATION_STATUS_CODES = frozenset({401, 403, 404})
 _llm_retry_exhausted: ContextVar[bool] = ContextVar(
     'llm_retry_exhausted',
     default=False,
@@ -369,6 +370,111 @@ def _is_retryable_provider_error(exc: BaseException) -> bool:
     return _is_rate_limited_provider_error(exc) or _is_transient_provider_error(exc)
 
 
+def _is_configuration_provider_error(exc: BaseException) -> bool:
+    """Report a verdict on how the request is configured rather than on its timing.
+
+    An unknown model, a rejected key, or a forbidden project answers every
+    request in the run identically, so reissuing any of them is pointless. A
+    400 is deliberately excluded: it can name one malformed payload rather than
+    the deployment, and one bad prompt must not silence the whole run.
+    """
+    return _provider_status_code(exc) in _CONFIGURATION_STATUS_CODES
+
+
+class LlmConfigurationErrorCircuit:
+    """Stop issuing calls a provider keeps rejecting for a configuration reason.
+
+    Left unchecked a misconfigured deployment spends the batch's entire runtime
+    queueing doomed requests behind the per-minute limiter -- one production run
+    burned over eight minutes to fail every call with the same 404. The circuit
+    opens after a few consecutive rejections and lets a single probe through
+    once the reset window passes, so a corrected deployment recovers on its own
+    instead of needing the process restarted.
+    """
+
+    def __init__(
+        self,
+        *,
+        threshold: int,
+        reset_seconds: float,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        self._threshold = threshold
+        self._reset_seconds = reset_seconds
+        self._clock = clock
+        self._consecutive_rejections = 0
+        self._opened_at: float | None = None
+
+    def allow_request(self) -> bool:
+        """Report whether a call may be issued, half-opening once time has passed."""
+        if self._opened_at is None:
+            return True
+        if self._clock() - self._opened_at < self._reset_seconds:
+            return False
+        # Half-open: admit one probe. It is left one rejection short of the
+        # threshold so a still-broken deployment re-opens on that probe alone.
+        self._opened_at = None
+        self._consecutive_rejections = self._threshold - 1
+        return True
+
+    def record_success(self) -> None:
+        self._consecutive_rejections = 0
+        self._opened_at = None
+
+    def record_rejection(self) -> bool:
+        """Record a rejection and report whether it is the one that opened."""
+        self._consecutive_rejections += 1
+        if (
+            self._opened_at is not None
+            or self._consecutive_rejections < self._threshold
+        ):
+            return False
+        self._opened_at = self._clock()
+        return True
+
+
+def build_llm_configuration_error_circuit(
+    settings: Settings,
+    *,
+    clock: Callable[[], float] = monotonic,
+) -> LlmConfigurationErrorCircuit:
+    """Build a circuit configured from settings."""
+    return LlmConfigurationErrorCircuit(
+        threshold=settings.llm_config_error_circuit_threshold,
+        reset_seconds=settings.llm_config_error_circuit_reset_seconds,
+        clock=clock,
+    )
+
+
+_loop_llm_config_circuits: WeakKeyDictionary[
+    asyncio.AbstractEventLoop,
+    dict[tuple[str, str], LlmConfigurationErrorCircuit],
+] = WeakKeyDictionary()
+
+
+def _get_loop_llm_config_circuit(
+    settings: Settings,
+    *,
+    project_id: str,
+    model_name: str,
+) -> LlmConfigurationErrorCircuit:
+    """Share one circuit across the steps of a run, as the limiters are shared.
+
+    Every step builds its own client, so a per-client circuit would forget what
+    the previous step just learned and re-discover the same rejection from
+    scratch. Scoping it to the loop and the project/model keeps one verdict for
+    the deployment the calls actually target.
+    """
+    loop = asyncio.get_running_loop()
+    scoped_circuits = _loop_llm_config_circuits.setdefault(loop, {})
+    scope = (project_id, model_name)
+    circuit = scoped_circuits.get(scope)
+    if circuit is None:
+        circuit = build_llm_configuration_error_circuit(settings)
+        scoped_circuits[scope] = circuit
+    return circuit
+
+
 def estimate_input_tokens(system_prompt: str, user_prompt: str) -> int:
     """Conservatively estimate input tokens without an extra provider call."""
     prompt = f'{system_prompt}{user_prompt}'
@@ -409,12 +515,14 @@ class GeminiJsonClient:
         *,
         rate_limiter: _AsyncRateLimiter | None = None,
         token_limiter: _AsyncTokenLimiter | None = None,
+        circuit: LlmConfigurationErrorCircuit | None = None,
         sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
         jitter_random: Callable[[], float] = random.random,
     ) -> None:
         self._settings = settings or get_settings()
         self._rate_limiter = rate_limiter
         self._token_limiter = token_limiter
+        self._circuit = circuit
         self._sleeper = sleeper
         self._jitter_random = jitter_random
 
@@ -468,6 +576,20 @@ class GeminiJsonClient:
         system_prompt: str,
         user_prompt: str,
     ) -> dict[str, Any]:
+        circuit = self._circuit
+        if circuit is None:
+            circuit = _get_loop_llm_config_circuit(
+                self._settings,
+                project_id=self._settings.llm_quota_project_id,
+                model_name=self._settings.llm_model,
+            )
+        # Checked before the limiters so an open circuit costs nothing: the
+        # per-minute queue is exactly where a doomed run loses its time.
+        if not circuit.allow_request():
+            raise LlmConfigurationError(
+                'LLM provider is rejecting requests for a configuration reason.'
+            )
+
         model = self._build_model()
         rate_limiter = self._rate_limiter
         if rate_limiter is None:
@@ -493,11 +615,23 @@ class GeminiJsonClient:
         # request within seconds, so re-reserving would double-spend the window.
         await rate_limiter.acquire()
         reservation = await token_limiter.acquire(estimated_tokens)
-        response = await self._invoke_with_call_retries(
-            model,
-            messages,
-            rate_limiter=rate_limiter,
-        )
+        try:
+            response = await self._invoke_with_call_retries(
+                model,
+                messages,
+                rate_limiter=rate_limiter,
+            )
+        except Exception as exc:
+            if _is_configuration_provider_error(exc) and circuit.record_rejection():
+                log_safe_exception(
+                    LOGGER,
+                    logging.WARNING,
+                    'Suspending LLM calls after repeated configuration rejections.',
+                    exception=exc,
+                    context={'model': self._settings.llm_model},
+                )
+            raise
+        circuit.record_success()
         actual_tokens = _actual_input_tokens(response)
         if actual_tokens is not None:
             await token_limiter.reconcile(reservation, actual_tokens)
@@ -594,10 +728,12 @@ __all__ = [
     'AsyncSlidingWindowTokenLimiter',
     'GeminiJsonClient',
     'LlmConfigurationError',
+    'LlmConfigurationErrorCircuit',
     'LlmRetryExhaustedError',
     'LlmRetryableError',
     'LlmTimeoutError',
     'TokenReservation',
+    'build_llm_configuration_error_circuit',
     'estimate_input_tokens',
     'llm_retry_exhausted_mode',
 ]
