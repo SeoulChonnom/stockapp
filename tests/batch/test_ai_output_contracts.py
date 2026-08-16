@@ -449,43 +449,16 @@ def test_build_unavailable_analysis_fails_closed_for_unknown_issue_codes() -> No
     [
         pytest.param(None, 'payload_not_object', id='payload-not-object'),
         pytest.param({'sections': {}}, 'sections_not_list', id='sections-not-list'),
-        pytest.param(
-            _analysis_payload(sections=[{'kind': 'impact', 'title': '시장 영향'}]),
-            'section_paragraphs_not_list',
-            id='section-without-paragraphs',
-        ),
-        pytest.param(
-            _analysis_payload(sections=[_section(paragraphs={})]),
-            'section_paragraphs_not_list',
-            id='paragraphs-not-list',
-        ),
-        pytest.param(
-            _analysis_payload(sections=[_section(paragraphs=[None])]),
-            'paragraph_not_object',
-            id='paragraph-not-object',
-        ),
-        pytest.param(
-            _analysis_payload(sections=[_section(paragraphs=[{'sentences': {}}])]),
-            'paragraph_sentences_not_list',
-            id='sentences-not-list',
-        ),
-        pytest.param(
-            _analysis_payload(
-                sections=[_section(paragraphs=[_paragraph(sentences=[None])])]
-            ),
-            'sentence_not_object',
-            id='sentence-not-object',
-        ),
     ],
 )
-def test_validate_analysis_sections_names_the_rule_that_rejected_the_shape(
+def test_validate_analysis_sections_names_the_rule_that_rejected_the_payload(
     payload: object, expected_reason: str
 ) -> None:
-    """Each malformation must be tellable apart from the others.
+    """Only a payload with no readable sections at all is fatal.
 
-    The public issue code is the same for all of them by design, so the reason
-    is the only thing that says which rule fired -- without it an operator sees
-    one ANALYSIS_GENERATION_FAILED and has nothing to act on.
+    The public issue code is the same for both by design, so the reason is the
+    only thing that says which rule fired -- without it an operator sees one
+    ANALYSIS_GENERATION_FAILED and has nothing to act on.
     """
     assert validate_analysis_sections(payload, {1024}) == {
         'analysisStatus': 'UNAVAILABLE',
@@ -499,6 +472,136 @@ def test_validate_analysis_sections_names_the_rule_that_rejected_the_shape(
         'sections': [],
         'failureReason': expected_reason,
     }
+
+
+@pytest.mark.parametrize(
+    ('malformed_section', 'expected_reason'),
+    [
+        pytest.param(None, 'section_not_object', id='section-not-object'),
+        pytest.param(
+            {'kind': 'summary', 'title': '요약', 'paragraphs': []},
+            'section_kind_unknown',
+            id='unknown-kind',
+        ),
+        pytest.param(
+            {'kind': 'background', 'title': '배경 설명', 'paragraphs': []},
+            'section_title_mismatch',
+            id='title-mismatch',
+        ),
+        pytest.param(
+            {'kind': 'background', 'title': '발생 배경'},
+            'section_paragraphs_not_list',
+            id='section-without-paragraphs',
+        ),
+        pytest.param(
+            {'kind': 'background', 'title': '발생 배경', 'paragraphs': {}},
+            'section_paragraphs_not_list',
+            id='paragraphs-not-list',
+        ),
+    ],
+)
+def test_validate_analysis_sections_drops_only_the_malformed_section(
+    malformed_section: object, expected_reason: str
+) -> None:
+    """One unreadable section must not discard the sound ones beside it.
+
+    The contract already lets the model omit a section it has nothing grounded
+    to say in, so a section that cannot be read is dropped the same way. This
+    is what production hit: a single section missing its paragraphs array threw
+    away every other section in nineteen clusters.
+    """
+    result = validate_analysis_sections(
+        _analysis_payload(
+            sections=[
+                malformed_section,
+                _section(paragraphs=[_paragraph(sentences=[_sentence()])]),
+            ]
+        ),
+        {1024},
+    )
+
+    assert result['analysisStatus'] == 'READY'
+    assert [section['kind'] for section in result['sections']] == ['impact']
+    assert result['droppedSectionReasons'] == [expected_reason]
+
+
+@pytest.mark.parametrize(
+    ('malformed_paragraph', 'expected_reason'),
+    [
+        pytest.param(None, 'paragraph_not_object', id='paragraph-not-object'),
+        pytest.param(
+            {'sentences': {}}, 'paragraph_sentences_not_list', id='sentences-not-list'
+        ),
+    ],
+)
+def test_validate_analysis_sections_drops_only_the_malformed_paragraph(
+    malformed_paragraph: object, expected_reason: str
+) -> None:
+    result = validate_analysis_sections(
+        _analysis_payload(
+            sections=[
+                _section(
+                    paragraphs=[
+                        malformed_paragraph,
+                        _paragraph(sentences=[_sentence()]),
+                    ]
+                )
+            ]
+        ),
+        {1024},
+    )
+
+    assert result['analysisStatus'] == 'READY'
+    assert len(result['sections'][0]['paragraphs']) == 1
+    assert result['droppedSectionReasons'] == [expected_reason]
+
+
+def test_validate_analysis_sections_drops_only_the_sentence_that_is_not_an_object() -> (
+    None
+):
+    result = validate_analysis_sections(
+        _analysis_payload(
+            sections=[
+                _section(
+                    paragraphs=[_paragraph(sentences=[None, _sentence()])],
+                )
+            ]
+        ),
+        {1024},
+    )
+
+    assert result['analysisStatus'] == 'READY'
+    assert len(result['sections'][0]['paragraphs'][0]['sentences']) == 1
+    assert result['droppedSectionReasons'] == ['sentence_not_object']
+
+
+def test_validate_analysis_sections_imposes_the_fixed_order_and_drops_repeats() -> None:
+    """The public order is ours to impose, not a reason to discard the work."""
+
+    def _kind_section(kind: str, title: str, text: str) -> dict[str, object]:
+        return {
+            'kind': kind,
+            'title': title,
+            'paragraphs': [_paragraph(sentences=[_sentence(text=text)])],
+        }
+
+    result = validate_analysis_sections(
+        _analysis_payload(
+            sections=[
+                _kind_section('outlook', '향후 관전 포인트', '전망 문장입니다.'),
+                _kind_section('background', '발생 배경', '배경 문장입니다.'),
+                _kind_section('background', '발생 배경', '중복 배경 문장입니다.'),
+            ]
+        ),
+        {1024},
+    )
+
+    assert result['analysisStatus'] == 'READY'
+    assert [section['kind'] for section in result['sections']] == [
+        'background',
+        'outlook',
+    ]
+    assert result['droppedSectionReasons'] == ['section_kind_duplicated']
 
 
 @pytest.mark.parametrize(
@@ -1055,7 +1158,7 @@ def test_validate_analysis_sections_returns_unavailable_for_empty_analysis() -> 
     }
 
 
-def test_validate_analysis_sections_rejects_malformed_section_alongside_valid_sibling() -> (
+def test_validate_analysis_sections_keeps_the_valid_sibling_of_a_malformed_section() -> (
     None
 ):
     assert validate_analysis_sections(
@@ -1068,7 +1171,7 @@ def test_validate_analysis_sections_rejects_malformed_section_alongside_valid_si
                         {
                             'sentences': [
                                 {
-                                    'text': '유효 문장은 구조 오류 때문에 보존되지 않습니다.',
+                                    'text': '유효 문장은 형제의 구조 오류에도 보존됩니다.',
                                     'sourceArticleIds': [1024],
                                     'conflictStatus': 'NONE',
                                     'conflictingSourceArticleIds': [],
@@ -1083,16 +1186,29 @@ def test_validate_analysis_sections_rejects_malformed_section_alongside_valid_si
         },
         {1024},
     ) == {
-        'analysisStatus': 'UNAVAILABLE',
-        'analysisIssues': [
+        'analysisStatus': 'READY',
+        'analysisIssues': [],
+        'conflictStatus': 'NONE',
+        'sections': [
             {
-                'code': 'ANALYSIS_GENERATION_FAILED',
-                'message': '분석을 생성하지 못했습니다.',
+                'kind': 'impact',
+                'title': '시장 영향',
+                'paragraphs': [
+                    {
+                        'sentences': [
+                            {
+                                'text': '유효 문장은 형제의 구조 오류에도 보존됩니다.',
+                                'sourceArticleIds': [1024],
+                                'conflictStatus': 'NONE',
+                                'conflictingSourceArticleIds': [],
+                                'conflictNote': None,
+                            }
+                        ]
+                    }
+                ],
             }
         ],
-        'conflictStatus': 'NOT_CHECKED',
-        'sections': [],
-        'failureReason': 'section_not_object',
+        'droppedSectionReasons': ['section_not_object'],
     }
 
 
@@ -1469,5 +1585,9 @@ def test_validate_analysis_sections_still_rejects_a_different_title() -> None:
         {1024},
     )
 
+    # Nothing else was in the payload, so dropping the section leaves nothing
+    # to display -- but the drop is still recorded as a title mismatch rather
+    # than being indistinguishable from a model that wrote no analysis.
     assert result['analysisStatus'] == 'UNAVAILABLE'
-    assert result['failureReason'] == 'section_title_mismatch'
+    assert result['failureReason'] == 'all_sections_dropped'
+    assert result['droppedSectionReasons'] == ['section_title_mismatch']

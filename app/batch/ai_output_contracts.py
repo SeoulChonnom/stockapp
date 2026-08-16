@@ -110,13 +110,9 @@ def validate_analysis_sections(
             'ANALYSIS_GENERATION_FAILED', reason='sections_not_list'
         )
 
-    structural_sections, structure_reason = _validate_section_structure(
+    structural_sections, dropped_reasons = _normalize_section_structure(
         sections_payload
     )
-    if structural_sections is None:
-        return build_unavailable_analysis(
-            'ANALYSIS_GENERATION_FAILED', reason=structure_reason
-        )
 
     issue_codes: list[str] = []
     normalized_sections: list[dict[str, object]] = []
@@ -160,16 +156,46 @@ def validate_analysis_sections(
         for sentence in paragraph['sentences']
     ]
     if not flattened_sentences:
+        if dropped_reasons and not structural_sections:
+            # Not one section could be read. Reporting "no grounded sentences"
+            # would describe a model that had nothing to say, when in fact it
+            # answered and every section it wrote was malformed.
+            return _with_dropped_reasons(
+                build_unavailable_analysis(
+                    'ANALYSIS_GENERATION_FAILED', reason='all_sections_dropped'
+                ),
+                dropped_reasons,
+            )
         _append_issue(issue_codes, 'NO_GROUNDED_SENTENCES')
-        return build_unavailable_analysis(*issue_codes, reason='no_grounded_sentences')
+        return _with_dropped_reasons(
+            build_unavailable_analysis(*issue_codes, reason='no_grounded_sentences'),
+            dropped_reasons,
+        )
 
     analysis_status = 'PARTIAL' if issue_codes else 'READY'
-    return {
-        'analysisStatus': analysis_status,
-        'analysisIssues': _issues_for(issue_codes),
-        'conflictStatus': aggregate_conflict_status(flattened_sentences),
-        'sections': normalized_sections,
-    }
+    return _with_dropped_reasons(
+        {
+            'analysisStatus': analysis_status,
+            'analysisIssues': _issues_for(issue_codes),
+            'conflictStatus': aggregate_conflict_status(flattened_sentences),
+            'sections': normalized_sections,
+        },
+        dropped_reasons,
+    )
+
+
+def _with_dropped_reasons(
+    result: AnalysisResult, dropped_reasons: list[str]
+) -> AnalysisResult:
+    """Attach what was discarded, on a key no public consumer reads.
+
+    A dropped section is invisible in the result -- the contract already lets
+    the model omit one -- so without this the only trace of a malformed section
+    would be the analysis quietly getting shorter.
+    """
+    if dropped_reasons:
+        result['droppedSectionReasons'] = dropped_reasons
+    return result
 
 
 def _normalize_key_point(item: object, expected_kind: str) -> KeyPoint | None:
@@ -210,52 +236,76 @@ def _key_point_failure() -> dict[str, object]:
     return {'keyPoints': [], 'issue': dict(KEY_POINT_FAILURE)}
 
 
-def _validate_section_structure(
+def _normalize_section_structure(
     sections: list[object],
-) -> tuple[list[dict[str, object]] | None, str | None]:
-    """Validate the section shape, naming the rule that rejects it."""
-    normalized_sections: list[dict[str, object]] = []
-    kinds: list[str] = []
+) -> tuple[list[dict[str, object]], list[str]]:
+    """Keep every readable section, naming what each dropped one broke.
+
+    A malformed section used to be fatal for the payload: one section whose
+    ``paragraphs`` was missing discarded three sound ones with it. The public
+    model already permits a subset of sections -- the prompt tells the model to
+    omit the ones it has nothing grounded to say in -- so an unreadable section
+    is dropped the same way, and only a payload with nothing left standing
+    becomes UNAVAILABLE.
+    """
+    sections_by_kind: dict[str, dict[str, object]] = {}
+    dropped_reasons: list[str] = []
     for section in sections:
         if not isinstance(section, Mapping):
-            return None, 'section_not_object'
+            _append_issue(dropped_reasons, 'section_not_object')
+            continue
         kind = section.get('kind')
-        paragraphs = section.get('paragraphs')
         if not isinstance(kind, str) or kind not in ANALYSIS_SECTION_TITLES:
-            return None, 'section_kind_unknown'
+            _append_issue(dropped_reasons, 'section_kind_unknown')
+            continue
         if not _matches_section_title(section.get('title'), kind):
-            return None, 'section_title_mismatch'
+            _append_issue(dropped_reasons, 'section_title_mismatch')
+            continue
+        paragraphs = section.get('paragraphs')
         if not isinstance(paragraphs, list):
-            return None, 'section_paragraphs_not_list'
-        normalized_paragraphs: list[dict[str, object]] = []
-        for paragraph in paragraphs:
-            if not isinstance(paragraph, Mapping):
-                return None, 'paragraph_not_object'
-            sentences = paragraph.get('sentences')
-            if not isinstance(sentences, list):
-                return None, 'paragraph_sentences_not_list'
-            normalized_sentences: list[dict[str, object]] = []
-            for sentence in sentences:
-                if not isinstance(sentence, Mapping):
-                    return None, 'sentence_not_object'
-                normalized_sentences.append(dict(sentence))
-            normalized_paragraphs.append({'sentences': normalized_sentences})
-        kinds.append(kind)
-        normalized_sections.append(
+            _append_issue(dropped_reasons, 'section_paragraphs_not_list')
+            continue
+        if kind in sections_by_kind:
+            _append_issue(dropped_reasons, 'section_kind_duplicated')
+            continue
+        sections_by_kind[kind] = {
+            'kind': kind,
             # The canonical title is stored rather than the model's spelling of
             # it, so an accepted variant cannot reach the persisted row, where
             # the public schema still requires the exact string.
-            {
-                'kind': kind,
-                'title': ANALYSIS_SECTION_TITLES[kind],
-                'paragraphs': normalized_paragraphs,
-            }
-        )
-    if len(kinds) != len(set(kinds)):
-        return None, 'section_kind_duplicated'
-    if kinds != sorted(kinds, key=ANALYSIS_SECTION_KIND_ORDER.index):
-        return None, 'section_order_invalid'
-    return normalized_sections, None
+            'title': ANALYSIS_SECTION_TITLES[kind],
+            'paragraphs': _normalize_paragraph_structure(paragraphs, dropped_reasons),
+        }
+    # The public schema fixes the section order, so the order the model chose is
+    # imposed here rather than being one more reason to discard its work.
+    ordered_sections = [
+        sections_by_kind[kind]
+        for kind in ANALYSIS_SECTION_KIND_ORDER
+        if kind in sections_by_kind
+    ]
+    return ordered_sections, dropped_reasons
+
+
+def _normalize_paragraph_structure(
+    paragraphs: list[object], dropped_reasons: list[str]
+) -> list[dict[str, object]]:
+    normalized_paragraphs: list[dict[str, object]] = []
+    for paragraph in paragraphs:
+        if not isinstance(paragraph, Mapping):
+            _append_issue(dropped_reasons, 'paragraph_not_object')
+            continue
+        sentences = paragraph.get('sentences')
+        if not isinstance(sentences, list):
+            _append_issue(dropped_reasons, 'paragraph_sentences_not_list')
+            continue
+        normalized_sentences: list[dict[str, object]] = []
+        for sentence in sentences:
+            if not isinstance(sentence, Mapping):
+                _append_issue(dropped_reasons, 'sentence_not_object')
+                continue
+            normalized_sentences.append(dict(sentence))
+        normalized_paragraphs.append({'sentences': normalized_sentences})
+    return normalized_paragraphs
 
 
 def _matches_section_title(title: object, kind: str) -> bool:

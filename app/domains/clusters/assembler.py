@@ -344,6 +344,13 @@ def _as_mapping(value: Any) -> Mapping[str, Any]:
 
 
 def _is_structural_analysis_failure(persisted: Mapping[str, Any]) -> bool:
+    # A dropped section is tolerated when reading a model's answer, because the
+    # model may simply have written one badly. Here the sections come from our
+    # own persisted row, where only well-formed ones were ever stored -- so a
+    # dropped one means the stored tree is corrupt, and no amount of agreeable
+    # metadata should be allowed to make it displayable.
+    if persisted.get('droppedSectionReasons'):
+        return True
     return persisted.get('analysisStatus') == 'UNAVAILABLE' and any(
         issue.get('code') == 'ANALYSIS_GENERATION_FAILED'
         for issue in persisted.get('analysisIssues', [])

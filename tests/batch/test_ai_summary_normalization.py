@@ -441,98 +441,11 @@ async def test_cluster_detail_empty_sections_are_unavailable(monkeypatch):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ('malformed_payload', 'expected_reason'),
-    [
-        pytest.param({'sections': {}}, 'sections_not_list', id='non-array-sections'),
-        pytest.param(
-            {
-                'sections': [
-                    {
-                        'kind': 'impact',
-                        'title': '시장 영향',
-                        'paragraphs': [
-                            {'sentences': [_analysis_sentence(text='유효한 형제')]}
-                        ],
-                    },
-                    None,
-                ]
-            },
-            'section_not_object',
-            id='non-object-section-with-valid-sibling',
-        ),
-        pytest.param(
-            {
-                'sections': [
-                    {
-                        'kind': 'impact',
-                        'title': '시장 영향',
-                        'paragraphs': {},
-                    }
-                ]
-            },
-            'section_paragraphs_not_list',
-            id='non-array-paragraphs',
-        ),
-        pytest.param(
-            {
-                'sections': [
-                    {
-                        'kind': 'impact',
-                        'title': '시장 영향',
-                        'paragraphs': [
-                            {'sentences': [_analysis_sentence(text='유효한 형제')]},
-                            None,
-                        ],
-                    }
-                ]
-            },
-            'paragraph_not_object',
-            id='non-object-paragraph-with-valid-sibling',
-        ),
-        pytest.param(
-            {
-                'sections': [
-                    {
-                        'kind': 'impact',
-                        'title': '시장 영향',
-                        'paragraphs': [{'sentences': {}}],
-                    }
-                ]
-            },
-            'paragraph_sentences_not_list',
-            id='non-array-sentences',
-        ),
-        pytest.param(
-            {
-                'sections': [
-                    {
-                        'kind': 'impact',
-                        'title': '시장 영향',
-                        'paragraphs': [
-                            {
-                                'sentences': [
-                                    _analysis_sentence(text='유효한 형제'),
-                                    None,
-                                ]
-                            }
-                        ],
-                    }
-                ]
-            },
-            'sentence_not_object',
-            id='non-object-sentence-with-valid-sibling',
-        ),
-    ],
-)
-async def test_cluster_detail_malformed_structure_discards_valid_siblings(
-    monkeypatch,
-    malformed_payload,
-    expected_reason,
-):
+async def test_cluster_detail_unreadable_sections_field_is_fatal(monkeypatch):
+    """Only a payload with no readable sections at all loses the analysis."""
     result, _ = await _generate_cluster_detail_with_gemini(
         monkeypatch,
-        gemini_ai_message(malformed_payload),
+        gemini_ai_message({'sections': {}}),
     )
 
     assert result['paragraphs'] == []
@@ -557,9 +470,145 @@ async def test_cluster_detail_malformed_structure_discards_valid_siblings(
         # The public error is identical for every malformation, so the row has
         # to carry the rejecting rule or the failure is undiagnosable once the
         # response itself is gone.
-        'analysisFailureReason': expected_reason,
+        'analysisFailureReason': 'sections_not_list',
     }
-    assert '유효한 형제' not in repr(result)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ('malformed_payload', 'expected_reason'),
+    [
+        pytest.param(
+            {
+                'sections': [
+                    {
+                        'kind': 'impact',
+                        'title': '시장 영향',
+                        'paragraphs': [
+                            {'sentences': [_analysis_sentence(text='유효한 형제')]}
+                        ],
+                    },
+                    None,
+                ]
+            },
+            'section_not_object',
+            id='non-object-section-with-valid-sibling',
+        ),
+        pytest.param(
+            {
+                'sections': [
+                    {
+                        'kind': 'impact',
+                        'title': '시장 영향',
+                        'paragraphs': [
+                            {'sentences': [_analysis_sentence(text='유효한 형제')]},
+                            None,
+                        ],
+                    }
+                ]
+            },
+            'paragraph_not_object',
+            id='non-object-paragraph-with-valid-sibling',
+        ),
+        pytest.param(
+            {
+                'sections': [
+                    {
+                        'kind': 'impact',
+                        'title': '시장 영향',
+                        'paragraphs': [
+                            {
+                                'sentences': [
+                                    _analysis_sentence(text='유효한 형제'),
+                                    None,
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            },
+            'sentence_not_object',
+            id='non-object-sentence-with-valid-sibling',
+        ),
+    ],
+)
+async def test_cluster_detail_keeps_valid_siblings_of_a_malformed_part(
+    monkeypatch,
+    malformed_payload,
+    expected_reason,
+):
+    """A malformed part costs its own content and nothing else.
+
+    Nineteen clusters in production lost a complete analysis because one part
+    of the payload was shaped wrong, so the surviving siblings are what this
+    pins.
+    """
+    result, _ = await _generate_cluster_detail_with_gemini(
+        monkeypatch,
+        gemini_ai_message(malformed_payload),
+    )
+
+    assert result['status'] == 'SUCCESS'
+    assert result['fallback_used'] is False
+    assert '유효한 형제' in repr(result['paragraphs'])
+    assert result['metadata_json'] == {
+        'analysisStatus': 'READY',
+        'analysisIssues': [],
+        'conflictStatus': 'NONE',
+        'analysisDroppedSections': [expected_reason],
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ('malformed_payload', 'expected_reason'),
+    [
+        pytest.param(
+            {'sections': [{'kind': 'impact', 'title': '시장 영향', 'paragraphs': {}}]},
+            'section_paragraphs_not_list',
+            id='non-array-paragraphs',
+        ),
+        pytest.param(
+            {
+                'sections': [
+                    {'kind': 'impact', 'title': '시장 영향'},
+                ]
+            },
+            'section_paragraphs_not_list',
+            id='section-without-paragraphs',
+        ),
+        pytest.param(
+            {'sections': [{'kind': '요약', 'title': '요약', 'paragraphs': []}]},
+            'section_kind_unknown',
+            id='unknown-kind',
+        ),
+    ],
+)
+async def test_cluster_detail_reports_a_generation_failure_when_no_section_survives(
+    monkeypatch,
+    malformed_payload,
+    expected_reason,
+):
+    """Every section malformed is a generation failure, not an empty analysis.
+
+    Calling this NO_GROUNDED_SENTENCES would describe a model that had nothing
+    to say, when it answered and wrote every section wrong.
+    """
+    result, _ = await _generate_cluster_detail_with_gemini(
+        monkeypatch,
+        gemini_ai_message(malformed_payload),
+    )
+
+    assert result['status'] == 'FALLBACK'
+    assert result['metadata_json']['analysisStatus'] == 'UNAVAILABLE'
+    assert result['metadata_json']['analysisIssues'] == [
+        {
+            'code': 'ANALYSIS_GENERATION_FAILED',
+            'message': '분석을 생성하지 못했습니다.',
+        }
+    ]
+    assert result['metadata_json']['analysisFailureReason'] == 'all_sections_dropped'
+    assert result['metadata_json']['analysisDroppedSections'] == [expected_reason]
 
 
 @pytest.mark.anyio

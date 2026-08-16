@@ -515,6 +515,17 @@ async def _generate_cluster_detail_summary(
         'analysisIssues': analysis['analysisIssues'],
         'conflictStatus': analysis['conflictStatus'],
     }
+    dropped_reasons = analysis.get('droppedSectionReasons')
+    if dropped_reasons:
+        # A dropped section leaves no public trace, so a model that keeps
+        # malforming one section would otherwise silently shorten every
+        # analysis it writes with nothing to show for it.
+        metadata = {**metadata, 'analysisDroppedSections': dropped_reasons}
+        LOGGER.warning(
+            'Cluster detail analysis dropped malformed sections. reasons=%s model=%s',
+            ','.join(dropped_reasons),
+            getattr(llm_provider, 'model_name', None),
+        )
     if analysis['analysisStatus'] == 'UNAVAILABLE':
         error_message = None
         # An analysis can be unavailable simply because nothing in the cluster

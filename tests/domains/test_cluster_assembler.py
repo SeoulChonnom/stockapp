@@ -1180,6 +1180,63 @@ def test_cluster_builder_structural_failure_wins_over_persisted_metadata(
     assert payload['summary']['sections'] == []
 
 
+def test_cluster_builder_rejects_a_persisted_tree_with_a_dropped_section(
+    sample_cluster_row,
+    sample_processed_article_rows,
+):
+    """A dropped section is tolerated from a model, never from our own row.
+
+    The batch stores only sections it could read, so a stored tree that still
+    loses one is corrupt, and no agreeable metadata beside it should be able to
+    make the surviving half displayable.
+    """
+    article_id = sample_processed_article_rows[0]['id']
+    payload = build_cluster_detail_payload(
+        sample_cluster_row,
+        sample_processed_article_rows[0],
+        sample_processed_article_rows,
+        _summary_record(
+            paragraphs=[
+                {
+                    'kind': 'impact',
+                    'title': '시장 영향',
+                    'paragraphs': [
+                        {
+                            'sentences': [
+                                {
+                                    'text': '저장된 유효 문장입니다.',
+                                    'sourceArticleIds': [article_id],
+                                    'conflictStatus': 'NONE',
+                                    'conflictingSourceArticleIds': [],
+                                    'conflictNote': None,
+                                }
+                            ]
+                        }
+                    ],
+                },
+                None,
+            ],
+            metadata={
+                'analysisStatus': 'READY',
+                'analysisIssues': [],
+                'conflictStatus': 'NONE',
+            },
+        ),
+        article_grouping=_unavailable_grouping(
+            [article['id'] for article in sample_processed_article_rows]
+        ),
+    )
+
+    assert payload['summary']['analysisStatus'] == 'UNAVAILABLE'
+    assert payload['summary']['analysisIssues'] == [
+        {
+            'code': 'ANALYSIS_GENERATION_FAILED',
+            'message': '분석을 생성하지 못했습니다.',
+        }
+    ]
+    assert payload['summary']['sections'] == []
+
+
 def test_cluster_builder_rejects_metadata_conflict_aggregate_mismatch(
     sample_cluster_row,
     sample_processed_article_rows,
