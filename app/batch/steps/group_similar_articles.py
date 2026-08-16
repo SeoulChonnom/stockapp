@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
@@ -13,6 +14,7 @@ from app.batch.article_similarity import (
     group_similar_articles,
 )
 from app.batch.diagnostics import SIMILAR_GROUP_FAILURE, SIMILARITY_GROUPING_FAILED
+from app.batch.logging import log_safe_exception
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.ollama_embedding_provider import (
     EmbeddingArticle,
@@ -27,6 +29,8 @@ from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.cluster_repo import ClusterRepository
 from app.db.repositories.news_cluster_write_repo import NewsClusterWriteRepository
+
+LOGGER = logging.getLogger(__name__)
 
 GROUP_SIMILAR_ARTICLES = 'GROUP_SIMILAR_ARTICLES'
 SIMILARITY_THRESHOLD = 0.45
@@ -224,6 +228,23 @@ class GroupSimilarArticlesStep(BatchStep):
                 )
             except _EXPECTED_CLUSTER_ERRORS as exc:
                 degraded_cluster_count += 1
+                failure_reason = getattr(exc, 'reason', None)
+                provider_status = getattr(exc, 'status_code', None)
+                # The step used to record its failures only as batch events, so
+                # an embedding outage left nothing at all in the application log
+                # and had to be chased through the database.
+                log_safe_exception(
+                    LOGGER,
+                    logging.WARNING,
+                    'Similar article grouping provider request failed.',
+                    exception=exc,
+                    context={
+                        'clusterId': cluster_id,
+                        'reason': failure_reason,
+                        'status': provider_status,
+                        'model': self._model,
+                    },
+                )
                 # One reason for the whole step, not one per cluster: the reason
                 # list is rendered as page issues, and an embedding outage hits
                 # every cluster at once. Per-cluster detail stays in the events.
@@ -240,6 +261,9 @@ class GroupSimilarArticlesStep(BatchStep):
                         'clusterId': cluster_id,
                         'errorCode': 'SIMILARITY_GROUPING_FAILED',
                         'error': public_external_provider_error(type(exc).__name__),
+                        'failureReason': failure_reason,
+                        'providerStatus': provider_status,
+                        'embeddingModel': self._model,
                     },
                 )
                 await group_repo.mark_grouping_unavailable_with_singletons(

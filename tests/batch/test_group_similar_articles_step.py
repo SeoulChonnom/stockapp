@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID
@@ -431,3 +432,56 @@ async def test_lease_loss_while_checkpointing_propagates():
         await _step(cluster_repo, group_repo, provider).run(repository, _context())
 
     assert len(group_repo.ready) == 1
+
+
+@pytest.mark.anyio
+async def test_grouping_failure_reaches_the_application_log_with_its_reason(caplog):
+    """An embedding outage used to leave nothing at all in the application log.
+
+    The step recorded its failures only as batch events, so diagnosing one meant
+    querying the database. The reason and status distinguish an unreachable host
+    from a model that was never pulled, and neither is read back from the
+    provider, so logging them leaks nothing.
+    """
+    cluster_repo, group_repo = _repositories((1,))
+    provider = RecordingEmbeddingProvider()
+
+    async def embed_articles(_articles):
+        raise OllamaEmbeddingError(
+            'https://secret.example/article secret-token',
+            reason='http_status',
+            status_code=404,
+        )
+
+    provider.embed_articles = embed_articles
+    repository = FakeBatchRepository()
+    caplog.set_level(logging.WARNING, logger='app.batch.steps.group_similar_articles')
+
+    await _step(cluster_repo, group_repo, provider).run(repository, _context())
+
+    record = caplog.records[-1]
+    assert record.batch_exception_class == 'OllamaEmbeddingError'
+    assert record.batch_error_context == (
+        'clusterId=1 model=bge-m3 reason=http_status status=404'
+    )
+    assert 'secret.example' not in caplog.text
+    assert 'secret-token' not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_grouping_failure_event_records_the_reason_and_status():
+    cluster_repo, group_repo = _repositories((1,))
+    provider = RecordingEmbeddingProvider()
+
+    async def embed_articles(_articles):
+        raise OllamaEmbeddingError('request failed.', reason='network_error')
+
+    provider.embed_articles = embed_articles
+    repository = FakeBatchRepository()
+
+    await _step(cluster_repo, group_repo, provider).run(repository, _context())
+
+    failure_event = repository.events[-1]
+    assert failure_event['context_json']['failureReason'] == 'network_error'
+    assert failure_event['context_json']['providerStatus'] is None
+    assert failure_event['context_json']['embeddingModel'] == 'bge-m3'

@@ -487,3 +487,83 @@ async def test_embed_articles_does_not_close_injected_client():
     await provider.embed_articles([_article()])
     assert client.is_closed is False
     await client.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ('status_code', 'expected_status'),
+    [(404, 404), (401, 401), (503, 503)],
+)
+async def test_embed_articles_records_the_rejecting_http_status(
+    status_code: int,
+    expected_status: int,
+):
+    """The status is what tells a missing model apart from a broken host.
+
+    Every failure otherwise arrives as the same sanitized error, which left an
+    outage and a model that was never pulled indistinguishable in both the log
+    and the persisted event.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code, json={'error': 'failure'}, request=request)
+
+    settings = Settings(
+        _env_file=None,
+        ollama_base_url='http://ollama.test',
+        ollama_max_retries=0,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        with pytest.raises(OllamaEmbeddingError) as exc_info:
+            await provider.embed_articles([_article()])
+
+    assert exc_info.value.reason == 'http_status'
+    assert exc_info.value.status_code == expected_status
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ('transport_error', 'expected_reason'),
+    [
+        (httpx.ConnectError('refused'), 'network_error'),
+        (httpx.ReadTimeout('timed out'), 'timeout'),
+    ],
+)
+async def test_embed_articles_distinguishes_transport_failures(
+    transport_error: Exception,
+    expected_reason: str,
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise transport_error
+
+    settings = Settings(
+        _env_file=None,
+        ollama_base_url='http://ollama.test',
+        ollama_max_retries=0,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        with pytest.raises(OllamaEmbeddingError) as exc_info:
+            await provider.embed_articles([_article()])
+
+    assert exc_info.value.reason == expected_reason
+    assert exc_info.value.status_code is None
+
+
+@pytest.mark.anyio
+async def test_embed_articles_marks_an_unusable_response_body():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b'not-json', request=request)
+
+    settings = Settings(
+        _env_file=None,
+        ollama_base_url='http://ollama.test',
+        ollama_max_retries=0,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        with pytest.raises(OllamaEmbeddingError) as exc_info:
+            await provider.embed_articles([_article()])
+
+    assert exc_info.value.reason == 'invalid_response'

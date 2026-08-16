@@ -14,7 +14,25 @@ from app.core.text import normalize_text
 
 
 class OllamaEmbeddingError(RuntimeError):
-    """Sanitized error raised when Ollama cannot provide valid embeddings."""
+    """Sanitized error raised when Ollama cannot provide valid embeddings.
+
+    The message stays coarse because provider text can carry the request URL or
+    a response body. ``reason`` and ``status_code`` are set by this module from
+    a closed vocabulary rather than read back from the provider, so they are
+    safe to record -- and without them an unreachable host, a model that was
+    never pulled, and a malformed response all arrive as the same error.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: str = 'unknown',
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.status_code = status_code
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +108,7 @@ class OllamaEmbeddingProvider:
         content = summary or body
         value = ' '.join(part for part in (title, content) if part)
         if not value:
-            raise OllamaEmbeddingError('invalid article input.')
+            raise OllamaEmbeddingError('invalid article input.', reason='invalid_input')
         return value[: self._settings.similarity_input_chars]
 
     def _build_client(self) -> httpx.AsyncClient:
@@ -108,25 +126,38 @@ class OllamaEmbeddingProvider:
                 response = await client.post(self._endpoint_url(), json=payload)
             except asyncio.CancelledError:
                 raise
-            except httpx.NetworkError, httpx.TimeoutException:
+            except (httpx.NetworkError, httpx.TimeoutException) as exc:
                 if attempt + 1 < attempts:
                     await self._sleep(0)
                     continue
-                raise OllamaEmbeddingError('request failed.') from None
+                raise OllamaEmbeddingError(
+                    'request failed.',
+                    reason='timeout'
+                    if isinstance(exc, httpx.TimeoutException)
+                    else 'network_error',
+                ) from None
 
             try:
                 if self._is_retryable_status(response.status_code):
                     if attempt + 1 < attempts:
                         await self._sleep(0)
                         continue
-                    raise OllamaEmbeddingError('request failed.')
+                    raise OllamaEmbeddingError(
+                        'request failed.',
+                        reason='http_status',
+                        status_code=response.status_code,
+                    )
                 if not 200 <= response.status_code < 300:
-                    raise OllamaEmbeddingError('request failed.')
+                    raise OllamaEmbeddingError(
+                        'request failed.',
+                        reason='http_status',
+                        status_code=response.status_code,
+                    )
                 return self._parse_embeddings(response, expected_count)
             finally:
                 await response.aclose()
 
-        raise OllamaEmbeddingError('request failed.')
+        raise OllamaEmbeddingError('request failed.', reason='retries_exhausted')
 
     def _endpoint_url(self) -> str:
         return f'{self._settings.ollama_base_url.rstrip("/")}{self.endpoint_path}'
@@ -142,32 +173,44 @@ class OllamaEmbeddingProvider:
         try:
             data = response.json()
         except TypeError, ValueError:
-            raise OllamaEmbeddingError('invalid response.') from None
+            raise OllamaEmbeddingError(
+                'invalid response.', reason='invalid_response'
+            ) from None
         if not isinstance(data, Mapping):
-            raise OllamaEmbeddingError('invalid response.')
+            raise OllamaEmbeddingError('invalid response.', reason='invalid_response')
         embeddings = data.get('embeddings')
         if not isinstance(embeddings, list) or len(embeddings) != expected_count:
-            raise OllamaEmbeddingError('invalid response.')
+            raise OllamaEmbeddingError('invalid response.', reason='invalid_response')
 
         parsed: list[list[float]] = []
         dimension: int | None = None
         for embedding in embeddings:
             if not isinstance(embedding, list) or not embedding:
-                raise OllamaEmbeddingError('invalid response.')
+                raise OllamaEmbeddingError(
+                    'invalid response.', reason='invalid_response'
+                )
             if dimension is None:
                 dimension = len(embedding)
             elif len(embedding) != dimension:
-                raise OllamaEmbeddingError('invalid response.')
+                raise OllamaEmbeddingError(
+                    'invalid response.', reason='invalid_response'
+                )
             values: list[float] = []
             for value in embedding:
                 if isinstance(value, bool) or not isinstance(value, Real):
-                    raise OllamaEmbeddingError('invalid response.')
+                    raise OllamaEmbeddingError(
+                        'invalid response.', reason='invalid_response'
+                    )
                 try:
                     numeric_value = float(value)
                 except TypeError, ValueError, OverflowError:
-                    raise OllamaEmbeddingError('invalid response.') from None
+                    raise OllamaEmbeddingError(
+                        'invalid response.', reason='invalid_response'
+                    ) from None
                 if not math.isfinite(numeric_value):
-                    raise OllamaEmbeddingError('invalid response.')
+                    raise OllamaEmbeddingError(
+                        'invalid response.', reason='invalid_response'
+                    )
                 values.append(numeric_value)
             parsed.append(values)
         return parsed
