@@ -9,8 +9,13 @@ dependencies = [
   "fastapi[standard]>=0.135.2",
   "greenlet>=3.2.4",
   "httpx>=0.28.1",
-  "langchain>=0.3.27",
-  "langchain-google-genai>=2.1.12",
+  # Floors track what is actually exercised: langchain-google-genai below 4.3
+  # has no profile for the gemini-3.1 models this batch runs on, and both it
+  # and langchain-core moved to 1.x/4.x together. The meta ``langchain``
+  # package is deliberately absent -- nothing imports it, and it only pulls the
+  # langgraph tree in behind it.
+  "langchain-core>=1.5.4",
+  "langchain-google-genai>=4.3.4",
   "pydantic-settings>=2.13.1",
   "PyJWT>=2.10.1",
   "psycopg[binary]>=3.2.12",
