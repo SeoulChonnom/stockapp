@@ -94,24 +94,6 @@ def test_normalize_key_points_names_the_structural_rule_it_broke() -> None:
             [{**_key_points()[0], 'direction': 'SIDEWAYS'}] + _key_points()[1:],
             'direction:direction_value_invalid',
         ),
-        # A field the model invented and a field it left out break the same
-        # rule and call for opposite prompt changes, so they are named apart.
-        (
-            [
-                _key_points()[0],
-                {**_key_points()[1], 'direction': 'UP'},
-                _key_points()[2],
-            ],
-            'driver:item_extra_fields',
-        ),
-        (
-            [
-                _key_points()[0],
-                _key_points()[1],
-                {**_key_points()[2], 'direction': 'UP'},
-            ],
-            'watch:item_extra_fields',
-        ),
         (
             [_key_points()[0], _key_points()[1], {**_key_points()[2], 'kind': 'other'}],
             'watch:kind_mismatch',
@@ -1125,6 +1107,48 @@ def test_validate_analysis_sections_omits_empty_input_containers_without_degradi
             }
         ],
     }
+
+
+def test_normalize_key_points_ignores_an_invented_field_and_records_it() -> None:
+    """An invented field cannot reach the output, so it must not discard it.
+
+    Every normalized item is rebuilt from the contract keys alone, so rejecting
+    the payload guarded against nothing and threw away three sound sentences --
+    which is how this contract failed eight production runs out of nine.
+    """
+    payload = [
+        _key_points()[0],
+        {**_key_points()[1], 'direction': 'UP'},
+        {**_key_points()[2], 'confidence': 0.9},
+    ]
+
+    result = normalize_key_points(payload)
+
+    assert 'issue' not in result
+    assert result['keyPoints'] == normalize_key_points(_key_points())['keyPoints']
+    # A contract key on the wrong item names the prompt line to fix; a key the
+    # model invented is provider text and is never recorded as written.
+    assert result['extraFieldReasons'] == [
+        'driver:extra_direction',
+        'watch:extra_unknown',
+    ]
+
+
+def test_normalize_key_points_still_rejects_an_item_missing_a_field() -> None:
+    """Ignoring a surplus field must not start tolerating an absent one."""
+    payload = [
+        _key_points()[0],
+        {'kind': 'driver', 'label': '주요 원인'},
+        _key_points()[2],
+    ]
+
+    assert normalize_key_points(payload)['reason'] == 'driver:item_missing_fields'
+
+
+def test_normalize_key_points_omits_the_extra_field_key_when_the_shape_is_clean() -> (
+    None
+):
+    assert 'extraFieldReasons' not in normalize_key_points(_key_points())
 
 
 def test_normalize_key_points_falls_back_for_unhashable_direction_json() -> None:

@@ -601,6 +601,7 @@ async def test_recovered_global_target_persists_v2_outputs_and_retry_metadata():
         # A recovered row must not keep advertising the rule that rejected the
         # attempt whose metadata it was built from.
         'keyPointFailureReason': None,
+        'keyPointExtraFields': None,
         'retry': {'sourceSummaryId': source.summary_id, 'attemptNo': 2},
     }
 

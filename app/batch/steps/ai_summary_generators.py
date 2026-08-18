@@ -252,6 +252,7 @@ def _key_point_result(normalized: dict[str, object]) -> dict[str, object]:
         'keyPoints': normalized['keyPoints'],
         'issue': normalized.get('issue'),
         'reason': normalized.get('reason'),
+        'extraFields': normalized.get('extraFieldReasons'),
     }
 
 
@@ -265,14 +266,25 @@ def _key_point_metadata(
     that rejected it is written down beside it.
     """
     reason = key_point_result.get('reason')
-    # A retry copies the previous attempt's metadata forward, so the key is
-    # written on every path: leaving it out on success would let a recovered
+    extra_fields = key_point_result.get('extraFields')
+    # A retry copies the previous attempt's metadata forward, so both keys are
+    # written on every path: leaving one out on success would let a recovered
     # row keep advertising the rule that rejected the attempt before it.
     metadata: dict[str, object] = {
         'keyPoints': key_point_result['keyPoints'],
         'keyPointIssue': key_point_result['issue'],
         'keyPointFailureReason': reason,
+        'keyPointExtraFields': extra_fields,
     }
+    if isinstance(extra_fields, list):
+        # Ignoring the field keeps the answer usable, but a model drifting from
+        # the requested shape is still a prompt that needs changing, and this
+        # line is the only place that drift is visible.
+        LOGGER.warning(
+            'Key points carried fields outside their contract. extraFields=%s model=%s',
+            ','.join(extra_fields),
+            model_name,
+        )
     if reason is None:
         return metadata
     LOGGER.warning(

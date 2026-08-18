@@ -882,8 +882,13 @@ async def test_global_outputs_preserve_headline_when_key_point_provider_exhausts
             'direction:text_multiple_sentences',
         ),
         (
-            {'keyPoints': [{**KEY_POINTS[0], 'confidence': 0.9}, *KEY_POINTS[1:]]},
-            'direction:item_extra_fields',
+            {
+                'keyPoints': [
+                    {'kind': 'direction', 'label': '시장 방향'},
+                    *KEY_POINTS[1:],
+                ]
+            },
+            'direction:item_missing_fields',
         ),
     ],
     ids=[
@@ -891,7 +896,7 @@ async def test_global_outputs_preserve_headline_when_key_point_provider_exhausts
         'object-instead-of-array',
         'field-absent',
         'two-sentences-in-one-field',
-        'invented-field',
+        'item-missing-a-field',
     ],
 )
 async def test_global_outputs_name_the_rule_that_rejected_the_key_points(
@@ -922,6 +927,50 @@ async def test_global_outputs_name_the_rule_that_rejected_the_key_points(
         'KEY_POINTS_GENERATION_FAILED'
     )
     assert result['metadata_json']['keyPointFailureReason'] == expected_reason
+
+
+@pytest.mark.anyio
+async def test_global_outputs_keep_key_points_that_carried_a_surplus_field(
+    monkeypatch, caplog
+):
+    """The field the model added is discarded; its answer is not.
+
+    This is the shape production actually returned: the driver item repeated
+    the direction field that only the first item is given.
+    """
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [
+            gemini_ai_message(HEADLINE),
+            gemini_ai_message(
+                {
+                    'keyPoints': [
+                        KEY_POINTS[0],
+                        {**KEY_POINTS[1], 'direction': 'UP'},
+                        KEY_POINTS[2],
+                    ]
+                }
+            ),
+        ],
+    )
+
+    with caplog.at_level(
+        logging.WARNING, logger='app.batch.steps.ai_summary_generators'
+    ):
+        result = await _generate_global_outputs(
+            BatchLlmProvider(harness.client), CLUSTERS, []
+        )
+
+    metadata = result['metadata_json']
+    assert metadata['keyPoints'] == KEY_POINTS
+    assert metadata['keyPointIssue'] is None
+    assert metadata['keyPointFailureReason'] is None
+    assert metadata['keyPointExtraFields'] == ['driver:extra_direction']
+    assert any(
+        'Key points carried fields outside their contract.' in record.getMessage()
+        and 'driver:extra_direction' in record.getMessage()
+        for record in caplog.records
+    )
 
 
 @pytest.mark.anyio
@@ -1077,6 +1126,7 @@ async def test_global_outputs_store_headline_and_key_points_when_both_succeed(
             'keyPoints': KEY_POINTS,
             'keyPointIssue': None,
             'keyPointFailureReason': None,
+            'keyPointExtraFields': None,
         },
     }
 

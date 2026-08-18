@@ -246,8 +246,12 @@ class BatchLlmProvider:
             '"one complete plain-text sentence"}; '
             '3. {"kind": "watch", "label": "관전 포인트", "text": '
             '"one complete plain-text sentence"}. '
-            'No other direction value is allowed. Do not use HTML, Markdown, or '
-            'line breaks in text.'
+            'Only the first object has a direction field; the driver and watch '
+            'objects must contain exactly kind, label, and text, and must not '
+            'repeat direction or add any field of your own. '
+            'No other direction value is allowed. Each text must be exactly one '
+            'sentence and must end with sentence-ending punctuation. Do not use '
+            'HTML, Markdown, or line breaks in text.'
         )
         user_prompt = _serialize_prompt(
             {

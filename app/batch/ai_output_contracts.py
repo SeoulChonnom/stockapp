@@ -25,6 +25,7 @@ KEY_POINT_LABELS: Final = MappingProxyType(
         'watch': '관전 포인트',
     }
 )
+KEY_POINT_CONTRACT_KEYS: Final = frozenset({'kind', 'label', 'text', 'direction'})
 KEY_POINT_FAILURE: Final = MappingProxyType(
     {
         'category': 'AI_SUMMARY',
@@ -48,16 +49,36 @@ def normalize_key_points(payload: object) -> dict[str, object]:
     if len(payload) != len(KEY_POINT_KIND_ORDER):
         return build_key_point_failure('payload_length_mismatch')
 
+    extra_field_reasons: list[str] = []
     key_points: list[KeyPoint] = []
     for item, expected_kind in zip(payload, KEY_POINT_KIND_ORDER, strict=True):
-        normalized, defect = _normalize_key_point(item, expected_kind)
+        normalized, defect = _normalize_key_point(
+            item, expected_kind, extra_field_reasons
+        )
         if normalized is None:
             # Which of the three items broke matters as much as how: the same
             # rule reads as a different prompt problem depending on whether the
             # model was writing the direction, the driver, or the watch item.
-            return build_key_point_failure(f'{expected_kind}:{defect}')
+            return _with_extra_fields(
+                build_key_point_failure(f'{expected_kind}:{defect}'),
+                extra_field_reasons,
+            )
         key_points.append(normalized)
-    return {'keyPoints': key_points}
+    return _with_extra_fields({'keyPoints': key_points}, extra_field_reasons)
+
+
+def _with_extra_fields(
+    result: dict[str, object], extra_field_reasons: list[str]
+) -> dict[str, object]:
+    """Attach the fields that were ignored, on a key no public consumer reads.
+
+    An ignored field leaves no other trace -- the normalized item is rebuilt
+    from the contract keys alone -- so without this a model steadily drifting
+    away from the requested shape would look exactly like one obeying it.
+    """
+    if extra_field_reasons:
+        result['extraFieldReasons'] = extra_field_reasons
+    return result
 
 
 def build_key_point_failure(reason: str) -> dict[str, object]:
@@ -230,20 +251,27 @@ def _with_diagnostics(
 
 
 def _normalize_key_point(
-    item: object, expected_kind: str
+    item: object, expected_kind: str, extra_field_reasons: list[str]
 ) -> tuple[KeyPoint | None, str | None]:
     if not isinstance(item, Mapping):
         return None, 'item_not_object'
     expected_keys = {'kind', 'label', 'text'}
     if expected_kind == 'direction':
         expected_keys.add('direction')
-    if set(item) != expected_keys:
-        return None, _key_set_defect(set(item), expected_keys)
+    if expected_keys - set(item):
+        return None, 'item_missing_fields'
+    # A field the model invented cannot reach the output: the normalized item
+    # below is rebuilt from the contract keys alone. Rejecting the payload over
+    # one discarded three sound sentences to guard against something already
+    # impossible, which is how this contract failed eight runs out of nine.
+    _record_extra_fields(set(item) - expected_keys, expected_kind, extra_field_reasons)
     if item.get('kind') != expected_kind:
         return None, 'kind_mismatch'
     if item.get('label') != KEY_POINT_LABELS[expected_kind]:
         return None, 'label_mismatch'
     text = item.get('text')
+    if not isinstance(text, str):
+        return None, 'text_not_string'
     text_defect = plain_sentence_defect(text)
     if text_defect is not None:
         return None, text_defect
@@ -251,7 +279,7 @@ def _normalize_key_point(
     normalized: KeyPoint = {
         'kind': expected_kind,
         'label': KEY_POINT_LABELS[expected_kind],
-        'text': text,  # pyright: ignore[reportArgumentType]
+        'text': text,
     }
     if expected_kind == 'direction':
         direction = item.get('direction')
@@ -266,19 +294,19 @@ def _normalize_key_point(
     return normalized, None
 
 
-def _key_set_defect(actual: set[str], expected: set[str]) -> str:
-    """Separate a model that left a field out from one that added its own.
+def _record_extra_fields(
+    extra_keys: set[str], expected_kind: str, extra_field_reasons: list[str]
+) -> None:
+    """Name each ignored field, without letting the model name it.
 
-    Both break the same rule and call for opposite prompt changes, so the two
-    must not arrive as one name.
+    A key the model invented is provider text, so it is never recorded as
+    written.  A contract key that landed on the wrong item is our own word and
+    says exactly which line of the prompt to fix; anything else is reported as
+    unknown.
     """
-    missing = expected - actual
-    extra = actual - expected
-    if missing and extra:
-        return 'item_key_set_mismatch'
-    if extra:
-        return 'item_extra_fields'
-    return 'item_missing_fields'
+    for key in sorted(extra_keys):
+        named = key if key in KEY_POINT_CONTRACT_KEYS else 'unknown'
+        _append_issue(extra_field_reasons, f'{expected_kind}:extra_{named}')
 
 
 def _normalize_section_structure(
@@ -489,6 +517,7 @@ __all__ = [
     'ANALYSIS_ISSUE_MESSAGES',
     'ANALYSIS_SECTION_KIND_ORDER',
     'ANALYSIS_SECTION_TITLES',
+    'KEY_POINT_CONTRACT_KEYS',
     'KEY_POINT_KIND_ORDER',
     'KEY_POINT_LABELS',
     'aggregate_conflict_status',
