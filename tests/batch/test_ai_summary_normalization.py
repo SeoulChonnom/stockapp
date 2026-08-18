@@ -865,6 +865,165 @@ async def test_global_outputs_preserve_headline_when_key_point_provider_exhausts
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ('key_point_response', 'expected_reason'),
+    [
+        ({'keyPoints': [{'kind': 'direction'}]}, 'payload_length_mismatch'),
+        ({'keyPoints': {'direction': 'UP'}}, 'payload_not_list'),
+        ({'headline': '기술주 강세'}, 'response_missing_key_points'),
+        (
+            {
+                'keyPoints': [
+                    {**KEY_POINTS[0], 'text': '올랐습니다. 내렸습니다.'},
+                    KEY_POINTS[1],
+                    KEY_POINTS[2],
+                ]
+            },
+            'direction:text_multiple_sentences',
+        ),
+        (
+            {'keyPoints': [{**KEY_POINTS[0], 'confidence': 0.9}, *KEY_POINTS[1:]]},
+            'direction:item_extra_fields',
+        ),
+    ],
+    ids=[
+        'wrong-length',
+        'object-instead-of-array',
+        'field-absent',
+        'two-sentences-in-one-field',
+        'invented-field',
+    ],
+)
+async def test_global_outputs_name_the_rule_that_rejected_the_key_points(
+    monkeypatch, key_point_response: dict, expected_reason: str
+):
+    """One public code covers fifteen malformations; the row must say which.
+
+    Without this the batch records only that key points failed, which is what
+    it did for every run since the feature shipped and is why nothing could be
+    acted on.
+    """
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [
+            gemini_ai_message(HEADLINE),
+            gemini_ai_message(key_point_response),
+        ],
+    )
+
+    result = await _generate_global_outputs(
+        BatchLlmProvider(harness.client),
+        CLUSTERS,
+        [],
+    )
+
+    assert result['metadata_json']['keyPoints'] == []
+    assert result['metadata_json']['keyPointIssue']['code'] == (
+        'KEY_POINTS_GENERATION_FAILED'
+    )
+    assert result['metadata_json']['keyPointFailureReason'] == expected_reason
+
+
+@pytest.mark.anyio
+async def test_global_outputs_separate_a_failed_call_from_a_rejected_answer(
+    monkeypatch,
+):
+    """A call that never returned and an answer we refused are opposite faults."""
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [
+            gemini_ai_message(HEADLINE),
+            httpx.ConnectError('secret-project-token provider disconnected'),
+        ],
+    )
+
+    with llm_retry_exhausted_mode():
+        result = await _generate_global_outputs(
+            BatchLlmProvider(harness.client),
+            CLUSTERS,
+            [],
+        )
+
+    assert result['metadata_json']['keyPointFailureReason'] == 'provider_call_failed'
+    assert 'secret-project-token' not in repr(result)
+
+
+@pytest.mark.anyio
+async def test_global_outputs_record_an_unconfigured_provider_as_its_own_reason():
+    class UnconfiguredProvider(StringListLlmProvider):
+        def is_configured(self) -> bool:
+            return False
+
+    result = await _generate_global_outputs(UnconfiguredProvider(), CLUSTERS, [])
+
+    assert result['metadata_json']['keyPointFailureReason'] == (
+        'provider_not_configured'
+    )
+
+
+@pytest.mark.anyio
+async def test_key_point_rejection_reaches_the_application_log(monkeypatch, caplog):
+    """A rejected answer raises nothing, so only this line records the run."""
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [
+            gemini_ai_message(HEADLINE),
+            gemini_ai_message({'keyPoints': [{'kind': 'direction'}]}),
+        ],
+    )
+
+    with caplog.at_level(
+        logging.WARNING, logger='app.batch.steps.ai_summary_generators'
+    ):
+        await _generate_global_outputs(BatchLlmProvider(harness.client), CLUSTERS, [])
+
+    assert any(
+        'Key points rejected by their output contract.' in record.getMessage()
+        and 'payload_length_mismatch' in record.getMessage()
+        for record in caplog.records
+    )
+
+
+@pytest.mark.anyio
+async def test_recovered_key_points_clear_the_previous_attempts_reason(monkeypatch):
+    """A retry copies the failed attempt's metadata forward, stale reason included."""
+
+    class FailedAttempt:
+        title = HEADLINE['title']
+        body = HEADLINE['body']
+        status = 'SUCCESS'
+        fallback_used = False
+        model_name = 'test-model'
+        error_message = None
+        metadata_json = {
+            'reason': 'llm',
+            'keyPoints': [],
+            'keyPointIssue': {
+                'category': 'AI_SUMMARY',
+                'code': 'KEY_POINTS_GENERATION_FAILED',
+                'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
+            },
+            'keyPointFailureReason': 'direction:text_multiple_sentences',
+        }
+
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [gemini_ai_message({'keyPoints': KEY_POINTS})],
+    )
+
+    result = await _generate_global_outputs(
+        BatchLlmProvider(harness.client),
+        CLUSTERS,
+        [],
+        existing_summary=FailedAttempt(),
+    )
+
+    assert len(result['metadata_json']['keyPoints']) == 3
+    assert result['metadata_json']['keyPointIssue'] is None
+    assert result['metadata_json']['keyPointFailureReason'] is None
+
+
+@pytest.mark.anyio
 async def test_global_outputs_preserve_key_points_when_headline_provider_exhausts(
     monkeypatch,
 ):
@@ -917,6 +1076,7 @@ async def test_global_outputs_store_headline_and_key_points_when_both_succeed(
             'reason': 'llm',
             'keyPoints': KEY_POINTS,
             'keyPointIssue': None,
+            'keyPointFailureReason': None,
         },
     }
 

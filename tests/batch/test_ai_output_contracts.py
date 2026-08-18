@@ -73,39 +73,60 @@ def test_normalize_key_points_returns_the_three_contract_items() -> None:
     }
 
 
-def test_normalize_key_points_rejects_semantic_contract_errors_as_one_fallback() -> (
-    None
-):
+def test_normalize_key_points_names_the_structural_rule_it_broke() -> None:
+    """The public code is one; the rule that produced it must not be."""
     invalid_payloads = [
-        _key_points()[:2],
-        [_key_points()[1], _key_points()[0], _key_points()[2]],
-        [{**_key_points()[0], 'label': '방향'}] + _key_points()[1:],
-        [{**_key_points()[0], 'text': '  '}] + _key_points()[1:],
-        [{**_key_points()[0], 'direction': 'SIDEWAYS'}] + _key_points()[1:],
-        [
-            _key_points()[0],
-            {**_key_points()[1], 'direction': 'UP'},
-            _key_points()[2],
-        ],
-        [
-            _key_points()[0],
-            _key_points()[1],
-            {**_key_points()[2], 'direction': 'UP'},
-        ],
-        [
-            _key_points()[0],
-            _key_points()[1],
-            {**_key_points()[2], 'kind': 'other'},
-        ],
-        [
-            _key_points()[0],
-            _key_points()[1],
-            {**_key_points()[2], 'kind': 'driver'},
-        ],
-        {'keyPoints': _key_points()},
+        (_key_points()[:2], 'payload_length_mismatch'),
+        ({'keyPoints': _key_points()}, 'payload_not_list'),
+        (
+            [_key_points()[1], _key_points()[0], _key_points()[2]],
+            'direction:item_missing_fields',
+        ),
+        (
+            [{**_key_points()[0], 'label': '방향'}] + _key_points()[1:],
+            'direction:label_mismatch',
+        ),
+        (
+            [{**_key_points()[0], 'text': '  '}] + _key_points()[1:],
+            'direction:text_blank',
+        ),
+        (
+            [{**_key_points()[0], 'direction': 'SIDEWAYS'}] + _key_points()[1:],
+            'direction:direction_value_invalid',
+        ),
+        # A field the model invented and a field it left out break the same
+        # rule and call for opposite prompt changes, so they are named apart.
+        (
+            [
+                _key_points()[0],
+                {**_key_points()[1], 'direction': 'UP'},
+                _key_points()[2],
+            ],
+            'driver:item_extra_fields',
+        ),
+        (
+            [
+                _key_points()[0],
+                _key_points()[1],
+                {**_key_points()[2], 'direction': 'UP'},
+            ],
+            'watch:item_extra_fields',
+        ),
+        (
+            [_key_points()[0], _key_points()[1], {**_key_points()[2], 'kind': 'other'}],
+            'watch:kind_mismatch',
+        ),
+        (
+            [
+                _key_points()[0],
+                _key_points()[1],
+                {**_key_points()[2], 'kind': 'driver'},
+            ],
+            'watch:kind_mismatch',
+        ),
     ]
 
-    for payload in invalid_payloads:
+    for payload, expected_reason in invalid_payloads:
         assert normalize_key_points(payload) == {
             'keyPoints': [],
             'issue': {
@@ -113,38 +134,42 @@ def test_normalize_key_points_rejects_semantic_contract_errors_as_one_fallback()
                 'code': 'KEY_POINTS_GENERATION_FAILED',
                 'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
             },
+            'reason': expected_reason,
         }
 
 
 @pytest.mark.parametrize(
-    'text',
+    ('text', 'expected_reason'),
     [
-        '   ',
-        '첫 문장입니다. 둘째 문장입니다.',
-        '줄바꿈이 포함된 문장입니다.\n',
-        '캐리지 리턴이 포함된 문장입니다.\r',
-        '<b>HTML 태그가 포함된 문장입니다.</b>',
-        '# 제목 문장입니다.',
-        '- 목록 항목입니다.',
-        '1. 번호 목록 항목입니다.',
-        '[문서 링크](https://example.com)입니다.',
-        '**강조된 문장입니다.**',
-        '`인라인 코드`가 포함된 문장입니다.',
-        '문장에 마침표가 없습니다',
-        '&lt;b&gt;인코딩된 태그&lt;/b&gt; 문장입니다.',
-        '<!-- raw comment --> 문장입니다.',
-        '<!DOCTYPE html> 문장입니다.',
-        '<?xml version="1.0"?> 문장입니다.',
-        '&lt;!-- 인코딩된 주석 --&gt; 문장입니다.',
-        '[참고 문서][ref]를 확인했습니다.',
-        '![차트 이미지](https://example.com/chart.png)를 확인했습니다.',
-        '[ref]: https://example.com 문장입니다.',
-        '문장입니다.\x85다음 문장입니다.',
-        '문장입니다.\u2028다음 문장입니다.',
-        '문장입니다.\u2029다음 문장입니다.',
-        '.',
-        '()!',
-        '상승했습니다. 하락했습니다.',
+        ('   ', 'text_blank'),
+        ('첫 문장입니다. 둘째 문장입니다.', 'text_multiple_sentences'),
+        ('줄바꿈이 포함된 문장입니다.\n', 'text_line_break'),
+        ('캐리지 리턴이 포함된 문장입니다.\r', 'text_line_break'),
+        ('<b>HTML 태그가 포함된 문장입니다.</b>', 'text_html_markup'),
+        ('# 제목 문장입니다.', 'text_markdown_markup'),
+        ('- 목록 항목입니다.', 'text_markdown_markup'),
+        ('1. 번호 목록 항목입니다.', 'text_markdown_markup'),
+        ('[문서 링크](https://example.com)입니다.', 'text_markdown_markup'),
+        ('**강조된 문장입니다.**', 'text_markdown_markup'),
+        ('`인라인 코드`가 포함된 문장입니다.', 'text_markdown_markup'),
+        ('문장에 마침표가 없습니다', 'text_no_terminator'),
+        ('&lt;b&gt;인코딩된 태그&lt;/b&gt; 문장입니다.', 'text_html_markup'),
+        ('<!-- raw comment --> 문장입니다.', 'text_html_markup'),
+        ('<!DOCTYPE html> 문장입니다.', 'text_html_markup'),
+        ('<?xml version="1.0"?> 문장입니다.', 'text_html_markup'),
+        ('&lt;!-- 인코딩된 주석 --&gt; 문장입니다.', 'text_html_markup'),
+        ('[참고 문서][ref]를 확인했습니다.', 'text_markdown_markup'),
+        (
+            '![차트 이미지](https://example.com/chart.png)를 확인했습니다.',
+            'text_markdown_markup',
+        ),
+        ('[ref]: https://example.com 문장입니다.', 'text_markdown_markup'),
+        ('문장입니다.\x85다음 문장입니다.', 'text_line_break'),
+        ('문장입니다.\u2028다음 문장입니다.', 'text_line_break'),
+        ('문장입니다.\u2029다음 문장입니다.', 'text_line_break'),
+        ('.', 'text_no_alphanumeric'),
+        ('()!', 'text_no_alphanumeric'),
+        ('상승했습니다. 하락했습니다.', 'text_multiple_sentences'),
     ],
     ids=[
         'blank',
@@ -175,9 +200,10 @@ def test_normalize_key_points_rejects_semantic_contract_errors_as_one_fallback()
         'two-sentences',
     ],
 )
-def test_normalize_key_points_rejects_non_plain_single_sentence_text(
-    text: object,
+def test_normalize_key_points_names_the_text_rule_that_rejected_the_item(
+    text: object, expected_reason: str
 ) -> None:
+    """Nine text rules used to leave through one code; each names itself now."""
     payload = _key_points()
     payload[0]['text'] = text
 
@@ -188,6 +214,7 @@ def test_normalize_key_points_rejects_non_plain_single_sentence_text(
             'code': 'KEY_POINTS_GENERATION_FAILED',
             'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
         },
+        'reason': f'direction:{expected_reason}',
     }
 
 
@@ -256,27 +283,30 @@ def test_normalize_key_points_accepts_plain_complete_single_sentences(
 
 
 @pytest.mark.parametrize(
-    'text',
+    ('text', 'expected_reason'),
     [
-        '문장입니다.&NewLine;다음 문장입니다.',
-        '상승했습니다&period; 하락했습니다&period;',
-        '&#91;ref&#93;&colon; https://example.com 문장입니다.',
-        '&amp;lt;b&amp;gt;시장&amp;lt;/b&amp;gt; 문장입니다.',
-        '*강조* 문장입니다.',
-        '_강조_ 문장입니다.',
-        '__강조__ 문장입니다.',
-        '~~취소~~ 문장입니다.',
-        '<b>시장</b> 문장입니다.',
-        '<b>시장 문장입니다.',
-        '<br> 문장입니다.',
-        '<span class=x>시장 문장입니다.',
-        '&lt;b&gt;시장&lt;/b&gt; 문장입니다.',
-        '&lt;b&gt;시장 문장입니다.',
-        '&lt;br&gt; 문장입니다.',
-        '&lt;span class=x&gt;시장 문장입니다.',
-        'Foo.Bar. 증시는 상승했습니다.',
-        '첫 문장입니다」 둘째 문장입니다.',
-        '「상승했습니다.',
+        ('문장입니다.&NewLine;다음 문장입니다.', 'text_line_break'),
+        ('상승했습니다&period; 하락했습니다&period;', 'text_multiple_sentences'),
+        (
+            '&#91;ref&#93;&colon; https://example.com 문장입니다.',
+            'text_markdown_markup',
+        ),
+        ('&amp;lt;b&amp;gt;시장&amp;lt;/b&amp;gt; 문장입니다.', 'text_html_markup'),
+        ('*강조* 문장입니다.', 'text_markdown_markup'),
+        ('_강조_ 문장입니다.', 'text_markdown_markup'),
+        ('__강조__ 문장입니다.', 'text_markdown_markup'),
+        ('~~취소~~ 문장입니다.', 'text_markdown_markup'),
+        ('<b>시장</b> 문장입니다.', 'text_html_markup'),
+        ('<b>시장 문장입니다.', 'text_html_markup'),
+        ('<br> 문장입니다.', 'text_html_markup'),
+        ('<span class=x>시장 문장입니다.', 'text_html_markup'),
+        ('&lt;b&gt;시장&lt;/b&gt; 문장입니다.', 'text_html_markup'),
+        ('&lt;b&gt;시장 문장입니다.', 'text_html_markup'),
+        ('&lt;br&gt; 문장입니다.', 'text_html_markup'),
+        ('&lt;span class=x&gt;시장 문장입니다.', 'text_html_markup'),
+        ('Foo.Bar. 증시는 상승했습니다.', 'text_multiple_sentences'),
+        ('첫 문장입니다」 둘째 문장입니다.', 'text_unbalanced_pair'),
+        ('「상승했습니다.', 'text_unbalanced_pair'),
     ],
     ids=[
         'encoded-newline',
@@ -300,9 +330,10 @@ def test_normalize_key_points_accepts_plain_complete_single_sentences(
         'unmatched-opener',
     ],
 )
-def test_normalize_key_points_rejects_encoded_markup_and_unbalanced_text(
-    text: str,
+def test_normalize_key_points_names_the_rule_behind_encoded_or_unbalanced_text(
+    text: object, expected_reason: str
 ) -> None:
+    """Encoded syntax and unbalanced pairs stay distinguishable after decoding."""
     payload = _key_points()
     payload[0]['text'] = text
 
@@ -313,6 +344,7 @@ def test_normalize_key_points_rejects_encoded_markup_and_unbalanced_text(
             'code': 'KEY_POINTS_GENERATION_FAILED',
             'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
         },
+        'reason': f'direction:{expected_reason}',
     }
 
 
@@ -1096,46 +1128,9 @@ def test_validate_analysis_sections_omits_empty_input_containers_without_degradi
 
 
 def test_normalize_key_points_falls_back_for_unhashable_direction_json() -> None:
-    invalid_payloads = [
-        [
-            {
-                'kind': 'direction',
-                'label': '시장 방향',
-                'text': '코스피가 상승했습니다.',
-                'direction': ['UP'],
-            },
-            {
-                'kind': 'driver',
-                'label': '주요 원인',
-                'text': '반도체 강세가 이끌었습니다.',
-            },
-            {
-                'kind': 'watch',
-                'label': '관전 포인트',
-                'text': '미국 물가를 확인해야 합니다.',
-            },
-        ],
-        [
-            {
-                'kind': 'direction',
-                'label': '시장 방향',
-                'text': '코스피가 상승했습니다.',
-                'direction': {'value': 'UP'},
-            },
-            {
-                'kind': 'driver',
-                'label': '주요 원인',
-                'text': '반도체 강세가 이끌었습니다.',
-            },
-            {
-                'kind': 'watch',
-                'label': '관전 포인트',
-                'text': '미국 물가를 확인해야 합니다.',
-            },
-        ],
-    ]
+    for direction in (['UP'], {'value': 'UP'}):
+        payload = [{**_key_points()[0], 'direction': direction}] + _key_points()[1:]
 
-    for payload in invalid_payloads:
         assert normalize_key_points(payload) == {
             'keyPoints': [],
             'issue': {
@@ -1143,6 +1138,7 @@ def test_normalize_key_points_falls_back_for_unhashable_direction_json() -> None
                 'code': 'KEY_POINTS_GENERATION_FAILED',
                 'message': '오늘의 핵심 포인트를 준비하지 못했습니다.',
             },
+            'reason': 'direction:direction_value_invalid',
         }
 
 

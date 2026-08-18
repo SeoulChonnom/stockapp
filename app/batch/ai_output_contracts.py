@@ -12,7 +12,7 @@ from app.core.ai_contracts import (
     ANALYSIS_SECTION_TITLES,
     aggregate_conflict_status,
 )
-from app.core.plain_text import is_complete_plain_sentence
+from app.core.plain_text import plain_sentence_defect
 
 type KeyPoint = dict[str, str]
 type AnalysisResult = dict[str, Any]
@@ -43,16 +43,35 @@ _SECTION_TITLE_PUNCTUATION_FOLD: Final = str.maketrans(
 
 def normalize_key_points(payload: object) -> dict[str, object]:
     """Return contract-compliant key points or the one public fallback issue."""
-    if not isinstance(payload, list) or len(payload) != len(KEY_POINT_KIND_ORDER):
-        return _key_point_failure()
+    if not isinstance(payload, list):
+        return build_key_point_failure('payload_not_list')
+    if len(payload) != len(KEY_POINT_KIND_ORDER):
+        return build_key_point_failure('payload_length_mismatch')
 
     key_points: list[KeyPoint] = []
     for item, expected_kind in zip(payload, KEY_POINT_KIND_ORDER, strict=True):
-        normalized = _normalize_key_point(item, expected_kind)
+        normalized, defect = _normalize_key_point(item, expected_kind)
         if normalized is None:
-            return _key_point_failure()
+            # Which of the three items broke matters as much as how: the same
+            # rule reads as a different prompt problem depending on whether the
+            # model was writing the direction, the driver, or the watch item.
+            return build_key_point_failure(f'{expected_kind}:{defect}')
         key_points.append(normalized)
     return {'keyPoints': key_points}
+
+
+def build_key_point_failure(reason: str) -> dict[str, object]:
+    """Build the single public key-point fallback, naming what rejected it.
+
+    ``reason`` is deliberately not part of the public issue -- callers copy
+    only ``keyPoints`` and ``issue`` -- but without it the fifteen distinct
+    ways this contract can be missed all reach the persisted row as one
+    KEY_POINTS_GENERATION_FAILED, which says nothing about what to change.
+    Every reason comes from this module's own vocabulary or from
+    ``plain_sentence_defect``, never from provider text, so it is safe to
+    record.
+    """
+    return {'keyPoints': [], 'issue': dict(KEY_POINT_FAILURE), 'reason': reason}
 
 
 def build_unavailable_analysis(
@@ -210,26 +229,29 @@ def _with_diagnostics(
     return result
 
 
-def _normalize_key_point(item: object, expected_kind: str) -> KeyPoint | None:
+def _normalize_key_point(
+    item: object, expected_kind: str
+) -> tuple[KeyPoint | None, str | None]:
     if not isinstance(item, Mapping):
-        return None
+        return None, 'item_not_object'
     expected_keys = {'kind', 'label', 'text'}
     if expected_kind == 'direction':
         expected_keys.add('direction')
     if set(item) != expected_keys:
-        return None
+        return None, _key_set_defect(set(item), expected_keys)
     if item.get('kind') != expected_kind:
-        return None
+        return None, 'kind_mismatch'
     if item.get('label') != KEY_POINT_LABELS[expected_kind]:
-        return None
+        return None, 'label_mismatch'
     text = item.get('text')
-    if not is_complete_plain_sentence(text):
-        return None
+    text_defect = plain_sentence_defect(text)
+    if text_defect is not None:
+        return None, text_defect
 
     normalized: KeyPoint = {
         'kind': expected_kind,
         'label': KEY_POINT_LABELS[expected_kind],
-        'text': text,
+        'text': text,  # pyright: ignore[reportArgumentType]
     }
     if expected_kind == 'direction':
         direction = item.get('direction')
@@ -239,13 +261,24 @@ def _normalize_key_point(item: object, expected_kind: str) -> KeyPoint | None:
             'MIXED',
             'FLAT',
         }:
-            return None
+            return None, 'direction_value_invalid'
         normalized['direction'] = direction
-    return normalized
+    return normalized, None
 
 
-def _key_point_failure() -> dict[str, object]:
-    return {'keyPoints': [], 'issue': dict(KEY_POINT_FAILURE)}
+def _key_set_defect(actual: set[str], expected: set[str]) -> str:
+    """Separate a model that left a field out from one that added its own.
+
+    Both break the same rule and call for opposite prompt changes, so the two
+    must not arrive as one name.
+    """
+    missing = expected - actual
+    extra = actual - expected
+    if missing and extra:
+        return 'item_key_set_mismatch'
+    if extra:
+        return 'item_extra_fields'
+    return 'item_missing_fields'
 
 
 def _normalize_section_structure(
@@ -460,6 +493,7 @@ __all__ = [
     'KEY_POINT_LABELS',
     'aggregate_conflict_status',
     'build_unavailable_analysis',
+    'build_key_point_failure',
     'canonical_key_point_issue',
     'normalize_key_points',
     'validate_analysis_sections',

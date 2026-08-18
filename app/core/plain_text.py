@@ -63,38 +63,54 @@ _CJK_PAIR_CLOSER_SET = frozenset(_CJK_PAIR_CLOSERS.values())
 
 
 def is_complete_plain_sentence(value: object) -> bool:
-    """Return whether ``value`` is one nonblank, plain-text sentence.
+    """Return whether ``value`` is one nonblank, plain-text sentence."""
+    return plain_sentence_defect(value) is None
+
+
+def plain_sentence_defect(value: object) -> str | None:
+    """Name the rule ``value`` breaks as one plain sentence, or None if sound.
 
     Validation uses a bounded, recursively decoded semantic view.  The input
     itself is never normalized or returned, so entity spelling remains stable
     on the public response while encoded syntax cannot bypass the contract.
+
+    Nine unrelated malformations used to leave through one ``False``.  A caller
+    recording that a model's sentence was rejected could then say only that it
+    was, which is the same as saying nothing: a second sentence in the field
+    calls for a prompt change, an unbalanced quote for a different one, and
+    markup for a third.  The names come from this module alone -- never from
+    the value -- so a caller may log or persist them.
     """
     if not isinstance(value, str):
-        return False
+        return 'text_not_string'
     semantic = _decode_semantic_view(value)
     if semantic is None:
-        return False
+        return 'text_unresolved_entity'
     if any(character in _LINE_BREAKS for character in semantic):
-        return False
+        return 'text_line_break'
     text = semantic.strip()
     if not text:
-        return False
+        return 'text_blank'
     if _contains_html_markup(text):
-        return False
+        return 'text_html_markup'
     if _contains_markdown_markup(text):
-        return False
+        return 'text_markdown_markup'
     if not _has_balanced_cjk_pairs(text):
-        return False
+        return 'text_unbalanced_pair'
     if not any(character.isalnum() for character in text):
-        return False
+        return 'text_no_alphanumeric'
 
     sentence_text = text.rstrip(''.join(_CLOSING_PUNCTUATION))
     if not sentence_text or (
         sentence_text[-1] not in _SENTENCE_TERMINATORS
         and text[-1] not in _TERMINAL_CLOSING_PUNCTUATION
     ):
-        return False
-    return _sentence_boundary_count(text) == 1
+        return 'text_no_terminator'
+    # Reaching here guarantees at least one boundary, so the only way to miss
+    # the contract now is to have written more than one sentence.
+    if _sentence_boundary_count(text) != 1:
+        return 'text_multiple_sentences'
+    return None
 
 
 def _decode_semantic_view(text: str) -> str | None:
@@ -308,4 +324,4 @@ def _run_is_abbreviation(text: str, start: int, end: int) -> bool:
     )
 
 
-__all__ = ['is_complete_plain_sentence']
+__all__ = ['is_complete_plain_sentence', 'plain_sentence_defect']

@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.batch.ai_output_contracts import (
+    build_key_point_failure,
     build_unavailable_analysis,
     normalize_key_points,
     validate_analysis_sections,
@@ -206,11 +207,7 @@ async def _generate_key_points(
     llm_provider: BatchLlmProvider, clusters: list[dict], indices: list
 ) -> dict[str, object]:
     if not llm_provider.is_configured():
-        normalized = normalize_key_points(None)
-        return {
-            'keyPoints': normalized['keyPoints'],
-            'issue': normalized.get('issue'),
-        }
+        return _key_point_result(build_key_point_failure('provider_not_configured'))
 
     try:
         result = await llm_provider.summarize_key_points(
@@ -236,14 +233,54 @@ async def _generate_key_points(
             'Key point provider request failed.',
             exception=exc,
         )
-        result = None
+        return _key_point_result(build_key_point_failure('provider_call_failed'))
 
-    payload = result.get('keyPoints') if isinstance(result, dict) else None
-    normalized = normalize_key_points(payload)
+    # A response that never carried the field at all is a different prompt
+    # problem from one that carried a malformed array, and the old ``None``
+    # for both made them indistinguishable from a failed call.
+    if not isinstance(result, dict):
+        normalized = build_key_point_failure('response_not_object')
+    elif 'keyPoints' not in result:
+        normalized = build_key_point_failure('response_missing_key_points')
+    else:
+        normalized = normalize_key_points(result['keyPoints'])
+    return _key_point_result(normalized)
+
+
+def _key_point_result(normalized: dict[str, object]) -> dict[str, object]:
     return {
         'keyPoints': normalized['keyPoints'],
         'issue': normalized.get('issue'),
+        'reason': normalized.get('reason'),
     }
+
+
+def _key_point_metadata(
+    key_point_result: dict[str, object], model_name: str | None
+) -> dict[str, object]:
+    """Build the key-point metadata, recording what rejected a failed one.
+
+    The public issue carries one code for every way this contract can be
+    missed, so a run that fails here leaves nothing to act on unless the rule
+    that rejected it is written down beside it.
+    """
+    reason = key_point_result.get('reason')
+    # A retry copies the previous attempt's metadata forward, so the key is
+    # written on every path: leaving it out on success would let a recovered
+    # row keep advertising the rule that rejected the attempt before it.
+    metadata: dict[str, object] = {
+        'keyPoints': key_point_result['keyPoints'],
+        'keyPointIssue': key_point_result['issue'],
+        'keyPointFailureReason': reason,
+    }
+    if reason is None:
+        return metadata
+    LOGGER.warning(
+        'Key points rejected by their output contract. reason=%s model=%s',
+        reason,
+        model_name,
+    )
+    return metadata
 
 
 async def _generate_global_outputs(
@@ -264,10 +301,9 @@ async def _generate_global_outputs(
             dict(existing_metadata) if isinstance(existing_metadata, dict) else {}
         )
         metadata.update(
-            {
-                'keyPoints': key_point_result['keyPoints'],
-                'keyPointIssue': key_point_result['issue'],
-            }
+            _key_point_metadata(
+                key_point_result, getattr(llm_provider, 'model_name', None)
+            )
         )
         return {
             'title': getattr(existing_summary, 'title', None),
@@ -296,8 +332,9 @@ async def _generate_global_outputs(
         **headline_result,
         'metadata_json': {
             **headline_metadata,
-            'keyPoints': key_point_result['keyPoints'],
-            'keyPointIssue': key_point_result['issue'],
+            **_key_point_metadata(
+                key_point_result, getattr(llm_provider, 'model_name', None)
+            ),
         },
     }
 
