@@ -275,6 +275,14 @@ class Settings(BaseSettings):
             'STOCKAPP_OLLAMA_MAX_RETRIES', 'ollama_max_retries'
         ),
     )
+    ollama_embed_batch_size: int = Field(
+        default=8,
+        ge=1,
+        validation_alias=AliasChoices(
+            'STOCKAPP_OLLAMA_EMBED_BATCH_SIZE',
+            'ollama_embed_batch_size',
+        ),
+    )
     similarity_input_chars: int = Field(
         default=2048,
         gt=0,

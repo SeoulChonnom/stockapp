@@ -348,6 +348,7 @@ def test_settings_loads_ollama_configuration_from_environment(
     monkeypatch.setenv('STOCKAPP_OLLAMA_EMBED_MODEL', 'custom-embed')
     monkeypatch.setenv('STOCKAPP_OLLAMA_TIMEOUT_SECONDS', '12.5')
     monkeypatch.setenv('STOCKAPP_OLLAMA_MAX_RETRIES', '1')
+    monkeypatch.setenv('STOCKAPP_OLLAMA_EMBED_BATCH_SIZE', '3')
     monkeypatch.setenv('STOCKAPP_SIMILARITY_INPUT_CHARS', '1024')
 
     settings = settings_module.Settings(_env_file=None)
@@ -356,6 +357,7 @@ def test_settings_loads_ollama_configuration_from_environment(
     assert settings.ollama_embed_model == 'custom-embed'
     assert settings.ollama_timeout_seconds == 12.5
     assert settings.ollama_max_retries == 1
+    assert settings.ollama_embed_batch_size == 3
     assert settings.similarity_input_chars == 1024
 
 
@@ -365,6 +367,7 @@ def test_settings_uses_ollama_defaults(monkeypatch: pytest.MonkeyPatch):
         'STOCKAPP_OLLAMA_EMBED_MODEL',
         'STOCKAPP_OLLAMA_TIMEOUT_SECONDS',
         'STOCKAPP_OLLAMA_MAX_RETRIES',
+        'STOCKAPP_OLLAMA_EMBED_BATCH_SIZE',
         'STOCKAPP_SIMILARITY_INPUT_CHARS',
     ):
         monkeypatch.delenv(name, raising=False)
@@ -375,6 +378,7 @@ def test_settings_uses_ollama_defaults(monkeypatch: pytest.MonkeyPatch):
     assert settings.ollama_embed_model == 'bge-m3'
     assert settings.ollama_timeout_seconds == 30
     assert settings.ollama_max_retries == 2
+    assert settings.ollama_embed_batch_size == 8
     assert settings.similarity_input_chars == 2048
 
 
@@ -392,6 +396,15 @@ def test_settings_uses_ollama_defaults(monkeypatch: pytest.MonkeyPatch):
 def test_settings_rejects_invalid_ollama_bounds(field_name: str, value: object):
     with pytest.raises(ValidationError, match=field_name):
         settings_module.Settings(**{field_name: value})
+
+
+@pytest.mark.parametrize('batch_size', [0, -1])
+def test_settings_rejects_non_positive_ollama_embed_batch_size(batch_size: int):
+    with pytest.raises(ValidationError, match='ollama_embed_batch_size'):
+        settings_module.Settings(
+            _env_file=None,
+            ollama_embed_batch_size=batch_size,
+        )
 
 
 def test_settings_normalizes_ollama_base_url_whitespace():
