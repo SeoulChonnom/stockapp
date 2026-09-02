@@ -1,16 +1,31 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Real
+from time import perf_counter
 from typing import Any, Protocol
 
 import httpx
 
 from app.core.settings import Settings, get_settings
 from app.core.text import normalize_text
+
+LOGGER = logging.getLogger(__name__)
+_SAFE_FAILURE_REASONS = frozenset(
+    {
+        'unknown',
+        'invalid_input',
+        'timeout',
+        'network_error',
+        'http_status',
+        'invalid_response',
+        'retries_exhausted',
+    }
+)
 
 
 class OllamaEmbeddingError(RuntimeError):
@@ -29,10 +44,12 @@ class OllamaEmbeddingError(RuntimeError):
         *,
         reason: str = 'unknown',
         status_code: int | None = None,
+        attempt: int | None = None,
     ) -> None:
         super().__init__(message)
         self.reason = reason
         self.status_code = status_code
+        self.attempt = attempt
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,11 +143,28 @@ class OllamaEmbeddingProvider:
                 'input': chunk_inputs,
                 'truncate': False,
             }
-            chunk_vectors = await self._request_embeddings(
-                client,
-                payload,
-                len(chunk_inputs),
-            )
+            started_at = perf_counter()
+            try:
+                chunk_vectors = await self._request_embeddings(
+                    client,
+                    payload,
+                    len(chunk_inputs),
+                )
+            except OllamaEmbeddingError as exc:
+                LOGGER.warning(
+                    'Ollama embedding chunk failed article_count=%d '
+                    'chunk_index=%d chunk_count=%d chunk_size=%d attempt=%s '
+                    'elapsed_seconds=%.3f failure_reason=%s status_code=%s',
+                    len(inputs),
+                    offset // batch_size + 1,
+                    chunk_count,
+                    len(chunk_inputs),
+                    exc.attempt,
+                    perf_counter() - started_at,
+                    _safe_failure_reason(exc.reason),
+                    _safe_status_code(exc.status_code),
+                )
+                raise
             if expected_dimension is None:
                 expected_dimension = len(chunk_vectors[0])
             elif any(len(vector) != expected_dimension for vector in chunk_vectors):
@@ -168,6 +202,7 @@ class OllamaEmbeddingProvider:
                     reason='timeout'
                     if isinstance(exc, httpx.TimeoutException)
                     else 'network_error',
+                    attempt=attempt + 1,
                 ) from None
 
             try:
@@ -179,18 +214,26 @@ class OllamaEmbeddingProvider:
                         'request failed.',
                         reason='http_status',
                         status_code=response.status_code,
+                        attempt=attempt + 1,
                     )
                 if not 200 <= response.status_code < 300:
                     raise OllamaEmbeddingError(
                         'request failed.',
                         reason='http_status',
                         status_code=response.status_code,
+                        attempt=attempt + 1,
                     )
-                return self._parse_embeddings(response, expected_count)
+                try:
+                    return self._parse_embeddings(response, expected_count)
+                except OllamaEmbeddingError as exc:
+                    exc.attempt = attempt + 1
+                    raise
             finally:
                 await response.aclose()
 
-        raise OllamaEmbeddingError('request failed.', reason='retries_exhausted')
+        raise OllamaEmbeddingError(
+            'request failed.', reason='retries_exhausted', attempt=attempts
+        )
 
     def _endpoint_url(self) -> str:
         return f'{self._settings.ollama_base_url.rstrip("/")}{self.endpoint_path}'
@@ -259,6 +302,18 @@ class OllamaEmbeddingProvider:
         else:
             value = getattr(article, name, None)
         return value if isinstance(value, str) else None
+
+
+def _safe_failure_reason(value: object) -> str:
+    if isinstance(value, str) and value in _SAFE_FAILURE_REASONS:
+        return value
+    return 'unknown'
+
+
+def _safe_status_code(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
 
 
 __all__ = ['EmbeddingArticle', 'OllamaEmbeddingError', 'OllamaEmbeddingProvider']

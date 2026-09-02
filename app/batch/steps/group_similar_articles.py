@@ -129,6 +129,10 @@ class GroupSimilarArticlesStep(BatchStep):
             getattr(resolved_settings, 'similarity_input_chars', 2048),
             field='similarity_input_chars',
         )
+        self._embed_batch_size = _positive_int(
+            getattr(resolved_settings, 'ollama_embed_batch_size', 8),
+            field='ollama_embed_batch_size',
+        )
         self._threshold = (
             threshold
             if threshold is not None
@@ -187,6 +191,17 @@ class GroupSimilarArticlesStep(BatchStep):
             ):
                 continue
 
+            chunk_count = (
+                len(target['articles']) + self._embed_batch_size - 1
+            ) // self._embed_batch_size
+            LOGGER.info(
+                'Similar article grouping embedding target cluster_id=%d '
+                'cluster_count=%d article_count=%d chunk_count=%d',
+                cluster_id,
+                len(ordered_clusters),
+                len(target['articles']),
+                chunk_count,
+            )
             try:
                 vectors = await _embed_articles(
                     embedding_provider, target['embedding_articles']

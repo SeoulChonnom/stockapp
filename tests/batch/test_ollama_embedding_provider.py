@@ -139,6 +139,80 @@ async def test_embed_articles_sends_sequential_chunks_and_flattens_original_orde
 
 
 @pytest.mark.anyio
+async def test_embed_articles_applies_retry_budget_to_each_chunk():
+    attempts_by_input: dict[str, int] = {}
+    request_sizes: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        request_sizes.append(len(payload['input']))
+        key = payload['input'][0]
+        attempts_by_input[key] = attempts_by_input.get(key, 0) + 1
+        if attempts_by_input[key] < 3:
+            return httpx.Response(503, json={'error': 'busy'}, request=request)
+        return httpx.Response(
+            200,
+            json={'embeddings': [[1.0, 0.0] for _ in payload['input']]},
+            request=request,
+        )
+
+    settings = Settings(
+        _env_file=None,
+        ollama_base_url='http://ollama.test',
+        ollama_max_retries=2,
+        ollama_embed_batch_size=2,
+    )
+    articles = [_article(f'article {index}', 'summary') for index in range(4)]
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        result = await provider.embed_articles(articles)
+
+    assert result == [[1.0, 0.0]] * 4
+    assert request_sizes == [2, 2, 2, 2, 2, 2]
+    assert attempts_by_input == {
+        'article 0 summary': 3,
+        'article 2 summary': 3,
+    }
+
+
+@pytest.mark.anyio
+async def test_final_chunk_failure_stops_later_chunks_and_returns_no_partial_vectors():
+    requests: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append(payload)
+        if len(requests) == 2:
+            return httpx.Response(
+                503,
+                content=b'provider secret-token response body',
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json={'embeddings': [[1.0, 0.0] for _ in payload['input']]},
+            request=request,
+        )
+
+    settings = Settings(
+        _env_file=None,
+        ollama_base_url='http://ollama.test',
+        ollama_max_retries=0,
+        ollama_embed_batch_size=2,
+    )
+    articles = [_article(f'article {index}', 'summary') for index in range(5)]
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        with pytest.raises(OllamaEmbeddingError, match='request failed'):
+            await provider.embed_articles(articles)
+
+    assert [len(payload['input']) for payload in requests] == [2, 2]
+    assert [value.split()[1] for value in requests[-1]['input']] == ['2', '3']
+
+
+@pytest.mark.anyio
 async def test_embed_articles_rejects_dimension_change_between_chunks():
     requests: list[dict[str, object]] = []
 

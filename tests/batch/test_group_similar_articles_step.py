@@ -261,6 +261,94 @@ async def test_provider_failure_persists_unavailable_singletons_and_continues():
 
 
 @pytest.mark.anyio
+async def test_final_chunk_failure_uses_cluster_singletons_without_ready_write(
+    caplog,
+):
+    cluster_repo, group_repo = _repositories((1,))
+    cluster_repo.memberships[1].append({'processed_article_id': 13, 'article_rank': 3})
+    cluster_repo.articles[13] = _article(13)
+    cluster_repo.counts.update({11: 6, 12: 7, 13: 8})
+    requests: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append(payload)
+        if len(requests) == 2:
+            return httpx.Response(
+                503,
+                content=b'https://secret.example token=secret-token',
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json={'embeddings': [[1.0, 0.0] for _ in payload['input']]},
+            request=request,
+        )
+
+    settings = SimpleNamespace(
+        ollama_base_url='http://ollama.test',
+        ollama_embed_model='bge-m3',
+        ollama_timeout_seconds=1.0,
+        ollama_max_retries=0,
+        ollama_embed_batch_size=2,
+        similarity_input_chars=2048,
+    )
+    caplog.set_level(
+        logging.WARNING,
+        logger='app.batch.providers.ollama_embedding_provider',
+    )
+    caplog.set_level(
+        logging.INFO,
+        logger='app.batch.steps.group_similar_articles',
+    )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        context = await _step(
+            cluster_repo,
+            group_repo,
+            provider,
+            settings=settings,
+        ).run(FakeBatchRepository(), _context())
+
+    assert [len(payload['input']) for payload in requests] == [2, 1]
+    assert group_repo.ready == []
+    assert [row[0] for row in group_repo.unavailable] == [1]
+    assert [row['processed_article_id'] for row in group_repo.unavailable[0][1]] == [
+        11,
+        12,
+        13,
+    ]
+    assert context.partial_categories == {SIMILARITY_GROUPING_FAILED: 1}
+
+    provider_log = next(
+        record
+        for record in caplog.records
+        if 'Ollama embedding chunk failed' in record.getMessage()
+    )
+    provider_text = provider_log.getMessage()
+    assert 'article_count=3' in provider_text
+    assert 'chunk_index=2' in provider_text
+    assert 'chunk_count=2' in provider_text
+    assert 'chunk_size=1' in provider_text
+    assert 'attempt=1' in provider_text
+    assert 'failure_reason=http_status' in provider_text
+    assert 'status_code=503' in provider_text
+    assert 'elapsed_seconds=' in provider_text
+    step_log = next(
+        record
+        for record in caplog.records
+        if 'Similar article grouping embedding target' in record.getMessage()
+    )
+    assert 'cluster_id=1' in step_log.getMessage()
+    assert 'cluster_count=1' in step_log.getMessage()
+    assert 'article_count=3' in step_log.getMessage()
+    assert 'chunk_count=2' in step_log.getMessage()
+    assert 'secret.example' not in caplog.text
+    assert 'secret-token' not in caplog.text
+
+
+@pytest.mark.anyio
 async def test_cancelled_provider_error_propagates_without_fallback():
     cluster_repo, group_repo = _repositories((1,))
     provider = RecordingEmbeddingProvider(error=asyncio.CancelledError())
