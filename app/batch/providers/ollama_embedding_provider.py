@@ -75,20 +75,15 @@ class OllamaEmbeddingProvider:
     async def embed_articles(
         self, articles: Sequence[EmbeddingArticle | Mapping[str, object] | object]
     ) -> list[list[float]]:
-        """Embed all articles in one request, preserving input order."""
+        """Embed all articles in sequential chunks, preserving input order."""
 
         inputs = [self.build_input(article) for article in articles]
         if not inputs:
             return []
-        payload: Mapping[str, object] = {
-            'model': self._settings.ollama_embed_model,
-            'input': inputs,
-            'truncate': False,
-        }
         if self._client is not None:
-            return await self._request_embeddings(self._client, payload, len(inputs))
+            return await self._embed_chunks(self._client, inputs)
         async with self._build_client() as client:
-            return await self._request_embeddings(client, payload, len(inputs))
+            return await self._embed_chunks(client, inputs)
 
     async def embed(
         self, articles: Sequence[EmbeddingArticle | Mapping[str, object] | object]
@@ -113,6 +108,44 @@ class OllamaEmbeddingProvider:
 
     def _build_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=self._settings.ollama_timeout_seconds)
+
+    async def _embed_chunks(
+        self,
+        client: _EmbeddingHttpClient,
+        inputs: Sequence[str],
+    ) -> list[list[float]]:
+        batch_size = getattr(self._settings, 'ollama_embed_batch_size', 8)
+        chunk_count = (len(inputs) + batch_size - 1) // batch_size
+        flattened: list[list[float]] = []
+        expected_dimension: int | None = None
+
+        for offset in range(0, len(inputs), batch_size):
+            chunk_inputs = inputs[offset : offset + batch_size]
+            payload: Mapping[str, object] = {
+                'model': self._settings.ollama_embed_model,
+                'input': chunk_inputs,
+                'truncate': False,
+            }
+            chunk_vectors = await self._request_embeddings(
+                client,
+                payload,
+                len(chunk_inputs),
+            )
+            if expected_dimension is None:
+                expected_dimension = len(chunk_vectors[0])
+            elif any(len(vector) != expected_dimension for vector in chunk_vectors):
+                raise OllamaEmbeddingError(
+                    'invalid response.',
+                    reason='invalid_response',
+                )
+            flattened.extend(chunk_vectors)
+
+        if len(flattened) != len(inputs) or chunk_count < 1:
+            raise OllamaEmbeddingError(
+                'invalid response.',
+                reason='invalid_response',
+            )
+        return flattened
 
     async def _request_embeddings(
         self,
