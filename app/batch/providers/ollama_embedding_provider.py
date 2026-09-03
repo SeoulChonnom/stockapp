@@ -150,6 +150,14 @@ class OllamaEmbeddingProvider:
                     payload,
                     len(chunk_inputs),
                 )
+                if expected_dimension is None:
+                    expected_dimension = len(chunk_vectors[0])
+                elif any(len(vector) != expected_dimension for vector in chunk_vectors):
+                    raise OllamaEmbeddingError(
+                        'invalid response.',
+                        reason='invalid_response',
+                        attempt=1,
+                    )
             except OllamaEmbeddingError as exc:
                 LOGGER.warning(
                     'Ollama embedding chunk failed article_count=%d '
@@ -165,13 +173,6 @@ class OllamaEmbeddingProvider:
                     _safe_status_code(exc.status_code),
                 )
                 raise
-            if expected_dimension is None:
-                expected_dimension = len(chunk_vectors[0])
-            elif any(len(vector) != expected_dimension for vector in chunk_vectors):
-                raise OllamaEmbeddingError(
-                    'invalid response.',
-                    reason='invalid_response',
-                )
             flattened.extend(chunk_vectors)
 
         if len(flattened) != len(inputs) or chunk_count < 1:

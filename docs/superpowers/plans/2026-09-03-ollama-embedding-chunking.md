@@ -151,7 +151,7 @@ git commit -m "feat: Ollama 임베딩 청크 설정 추가"
 
 ```python
 @pytest.mark.anyio
-async def test_embed_articles_sends_sequential_chunks_and_flattens_original_order():
+async def test_embed_articles_sends_default_chunks_and_flattens_original_order():
     requests: list[dict[str, object]] = []
     events: list[str] = []
 
@@ -175,9 +175,8 @@ async def test_embed_articles_sends_sequential_chunks_and_flattens_original_orde
         _env_file=None,
         ollama_base_url='http://ollama.test',
         ollama_max_retries=0,
-        ollama_embed_batch_size=2,
     )
-    articles = [_article(f'article {index}', 'summary') for index in range(5)]
+    articles = [_article(f'article {index}', 'summary') for index in range(17)]
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = OllamaEmbeddingProvider(settings, client=client)
@@ -192,15 +191,15 @@ async def test_embed_articles_sends_sequential_chunks_and_flattens_original_orde
         provider.build_input = counting_build_input
         result = await provider.embed_articles(articles)
 
-    assert [len(payload['input']) for payload in requests] == [2, 2, 1]
-    assert [value[0] for value in result] == [0.0, 1.0, 2.0, 3.0, 4.0]
+    assert [len(payload['input']) for payload in requests] == [8, 8, 1]
+    assert [value[0] for value in result] == [float(index) for index in range(17)]
     assert events == [
         'start:0',
         'end:0',
-        'start:2',
-        'end:2',
-        'start:4',
-        'end:4',
+        'start:8',
+        'end:8',
+        'start:16',
+        'end:16',
     ]
     assert build_calls == len(articles)
 
@@ -248,10 +247,10 @@ async def test_embed_articles_rejects_dimension_change_between_chunks():
 Run:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/batch/test_ollama_embedding_provider.py -q -k 'sequential_chunks or dimension_change_between_chunks'
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/batch/test_ollama_embedding_provider.py -q -k 'default_chunks or logs_dimension_change_between_chunks'
 ```
 
-Expected: FAIL because the current provider sends one five-input request instead of `[2, 2, 1]`; the current one-request dimension response succeeds rather than exercising a cross-chunk dimension change.
+Expected: FAIL because the current provider emits no warning for the cross-chunk dimension failure; the default chunk assertions protect 17 inputs as `[8, 8, 1]`.
 
 - [ ] **Step 3: Replace the one-request body with a complete sequential implementation.** Keep `build_input` and `_request_embeddings` behavior intact, and make `embed_articles` call this private helper while preserving empty-input behavior and client ownership:
 

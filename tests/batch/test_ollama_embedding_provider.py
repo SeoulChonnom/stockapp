@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from types import SimpleNamespace
 
 import httpx
@@ -87,7 +88,7 @@ async def test_embed_articles_posts_one_exact_batch_request():
 
 
 @pytest.mark.anyio
-async def test_embed_articles_sends_sequential_chunks_and_flattens_original_order():
+async def test_embed_articles_sends_default_chunks_and_flattens_original_order():
     requests: list[dict[str, object]] = []
     events: list[str] = []
 
@@ -108,9 +109,8 @@ async def test_embed_articles_sends_sequential_chunks_and_flattens_original_orde
         _env_file=None,
         ollama_base_url='http://ollama.test',
         ollama_max_retries=0,
-        ollama_embed_batch_size=2,
     )
-    articles = [_article(f'article {index}', 'summary') for index in range(5)]
+    articles = [_article(f'article {index}', 'summary') for index in range(17)]
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = OllamaEmbeddingProvider(settings, client=client)
@@ -125,15 +125,15 @@ async def test_embed_articles_sends_sequential_chunks_and_flattens_original_orde
         provider.build_input = counting_build_input
         result = await provider.embed_articles(articles)
 
-    assert [len(payload['input']) for payload in requests] == [2, 2, 1]
-    assert [value[0] for value in result] == [0.0, 1.0, 2.0, 3.0, 4.0]
+    assert [len(payload['input']) for payload in requests] == [8, 8, 1]
+    assert [value[0] for value in result] == [float(index) for index in range(17)]
     assert events == [
         'start:0',
         'end:0',
-        'start:2',
-        'end:2',
-        'start:4',
-        'end:4',
+        'start:8',
+        'end:8',
+        'start:16',
+        'end:16',
     ]
     assert build_calls == len(articles)
 
@@ -177,6 +177,35 @@ async def test_embed_articles_applies_retry_budget_to_each_chunk():
 
 
 @pytest.mark.anyio
+async def test_embed_articles_all_503_reports_terminal_attempt_metadata():
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(
+            503,
+            content=b'provider secret-token response body',
+            request=request,
+        )
+
+    settings = Settings(
+        _env_file=None,
+        ollama_base_url='http://ollama.test',
+        ollama_max_retries=2,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OllamaEmbeddingProvider(settings, client=client)
+        with pytest.raises(OllamaEmbeddingError) as exc_info:
+            await provider.embed_articles([_article()])
+
+    assert attempts == 3
+    assert exc_info.value.attempt == 3
+    assert exc_info.value.reason == 'http_status'
+    assert exc_info.value.status_code == 503
+
+
+@pytest.mark.anyio
 async def test_final_chunk_failure_stops_later_chunks_and_returns_no_partial_vectors():
     requests: list[dict[str, object]] = []
 
@@ -213,8 +242,13 @@ async def test_final_chunk_failure_stops_later_chunks_and_returns_no_partial_vec
 
 
 @pytest.mark.anyio
-async def test_embed_articles_rejects_dimension_change_between_chunks():
+async def test_embed_articles_logs_dimension_change_between_chunks(caplog):
     requests: list[dict[str, object]] = []
+
+    caplog.set_level(
+        logging.WARNING,
+        logger='app.batch.providers.ollama_embedding_provider',
+    )
 
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
@@ -248,6 +282,23 @@ async def test_embed_articles_rejects_dimension_change_between_chunks():
             await provider.embed_articles(articles)
 
     assert [len(payload['input']) for payload in requests] == [2, 1]
+    provider_logs = [
+        record
+        for record in caplog.records
+        if 'Ollama embedding chunk failed' in record.getMessage()
+    ]
+    assert len(provider_logs) == 1
+    diagnostic = provider_logs[0].getMessage()
+    assert 'article_count=3' in diagnostic
+    assert 'chunk_index=2' in diagnostic
+    assert 'chunk_count=2' in diagnostic
+    assert 'chunk_size=1' in diagnostic
+    assert 'attempt=1' in diagnostic
+    assert 'elapsed_seconds=' in diagnostic
+    assert 'failure_reason=invalid_response' in diagnostic
+    assert 'status_code=None' in diagnostic
+    assert 'article 2 summary' not in diagnostic
+    assert 'http://ollama.test' not in diagnostic
 
 
 @pytest.mark.anyio
