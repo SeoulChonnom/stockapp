@@ -5,9 +5,11 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.batch.diagnostics import NEWS_COVERAGE_GAP_SKIPPED
 from app.batch.models import BatchExecutionContext
 from app.batch.policies.market_session_policy import MarketSessionPolicy
 from app.batch.steps.base import BatchStep, require_repository_session
+from app.db.enums import EventLevel
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.market_context_repo import MarketContextRepository
 from app.db.repositories.projections import BatchJobMarketContextCreateParams
@@ -97,6 +99,30 @@ class PrepareMarketContextsStep(BatchStep):
                     news_window_start_at=draft.news_window_start_at,
                     news_window_end_at=draft.news_window_end_at,
                 )
+                if draft.lookback_capped:
+                    # The window moved forward past collection that never
+                    # happened. That is the deliberate escape from a frozen
+                    # watermark, but it does mean this page was built without
+                    # news the pipeline once intended to include, so it degrades
+                    # the run instead of passing silently.
+                    context.add_partial(
+                        NEWS_COVERAGE_GAP_SKIPPED,
+                        f'{market_type} news window skipped coverage older than '
+                        f'{draft.news_window_start_at.isoformat()}.',
+                    )
+                    await repository.add_event(
+                        job_id=context.job_id,
+                        step_code=self.step_code,
+                        level=EventLevel.WARN.value,
+                        message='News window capped past incomplete coverage.',
+                        context_json={
+                            'marketType': market_type,
+                            'newsWindowStartAt': (
+                                draft.news_window_start_at.isoformat()
+                            ),
+                            'newsWindowEndAt': draft.news_window_end_at.isoformat(),
+                        },
+                    )
             await context_repo.insert_if_absent(params)
 
         context.log_messages.append('Prepared persisted market contexts.')

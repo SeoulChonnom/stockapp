@@ -250,6 +250,14 @@ class Settings(BaseSettings):
             'market_session_data_grace_minutes',
         ),
     )
+    news_window_max_lookback_hours: int = Field(
+        default=48,
+        gt=0,
+        validation_alias=AliasChoices(
+            'STOCKAPP_NEWS_WINDOW_MAX_LOOKBACK_HOURS',
+            'news_window_max_lookback_hours',
+        ),
+    )
     ollama_base_url: str = Field(
         default='http://localhost:11434',
         validation_alias=AliasChoices('STOCKAPP_OLLAMA_BASE_URL', 'ollama_base_url'),

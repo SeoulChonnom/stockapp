@@ -29,6 +29,7 @@ class MarketContextDraft:
     session_close_at: datetime
     news_window_start_at: datetime
     news_window_end_at: datetime
+    lookback_capped: bool = False
 
 
 class MarketSessionPolicy:
@@ -45,6 +46,7 @@ class MarketSessionPolicy:
         self._data_grace = timedelta(
             minutes=configured.market_session_data_grace_minutes
         )
+        self._max_lookback = timedelta(hours=configured.news_window_max_lookback_hours)
 
     def latest_completed_session(
         self,
@@ -86,6 +88,8 @@ class MarketSessionPolicy:
         if as_of.tzinfo is None:
             raise ValueError('as_of must be timezone-aware.')
         window_end_at = as_of.astimezone(UTC)
+        earliest_start_at = window_end_at - self._max_lookback
+        lookback_capped = False
         if previous_coverage_end_at is None:
             window_start_at = window_end_at - timedelta(hours=24)
         else:
@@ -94,6 +98,15 @@ class MarketSessionPolicy:
             window_start_at = previous_coverage_end_at.astimezone(UTC)
             if window_start_at > window_end_at:
                 raise ValueError('News coverage watermark cannot be after window end.')
+            if window_start_at < earliest_start_at:
+                # The watermark only advances when coverage is complete, so one
+                # collection slot that never ran freezes it: every later window
+                # still contains that hole, coverage is never complete again,
+                # and the window grows by a day per day without ever healing.
+                # A slot that old can no longer be collected, so the window
+                # stops chasing it -- and says so rather than swallowing it.
+                window_start_at = earliest_start_at
+                lookback_capped = True
 
         session = self.latest_completed_session(
             market_type=market_type,
@@ -105,6 +118,7 @@ class MarketSessionPolicy:
             session_close_at=session.session_close_at,
             news_window_start_at=window_start_at,
             news_window_end_at=window_end_at,
+            lookback_capped=lookback_capped,
         )
 
 

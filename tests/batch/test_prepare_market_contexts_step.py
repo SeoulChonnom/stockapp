@@ -14,6 +14,10 @@ from tests.support import RecordingAsyncSession
 class EventRepository:
     def __init__(self) -> None:
         self.session = RecordingAsyncSession()
+        self.events: list[dict] = []
+
+    async def add_event(self, **kwargs) -> None:
+        self.events.append(kwargs)
 
 
 def _context(*, force_run: bool = False) -> BatchExecutionContext:
@@ -167,3 +171,98 @@ async def test_prepare_market_contexts_uses_complete_coverage_watermark():
         watermarks['US'],
         watermarks['KR'],
     ]
+
+
+@pytest.mark.anyio
+async def test_prepare_market_contexts_degrades_when_the_window_was_capped():
+    """A capped window silently drops news the pipeline meant to include.
+
+    The cap is the escape from a watermark frozen by collection that never
+    ran, but the page it produces is genuinely missing that stretch, so the
+    run has to say so rather than look clean.
+    """
+    cut_off = datetime(2026, 9, 6, 6, 10, tzinfo=UTC)
+    capped_start = datetime(2026, 9, 4, 6, 10, tzinfo=UTC)
+
+    class ContextRepo:
+        def __init__(self):
+            self.inserts = []
+
+        async def list_for_job(self, _job_id):
+            return []
+
+        async def get_latest_complete_coverage_end(self, *, market_type, at_or_before):
+            return datetime(2026, 8, 26, 6, 10, tzinfo=UTC)
+
+        async def insert_if_absent(self, params):
+            self.inserts.append(params)
+
+    class CappingPolicy:
+        def build_context(self, *, market_type, as_of, previous_coverage_end_at):
+            assert previous_coverage_end_at is not None
+            return MarketContextDraft(
+                market_type=market_type,
+                expected_session_date=date(2026, 9, 4),
+                session_close_at=datetime(2026, 9, 4, 6, 30, tzinfo=UTC),
+                news_window_start_at=capped_start,
+                news_window_end_at=as_of,
+                lookback_capped=True,
+            )
+
+    repository = EventRepository()
+    step = PrepareMarketContextsStep(
+        now_factory=lambda: cut_off,
+        context_repo_factory=lambda _session: ContextRepo(),
+        policy_factory=CappingPolicy,
+    )
+    context = _context()
+
+    await step.run(repository, context)
+
+    assert context.partial_categories == {'NEWS_COVERAGE_GAP_SKIPPED': 2}
+    assert [event['message'] for event in repository.events] == [
+        'News window capped past incomplete coverage.'
+    ] * 2
+    assert [event['context_json']['marketType'] for event in repository.events] == [
+        'US',
+        'KR',
+    ]
+
+
+@pytest.mark.anyio
+async def test_prepare_market_contexts_stays_clean_when_the_window_was_not_capped():
+    """A healthy run must not report a skip it never made."""
+    cut_off = datetime(2026, 9, 6, 6, 10, tzinfo=UTC)
+
+    class ContextRepo:
+        async def list_for_job(self, _job_id):
+            return []
+
+        async def get_latest_complete_coverage_end(self, *, market_type, at_or_before):
+            return datetime(2026, 9, 5, 6, 10, tzinfo=UTC)
+
+        async def insert_if_absent(self, params):
+            return None
+
+    class HealthyPolicy:
+        def build_context(self, *, market_type, as_of, previous_coverage_end_at):
+            return MarketContextDraft(
+                market_type=market_type,
+                expected_session_date=date(2026, 9, 4),
+                session_close_at=datetime(2026, 9, 4, 6, 30, tzinfo=UTC),
+                news_window_start_at=previous_coverage_end_at,
+                news_window_end_at=as_of,
+            )
+
+    repository = EventRepository()
+    step = PrepareMarketContextsStep(
+        now_factory=lambda: cut_off,
+        context_repo_factory=lambda _session: ContextRepo(),
+        policy_factory=HealthyPolicy,
+    )
+    context = _context()
+
+    await step.run(repository, context)
+
+    assert context.partial_categories == {}
+    assert repository.events == []
