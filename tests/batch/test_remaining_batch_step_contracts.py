@@ -655,6 +655,164 @@ async def test_persist_unavailable_cluster_detail_does_not_degrade_daily_page():
     assert len(fallback_details) == 1
     assert progress.committed[0][0] == target_key
 
+    # An UNAVAILABLE analysis is also degraded (analysisStatus != 'READY'), so
+    # the new signal fires alongside the existing fallback bookkeeping above.
+    assert context.ai_detail_analysis_degraded_count == 1
+    assert context.detail_analysis_issue_counts == {'ANALYSIS_GENERATION_FAILED': 1}
+
+
+@pytest.mark.anyio
+async def test_persist_partial_cluster_detail_increments_degraded_counter():
+    generate_module = load_module('app.batch.steps.generate_ai_summaries')
+
+    class RecordingSummaryRepo:
+        def __init__(self):
+            self.rows = []
+
+        async def insert_summary(self, params):
+            self.rows.append(params)
+
+    class RecordingProgress:
+        def __init__(self):
+            self.committed = []
+
+        async def commit_target(self, target_key, context):
+            self.committed.append((target_key, context.to_checkpoint()))
+
+    target_key = 'CLUSTER_DETAIL_ANALYSIS:7002'
+    summary_repo = RecordingSummaryRepo()
+    progress = RecordingProgress()
+    repository = RichEventRepository(
+        session=RecordingAsyncSession(),
+        events=[],
+    )
+    context = build_context()
+    fallback_details = []
+
+    await generate_module._persist_summary_result(
+        target_key,
+        {
+            'title': '반도체주 강세',
+            'body': '외국인 매수세가 유입됐습니다.',
+            'paragraphs': [{'kind': 'background'}],
+            'status': 'SUCCESS',
+            'fallback_used': False,
+            'metadata_json': {
+                'analysisStatus': 'PARTIAL',
+                'analysisIssues': [
+                    {
+                        'code': 'INVALID_SOURCE_REFERENCE',
+                        'message': '일부 분석 문장의 근거 기사를 확인하지 못했습니다.',
+                    }
+                ],
+                'conflictStatus': 'NOT_CHECKED',
+            },
+        },
+        context=context,
+        repository=repository,
+        step_code='GENERATE_AI_SUMMARIES',
+        summary_repo=summary_repo,
+        summary_jobs_by_key={
+            target_key: {
+                'summary_type': 'CLUSTER_DETAIL_ANALYSIS',
+                'market_type': 'KR',
+                'cluster_id': 7002,
+                'target_key': target_key,
+                'generate': None,
+            }
+        },
+        progress=progress,
+        fallback_details=fallback_details,
+    )
+
+    persisted = summary_repo.rows[0]
+    assert persisted.status == 'SUCCESS'
+    assert persisted.fallback_used is False
+    assert persisted.metadata_json['analysisStatus'] == 'PARTIAL'
+
+    # The new signal fires even though layer 1 persisted this row as a fully
+    # clean SUCCESS/fallback_used=False row.
+    assert context.ai_detail_analysis_degraded_count == 1
+    assert context.detail_analysis_issue_counts == {'INVALID_SOURCE_REFERENCE': 1}
+    warning = next(event for event in repository.events if event['level'] == 'WARN')
+    assert warning['context_json']['code'] == 'AI_DETAIL_ANALYSIS_DEGRADED'
+    assert warning['context_json']['issueCodes'] == ['INVALID_SOURCE_REFERENCE']
+    assert warning['context_json']['clusterId'] == 7002
+    assert warning['context_json']['analysisStatus'] == 'PARTIAL'
+
+    # Guards the design decision: a degraded detail analysis must never flip
+    # the job (and therefore the daily page) to PARTIAL.
+    assert context.ai_success_count == 1
+    assert context.fallback_count == 0
+    assert context.partial_message is None
+    assert context.partial_reasons == []
+    assert context.partial_categories == {}
+    assert len(fallback_details) == 0
+
+
+@pytest.mark.anyio
+async def test_persist_ready_cluster_detail_does_not_increment_degraded_counter():
+    generate_module = load_module('app.batch.steps.generate_ai_summaries')
+
+    class RecordingSummaryRepo:
+        def __init__(self):
+            self.rows = []
+
+        async def insert_summary(self, params):
+            self.rows.append(params)
+
+    class RecordingProgress:
+        def __init__(self):
+            self.committed = []
+
+        async def commit_target(self, target_key, context):
+            self.committed.append((target_key, context.to_checkpoint()))
+
+    target_key = 'CLUSTER_DETAIL_ANALYSIS:7003'
+    summary_repo = RecordingSummaryRepo()
+    progress = RecordingProgress()
+    repository = RichEventRepository(
+        session=RecordingAsyncSession(),
+        events=[],
+    )
+    context = build_context()
+    fallback_details = []
+
+    await generate_module._persist_summary_result(
+        target_key,
+        {
+            'title': '반도체주 강세',
+            'body': '외국인 매수세가 유입됐습니다.',
+            'paragraphs': [{'kind': 'background'}],
+            'status': 'SUCCESS',
+            'fallback_used': False,
+            'metadata_json': {
+                'analysisStatus': 'READY',
+                'analysisIssues': [],
+                'conflictStatus': 'NONE',
+            },
+        },
+        context=context,
+        repository=repository,
+        step_code='GENERATE_AI_SUMMARIES',
+        summary_repo=summary_repo,
+        summary_jobs_by_key={
+            target_key: {
+                'summary_type': 'CLUSTER_DETAIL_ANALYSIS',
+                'market_type': 'KR',
+                'cluster_id': 7003,
+                'target_key': target_key,
+                'generate': None,
+            }
+        },
+        progress=progress,
+        fallback_details=fallback_details,
+    )
+
+    assert context.ai_detail_analysis_degraded_count == 0
+    assert context.detail_analysis_issue_counts == {}
+    assert not any(event['level'] == 'WARN' for event in repository.events)
+
 
 @pytest.mark.anyio
 async def test_generate_ai_summaries_skips_provider_when_rebuild_page_only():

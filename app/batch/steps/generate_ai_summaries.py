@@ -10,7 +10,11 @@ from app.batch.ai_output_contracts import (
     canonical_key_point_issue,
 )
 from app.batch.ai_summary_targets import build_ai_summary_target_key
-from app.batch.diagnostics import AI_SUMMARY_FALLBACK, AI_SUMMARY_NO_CLUSTERS
+from app.batch.diagnostics import (
+    AI_DETAIL_ANALYSIS_DEGRADED,
+    AI_SUMMARY_FALLBACK,
+    AI_SUMMARY_NO_CLUSTERS,
+)
 from app.batch.models import BatchExecutionContext
 from app.batch.providers.llm_provider import PROMPT_VERSION, BatchLlmProvider
 from app.batch.steps.ai_summary_generators import (
@@ -25,6 +29,7 @@ from app.batch.steps.target_progress import (
     TargetCall,
     run_target_calls,
 )
+from app.core.ai_contracts import ANALYSIS_ISSUE_MESSAGES
 from app.db.enums import AiSummaryStatus, AiSummaryType, EventLevel
 from app.db.repositories.ai_summary_write_repo import AiSummaryWriteRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
@@ -308,6 +313,67 @@ def _build_fallback_report(
     return partial_reason, fallback_detail
 
 
+def _detail_analysis_issue_codes(metadata: Mapping[str, Any]) -> list[str]:
+    """Return only the fixed-vocabulary codes a degraded analysis carries.
+
+    ``analysisIssues`` entries are built from ``ANALYSIS_ISSUE_MESSAGES`` alone
+    and never from provider text, but this still filters against that
+    vocabulary so a malformed entry can never reach the batch event or the
+    log line.
+    """
+    raw_issues = metadata.get('analysisIssues')
+    if not isinstance(raw_issues, list):
+        return []
+    return [
+        issue['code']
+        for issue in raw_issues
+        if isinstance(issue, Mapping)
+        and isinstance(issue.get('code'), str)
+        and issue['code'] in ANALYSIS_ISSUE_MESSAGES
+    ]
+
+
+async def _record_detail_analysis_degradation(
+    *,
+    context: BatchExecutionContext,
+    repository: BatchJobRepository,
+    step_code: str,
+    summary_job: _SummaryJob,
+    metadata: Mapping[str, Any],
+) -> None:
+    """Record a degraded CLUSTER_DETAIL_ANALYSIS row without touching daily-page status.
+
+    Deliberately bypasses ``fallback_count``/``add_partial`` -- those feed
+    ``determine_batch_status``, and one cluster's analysis quality must never
+    flip the whole daily page to PARTIAL -- so this is the only place the rate
+    becomes visible at all.
+    """
+    if (
+        summary_job['summary_type'] != AiSummaryType.CLUSTER_DETAIL_ANALYSIS.value
+        or metadata.get('analysisStatus') == 'READY'
+    ):
+        return
+    issue_codes = _detail_analysis_issue_codes(metadata)
+    context.ai_detail_analysis_degraded_count += 1
+    for issue_code in issue_codes:
+        context.detail_analysis_issue_counts[issue_code] = (
+            context.detail_analysis_issue_counts.get(issue_code, 0) + 1
+        )
+    await repository.add_event(
+        job_id=context.job_id,
+        step_code=step_code,
+        level=EventLevel.WARN.value,
+        message='Cluster detail analysis persisted in a degraded state.',
+        context_json={
+            'code': AI_DETAIL_ANALYSIS_DEGRADED,
+            'clusterId': summary_job['cluster_id'],
+            'marketType': summary_job['market_type'],
+            'analysisStatus': metadata.get('analysisStatus'),
+            'issueCodes': issue_codes,
+        },
+    )
+
+
 async def _persist_summary_result(
     target_key: str,
     payload: dict[str, Any],
@@ -388,6 +454,13 @@ async def _persist_summary_result(
             message='AI summary target generated with fallback response.',
             context_json=fallback_detail,
         )
+    await _record_detail_analysis_degradation(
+        context=context,
+        repository=repository,
+        step_code=step_code,
+        summary_job=summary_job,
+        metadata=metadata,
+    )
     if key_point_issue is not None:
         context.add_partial(
             KEY_POINT_FAILURE['code'],

@@ -49,6 +49,11 @@ class BatchExecutionContext:
     ai_success_count: int = 0
     ai_fallback_count: int = 0
     ai_failed_count: int = 0
+    # Counts CLUSTER_DETAIL_ANALYSIS rows persisted with analysisStatus !=
+    # 'READY'. Kept separate from fallback_count/add_partial on purpose: those
+    # feed determine_batch_status, and one cluster's degraded analysis must
+    # never flip the whole daily page to PARTIAL.
+    ai_detail_analysis_degraded_count: int = 0
     partial_message: str | None = None
     error_code: str | None = None
     error_message: str | None = None
@@ -56,6 +61,9 @@ class BatchExecutionContext:
     warning_messages: list[str] = field(default_factory=list)
     log_messages: list[str] = field(default_factory=list)
     partial_categories: dict[str, int] = field(default_factory=dict)
+    # Keyed by ANALYSIS_ISSUE_MESSAGES code so build_detail_analysis_degradation_log_line
+    # stays one bounded line no matter how many clusters degrade in a run.
+    detail_analysis_issue_counts: dict[str, int] = field(default_factory=dict)
 
     def add_partial(
         self,
@@ -107,6 +115,7 @@ class BatchExecutionContext:
             'aiSuccessCount': self.ai_success_count,
             'aiFallbackCount': self.ai_fallback_count,
             'aiFailedCount': self.ai_failed_count,
+            'aiDetailAnalysisDegradedCount': self.ai_detail_analysis_degraded_count,
             'partialMessage': self.partial_message,
             'errorCode': self.error_code,
             'errorMessage': self.error_message,
@@ -114,6 +123,7 @@ class BatchExecutionContext:
             'warningMessages': self.warning_messages,
             'logMessages': self.log_messages,
             'partialCategories': self.partial_categories,
+            'detailAnalysisIssueCounts': self.detail_analysis_issue_counts,
         }
 
     @classmethod
@@ -169,6 +179,9 @@ class BatchExecutionContext:
             ai_success_count=_checkpoint_int(payload, 'aiSuccessCount'),
             ai_fallback_count=_checkpoint_int(payload, 'aiFallbackCount'),
             ai_failed_count=_checkpoint_int(payload, 'aiFailedCount'),
+            ai_detail_analysis_degraded_count=_checkpoint_int(
+                payload, 'aiDetailAnalysisDegradedCount'
+            ),
             partial_message=_checkpoint_optional_string(payload, 'partialMessage'),
             error_code=_checkpoint_optional_string(payload, 'errorCode'),
             error_message=_checkpoint_optional_string(payload, 'errorMessage'),
@@ -176,6 +189,9 @@ class BatchExecutionContext:
             warning_messages=_checkpoint_string_list(payload, 'warningMessages'),
             log_messages=_checkpoint_string_list(payload, 'logMessages'),
             partial_categories=_checkpoint_int_dict(payload, 'partialCategories'),
+            detail_analysis_issue_counts=_checkpoint_int_dict(
+                payload, 'detailAnalysisIssueCounts'
+            ),
         )
 
 

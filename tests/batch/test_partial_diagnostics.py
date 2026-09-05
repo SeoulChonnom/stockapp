@@ -7,11 +7,13 @@ from pathlib import Path
 import pytest
 
 from app.batch.diagnostics import (
+    AI_DETAIL_ANALYSIS_DEGRADED,
     AI_SUMMARY_FALLBACK,
     INDEX_STALE_SOURCE_DATE,
     NEWS_COLLECT_FAILED,
     PARTIAL_UNCATEGORIZED,
     build_attempt_log_line,
+    build_detail_analysis_degradation_log_line,
     build_diagnostic_log_line,
     build_log_summary,
 )
@@ -85,6 +87,23 @@ def test_partial_categories_survive_checkpoint_round_trip() -> None:
     assert restored.partial_categories == {AI_SUMMARY_FALLBACK: 1}
 
 
+def test_detail_analysis_degradation_counters_survive_checkpoint_round_trip() -> None:
+    context = build_context()
+    context.ai_detail_analysis_degraded_count = 2
+    context.detail_analysis_issue_counts = {'INVALID_SOURCE_REFERENCE': 2}
+
+    restored = BatchExecutionContext.from_checkpoint(
+        context.to_checkpoint(),
+        job_id=context.job_id,
+        business_date=context.business_date,
+        force_run=context.force_run,
+        rebuild_page_only=context.rebuild_page_only,
+    )
+
+    assert restored.ai_detail_analysis_degraded_count == 2
+    assert restored.detail_analysis_issue_counts == {'INVALID_SOURCE_REFERENCE': 2}
+
+
 def test_partial_categories_default_to_empty_for_legacy_checkpoints() -> None:
     context = build_context()
     payload = context.to_checkpoint()
@@ -126,6 +145,56 @@ def test_diagnostic_log_line_reports_uncategorized_fallback_only_partials() -> N
     assert build_diagnostic_log_line(context) == (
         f'PARTIAL diagnostics: {PARTIAL_UNCATEGORIZED} x3.'
     )
+
+
+def test_detail_analysis_degradation_log_line_is_absent_without_degradation() -> None:
+    assert build_detail_analysis_degradation_log_line(build_context()) is None
+
+
+def test_detail_analysis_degradation_log_line_stays_bounded_per_issue_code() -> None:
+    """The line must not grow with the number of degraded clusters -- only
+    with the (fixed, four-code) issue vocabulary it is keyed by."""
+    context = build_context()
+    context.ai_detail_analysis_degraded_count = 9
+    context.detail_analysis_issue_counts = {
+        'INVALID_SOURCE_REFERENCE': 6,
+        'CONFLICT_CHECK_FAILED': 3,
+    }
+
+    line = build_detail_analysis_degradation_log_line(context)
+
+    assert line == (
+        f'{AI_DETAIL_ANALYSIS_DEGRADED}: 9 cluster detail analysis row(s) '
+        'persisted degraded (INVALID_SOURCE_REFERENCE x6, '
+        'CONFLICT_CHECK_FAILED x3).'
+    )
+
+
+def test_detail_analysis_degradation_log_line_falls_back_to_uncategorized() -> None:
+    context = build_context()
+    context.ai_detail_analysis_degraded_count = 2
+
+    line = build_detail_analysis_degradation_log_line(context)
+
+    assert line == (
+        f'{AI_DETAIL_ANALYSIS_DEGRADED}: 2 cluster detail analysis row(s) '
+        f'persisted degraded ({PARTIAL_UNCATEGORIZED} x2).'
+    )
+
+
+def test_log_summary_includes_detail_analysis_degradation_line() -> None:
+    context = build_context()
+    context.ai_detail_analysis_degraded_count = 1
+    context.detail_analysis_issue_counts = {'INVALID_SOURCE_REFERENCE': 1}
+
+    summary = build_log_summary(context)
+
+    assert summary is not None
+    assert AI_DETAIL_ANALYSIS_DEGRADED in summary
+    # And it must not touch the daily page's own PARTIAL determination inputs.
+    assert context.fallback_count == 0
+    assert context.partial_categories == {}
+    assert context.partial_reasons == []
 
 
 def test_no_batch_step_appends_a_partial_signal_without_a_category() -> None:

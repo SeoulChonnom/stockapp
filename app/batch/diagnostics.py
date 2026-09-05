@@ -5,6 +5,7 @@ from typing import Final
 
 from app.batch.models import BatchExecutionContext
 
+AI_DETAIL_ANALYSIS_DEGRADED = 'AI_DETAIL_ANALYSIS_DEGRADED'
 AI_SUMMARY_FALLBACK = 'AI_SUMMARY_FALLBACK'
 AI_SUMMARY_NO_CLUSTERS = 'AI_SUMMARY_NO_CLUSTERS'
 CLUSTER_ENRICHMENT_FALLBACK = 'CLUSTER_ENRICHMENT_FALLBACK'
@@ -55,6 +56,37 @@ def build_diagnostic_log_line(context: BatchExecutionContext) -> str | None:
     return f'PARTIAL diagnostics: {body}.'
 
 
+def build_detail_analysis_degradation_log_line(
+    context: BatchExecutionContext,
+) -> str | None:
+    """Report the CLUSTER_DETAIL_ANALYSIS degradation rate as one bounded line.
+
+    A degraded detail analysis is deliberately kept out of ``fallback_count``
+    and ``add_partial`` -- one cluster's analysis quality must never flip the
+    whole daily page to PARTIAL -- which left the rate with no operational
+    signal at all. This line is keyed by issue code from the fixed
+    ``ANALYSIS_ISSUE_MESSAGES`` vocabulary, the same way ``build_diagnostic_log_line``
+    is keyed by category, so it stays one line no matter how many clusters
+    degrade in a run.
+    """
+    if not context.ai_detail_analysis_degraded_count:
+        return None
+    counts = {
+        code: count
+        for code, count in context.detail_analysis_issue_counts.items()
+        if count > 0
+    }
+    if not counts:
+        counts = {PARTIAL_UNCATEGORIZED: context.ai_detail_analysis_degraded_count}
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    body = ', '.join(f'{code} x{count}' for code, count in ordered)
+    return (
+        f'{AI_DETAIL_ANALYSIS_DEGRADED}: '
+        f'{context.ai_detail_analysis_degraded_count} cluster detail analysis '
+        f'row(s) persisted degraded ({body}).'
+    )
+
+
 def build_attempt_log_line(context: BatchExecutionContext) -> str | None:
     """Report that a job needed more than one attempt to reach its result.
 
@@ -81,15 +113,18 @@ def build_log_summary(context: BatchExecutionContext) -> str | None:
     """
     attempt_log_line = build_attempt_log_line(context)
     diagnostic_log_line = build_diagnostic_log_line(context)
+    detail_analysis_log_line = build_detail_analysis_degradation_log_line(context)
     messages = [
         *context.log_messages,
         *([attempt_log_line] if attempt_log_line is not None else []),
         *([diagnostic_log_line] if diagnostic_log_line is not None else []),
+        *([detail_analysis_log_line] if detail_analysis_log_line is not None else []),
     ]
     return ' '.join(messages) or None
 
 
 __all__ = [
+    'AI_DETAIL_ANALYSIS_DEGRADED',
     'AI_SUMMARY_FALLBACK',
     'AI_SUMMARY_NO_CLUSTERS',
     'CLUSTER_ENRICHMENT_FALLBACK',
@@ -105,6 +140,7 @@ __all__ = [
     'SIMILARITY_GROUPING_FAILED',
     'SIMILAR_GROUP_FAILURE',
     'build_attempt_log_line',
+    'build_detail_analysis_degradation_log_line',
     'build_diagnostic_log_line',
     'build_log_summary',
 ]
