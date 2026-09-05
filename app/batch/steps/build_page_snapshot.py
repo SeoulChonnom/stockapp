@@ -649,6 +649,25 @@ class BuildPageSnapshotStep(BatchStep):
                 context.partial_message
             )
 
+        # Compute each market's raw news count once, up front, and reuse the
+        # same values for both the page total and the per-market rows below.
+        # A raw article can satisfy both markets' keyword match (see
+        # news_article_raw_repo.list_articles_by_window), so the per-market
+        # counts legitimately sum to more than the distinct-article total
+        # tracked on the batch job. Deriving the page total from these exact
+        # per-market values -- rather than reusing that distinct-article
+        # total -- keeps market_daily_page.raw_news_count equal to what a
+        # reader would get by adding the two market cards on the page.
+        market_raw_news_counts = {
+            market_type: _market_news_count(
+                context.raw_news_count_by_market,
+                market_type,
+                context.raw_news_count,
+            )
+            for market_type in SUPPORTED_MARKET_TYPES
+        }
+        page_raw_news_count = sum(market_raw_news_counts.values())
+
         version_no = await snapshot_repo.get_next_version_no(context.business_date)
         page_status = (
             PageStatus.PARTIAL.value
@@ -670,7 +689,7 @@ class BuildPageSnapshotStep(BatchStep):
             global_headline=global_headline,
             search_document=normalize_search_document(page_title, global_headline),
             partial_message=context.partial_message,
-            raw_news_count=context.raw_news_count,
+            raw_news_count=page_raw_news_count,
             processed_news_count=context.processed_news_count,
             cluster_count=context.cluster_count,
             batch_job_id=context.job_id,
@@ -734,11 +753,7 @@ class BuildPageSnapshotStep(BatchStep):
                     market_key_themes,
                     market_outlook,
                 ),
-                raw_news_count=_market_news_count(
-                    context.raw_news_count_by_market,
-                    market_type,
-                    context.raw_news_count,
-                ),
+                raw_news_count=market_raw_news_counts[market_type],
                 processed_news_count=_market_news_count(
                     context.processed_news_count_by_market,
                     market_type,

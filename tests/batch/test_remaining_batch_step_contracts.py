@@ -1694,6 +1694,169 @@ async def test_build_page_snapshot_step_uses_per_market_news_counts(monkeypatch)
 
 
 @pytest.mark.anyio
+async def test_build_page_snapshot_step_page_raw_news_count_sums_market_rows(
+    monkeypatch,
+):
+    """A raw article can match both markets' keyword filters (see
+    news_article_raw_repo.list_articles_by_window), so the per-market raw
+    counts legitimately overlap and sum to more than the job's own
+    distinct-article count. market_daily_page.raw_news_count must equal the
+    sum of its two market rows -- what a reader adds up on the page -- while
+    the batch job's own raw_news_count keeps reporting the distinct-article
+    total, which other code (and the job list API) relies on."""
+    build_module = load_module('app.batch.steps.build_page_snapshot')
+
+    class SingleClusterRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_clusters_by_business_date(self, business_date):
+            _ = business_date
+            return [
+                {
+                    'id': 7001,
+                    'cluster_uid': UUID('51f0d9a0-9fc5-4f15-a4f9-62856f128683'),
+                    'market_type': 'US',
+                    'cluster_rank': 1,
+                    'title': '엔비디아 강세',
+                    'summary_short': '반도체 강세',
+                    'summary_long': '반도체 강세가 시장을 견인했다.',
+                    'analysis_paragraphs_json': [],
+                    'tags_json': [],
+                    'representative_article_id': 4001,
+                    'article_count': 1,
+                    'representative_title': '엔비디아 급등',
+                    'representative_publisher_name': '매일경제',
+                    'representative_published_at': datetime(
+                        2026, 3, 17, 23, 15, tzinfo=UTC
+                    ),
+                    'representative_origin_link': 'https://example.com/article1',
+                    'representative_naver_link': 'https://search.naver.com/article1',
+                    'article_grouping_status': 'UNAVAILABLE',
+                    'article_grouping_generated_at': None,
+                    'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                    'article_grouping_algorithm_version': 'v1',
+                    'article_grouping_algorithm_version_count': 1,
+                }
+            ]
+
+        async def list_cluster_article_links_by_business_date(self, business_date):
+            _ = business_date
+            return [
+                {
+                    'market_type': 'US',
+                    'processed_article_id': 4001,
+                    'cluster_id': 7001,
+                    'cluster_uid': '51f0d9a0-9fc5-4f15-a4f9-62856f128683',
+                    'cluster_title': '엔비디아 강세',
+                    'title': '엔비디아 급등',
+                    'publisher_name': '매일경제',
+                    'published_at': datetime(2026, 3, 17, 23, 15, tzinfo=UTC),
+                    'origin_link': 'https://example.com/article1',
+                    'naver_link': 'https://search.naver.com/article1',
+                    'article_grouping_status': 'UNAVAILABLE',
+                    'article_grouping_generated_at': None,
+                    'article_grouping_issue_code': 'SIMILARITY_GROUPING_FAILED',
+                    'article_grouping_algorithm_version': 'v1',
+                    'similar_group_rank': 1,
+                    'is_similar_group_representative': True,
+                    'exact_duplicate_count': 0,
+                }
+            ]
+
+        async def list_cluster_themes_by_business_date(self, business_date):
+            _ = business_date
+            return [{'cluster_id': 7001, 'theme_code': 'THEME_A', 'rank': 1}]
+
+    class EmptyIndexRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_indices_by_business_date(self, business_date):
+            _ = business_date
+            return []
+
+    class EmptyAiSummaryRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_summaries_for_job(self, job_id):
+            _ = job_id
+            return []
+
+    class FakeSnapshotRepo:
+        def __init__(self, session):
+            _ = session
+            self.calls = []
+
+        async def get_next_version_no(self, business_date):
+            _ = business_date
+            return 1
+
+        async def create_page(self, **kwargs):
+            self.calls.append(('create_page', kwargs))
+            return 501
+
+        async def create_page_market(self, **kwargs):
+            self.calls.append(('create_page_market', kwargs))
+            return 1001
+
+        async def insert_page_market_index(self, params):
+            _ = params
+
+        async def insert_page_market_cluster(self, params):
+            _ = params
+            return 1002
+
+        async def insert_page_market_cluster_themes(self, page_cluster_id, themes):
+            _ = (page_cluster_id, themes)
+
+        async def insert_page_article_link(self, params):
+            _ = params
+
+    fake_snapshot_repo = FakeSnapshotRepo(RecordingAsyncSession())
+    monkeypatch.setattr(build_module, 'ClusterRepository', SingleClusterRepo)
+    monkeypatch.setattr(build_module, 'MarketIndexRepository', EmptyIndexRepo)
+    monkeypatch.setattr(build_module, 'AiSummaryRepository', EmptyAiSummaryRepo)
+    monkeypatch.setattr(
+        build_module, 'PageSnapshotWriteRepository', lambda session: fake_snapshot_repo
+    )
+
+    repository = EventRepository(session=RecordingAsyncSession(), events=[])
+    context = build_context()
+    # 8 (US) + 7 (KR) = 15 raw article/market pairs, but 2 raw articles were
+    # returned for both markets, so only 13 distinct raw articles exist.
+    context.raw_news_count = 13
+    context.processed_news_count = 10
+    context.raw_news_count_by_market = {'US': 8, 'KR': 7}
+    context.processed_news_count_by_market = {'US': 5, 'KR': 5}
+    context.cluster_count = 1
+
+    updated_context = await BuildPageSnapshotStep(
+        context_repo_factory=CompleteMarketContextRepository
+    ).run(repository, context)
+
+    calls_by_name: dict[str, dict] = {}
+    market_calls = {}
+    for name, kwargs in fake_snapshot_repo.calls:
+        if name == 'create_page':
+            calls_by_name['create_page'] = kwargs
+        elif name == 'create_page_market':
+            market_calls[kwargs['market_type']] = kwargs
+
+    assert calls_by_name['create_page']['raw_news_count'] == 15
+    assert market_calls['US']['raw_news_count'] == 8
+    assert market_calls['KR']['raw_news_count'] == 7
+    assert (
+        market_calls['US']['raw_news_count'] + market_calls['KR']['raw_news_count']
+        == calls_by_name['create_page']['raw_news_count']
+    )
+    # The job's own count must stay the distinct-article figure -- it must
+    # not be overwritten with the (larger, overlap-inflated) page total.
+    assert updated_context.raw_news_count == 13
+
+
+@pytest.mark.anyio
 async def test_build_page_snapshot_drops_malformed_market_metadata_fields():
     class MinimalClusterRepo:
         def __init__(self, session):
