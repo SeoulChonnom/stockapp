@@ -7,7 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.market_context_fakes import CompleteMarketContextRepository
+from tests.market_context_fakes import (
+    CompleteMarketContextRepository,
+    DegradedMarketContextRepository,
+)
 from tests.support import RecordingAsyncSession, load_module
 
 batch_models_module = load_module('app.batch.models')
@@ -920,6 +923,87 @@ async def test_normal_snapshot_marks_fallback_partial_and_builds_partial_message
         == '요약 일부가 대체 생성되었습니다.; 외부 제공자 경고'
     )
     assert updated_context.partial_message == create_page['partial_message']
+
+
+@pytest.mark.anyio
+async def test_normal_snapshot_reports_all_reasons_and_own_market_message():
+    """Regression for batch_job 1543 (business_date 2026-09-05).
+
+    That job had four genuine degradation reasons -- US and KR news coverage
+    incomplete, plus stale ^KS11 and ^KQ11 source dates -- but
+    ``batch_job.partial_message`` and ``market_daily_page.partial_message``
+    both silently kept only the first three, and every
+    ``market_daily_page_market.partial_message`` was NULL. This pins both
+    fixes at once: the bounded page-level message must say a reason was cut
+    instead of dropping it with no trace, and each market's own
+    ``partial_message`` must reflect only that market's own signals.
+    """
+
+    class EmptySummaryRepository:
+        def __init__(self, session):
+            _ = session
+
+        async def list_summaries_for_job(self, job_id):
+            _ = job_id
+            return []
+
+    snapshot_repository = RecordingSnapshotRepository(RecordingAsyncSession())
+    step = BuildPageSnapshotStep(
+        cluster_repo_factory=SourceClusterRepository,
+        summary_repo_factory=EmptySummaryRepository,
+        index_repo_factory=EmptyIndexRepository,
+        snapshot_repo_factory=lambda session: snapshot_repository,
+        context_repo_factory=DegradedMarketContextRepository,
+    )
+    context = BatchExecutionContext(
+        job_id=1543,
+        business_date=date(2026, 9, 5),
+        force_run=False,
+        rebuild_page_only=False,
+        partial_reasons=[
+            'US news coverage is incomplete.',
+            'KR news coverage is incomplete.',
+            '^KS11 source date is stale.',
+            '^KQ11 source date is stale.',
+        ],
+    )
+
+    await step.run(
+        EventRepository(session=RecordingAsyncSession(), events=[]),
+        context,
+    )
+
+    create_page = next(
+        payload for name, payload in snapshot_repository.calls if name == 'create_page'
+    )
+    assert create_page['partial_message'] == (
+        'US news coverage is incomplete.; KR news coverage is incomplete.; '
+        '^KS11 source date is stale. (+1 more not shown)'
+    )
+    assert [issue['message'] for issue in create_page['metadata_json']['issues']] == [
+        'US news coverage is incomplete.',
+        'KR news coverage is incomplete.',
+        '^KS11 source date is stale.',
+        '^KQ11 source date is stale.',
+    ]
+
+    market_payloads = [
+        payload
+        for name, payload in snapshot_repository.calls
+        if name == 'create_page_market'
+    ]
+    us_market = next(
+        payload for payload in market_payloads if payload['market_type'] == 'US'
+    )
+    kr_market = next(
+        payload for payload in market_payloads if payload['market_type'] == 'KR'
+    )
+    assert us_market['partial_message'] == ('US news ingestion coverage is incomplete.')
+    assert kr_market['partial_message'] == (
+        'KR news ingestion coverage is incomplete.; KR index source date '
+        '2026-03-16 does not match expected session 2026-03-17.'
+    )
+    assert us_market['partial_message'] != kr_market['partial_message']
 
 
 @pytest.mark.anyio

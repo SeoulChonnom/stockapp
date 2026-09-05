@@ -8,7 +8,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.batch.diagnostics import build_log_summary
+from app.batch.diagnostics import build_bounded_partial_message, build_log_summary
 from app.batch.exceptions import BatchLeaseLostError, BatchPipelineError
 from app.batch.logging import log_batch_lifecycle
 from app.batch.models import (
@@ -275,7 +275,7 @@ class MarketDailyBatchOrchestrator:
                             )
                         )
                         if diagnostics:
-                            partial_message = '; '.join(diagnostics[:3])
+                            partial_message = build_bounded_partial_message(diagnostics)
                         elif failure_context.fallback_count:
                             partial_message = (
                                 'Fallback processing was used '

@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from app.batch.ai_output_contracts import KEY_POINT_FAILURE
-from app.batch.diagnostics import SIMILAR_GROUP_FAILURE
+from app.batch.diagnostics import SIMILAR_GROUP_FAILURE, build_bounded_partial_message
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import metadata_optional_string, metadata_string_list
 from app.batch.snapshot_contract import require_snapshot_cluster_id
@@ -34,6 +34,7 @@ from app.db.repositories.market_context_repo import MarketContextRepository
 from app.db.repositories.market_index_repo import MarketIndexRepository
 from app.db.repositories.page_snapshot_repo import PageSnapshotRepository
 from app.db.repositories.page_snapshot_write_repo import PageSnapshotWriteRepository
+from app.db.repositories.projections import BatchJobMarketContextRecord
 
 SUPPORTED_MARKET_TYPES = (MarketType.US, MarketType.KR)
 MARKET_LABELS = {
@@ -125,6 +126,40 @@ def _market_news_count(
     if counts_by_market:
         return counts_by_market.get(market_type, 0)
     return fallback
+
+
+def _market_partial_message(
+    market_context: BatchJobMarketContextRecord,
+) -> str | None:
+    """Derive a market's own partial_message from its already-persisted signals.
+
+    ``create_page_market`` passed the literal ``None`` for this column at
+    every call site, so ``market_daily_page_market.partial_message`` -- and
+    the ``partialMessage`` field it feeds on ``MarketMetadataResponse`` -- has
+    never been populated for any page ever built, even though the raw signals
+    it should summarize (``news_coverage_complete``, and
+    ``actual_index_source_date`` against ``expected_session_date``) were
+    already correct per market. Reusing ``build_bounded_partial_message`` keeps
+    this the same bounded, non-silently-truncated shape as the page-level
+    ``partial_message``.
+    """
+    reasons: list[str] = []
+    if market_context.news_coverage_complete is False:
+        reasons.append(
+            f'{market_context.market_type} news ingestion coverage is incomplete.'
+        )
+    if (
+        market_context.actual_index_source_date is not None
+        and market_context.actual_index_source_date
+        != market_context.expected_session_date
+    ):
+        reasons.append(
+            f'{market_context.market_type} index source date '
+            f'{market_context.actual_index_source_date.isoformat()} does not '
+            f'match expected session '
+            f'{market_context.expected_session_date.isoformat()}.'
+        )
+    return build_bounded_partial_message(sanitize_public_diagnostics(reasons))
 
 
 def _structured_page_issues(
@@ -608,8 +643,7 @@ class BuildPageSnapshotStep(BatchStep):
             partial_messages = sanitize_public_diagnostics(
                 [*context.partial_reasons, *context.warning_messages]
             )
-            if partial_messages:
-                context.partial_message = '; '.join(partial_messages[:3])
+            context.partial_message = build_bounded_partial_message(partial_messages)
         else:
             context.partial_message = sanitize_public_diagnostic(
                 context.partial_message
@@ -711,7 +745,7 @@ class BuildPageSnapshotStep(BatchStep):
                     context.processed_news_count,
                 ),
                 cluster_count=len(by_market.get(market_type, [])),
-                partial_message=None,
+                partial_message=_market_partial_message(market_context),
                 metadata_json={},
             )
             for index_order, index in enumerate(

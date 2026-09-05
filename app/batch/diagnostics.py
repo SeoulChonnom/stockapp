@@ -28,6 +28,32 @@ SIMILAR_GROUP_FAILURE: Final = MappingProxyType(
     }
 )
 
+PARTIAL_MESSAGE_REASON_LIMIT: Final = 3
+
+
+def build_bounded_partial_message(
+    reasons: list[str], *, limit: int = PARTIAL_MESSAGE_REASON_LIMIT
+) -> str | None:
+    """Join degradation reasons into one bounded, non-silently-truncated string.
+
+    ``partial_message`` backs a bounded text column, so it can only ever show a
+    handful of reasons verbatim -- that cap is correct and stays. What is not
+    correct is dropping the rest with no trace: job 1543 had four degradation
+    reasons and the fourth (a stale ``^KQ11`` source date) vanished from both
+    ``batch_job.partial_message`` and ``market_daily_page.partial_message``
+    with nothing to say it had been cut, even though it was still present in
+    ``metadata_json.issues``. Appending the omitted count keeps the string
+    bounded while telling the reader it is not the whole story.
+    """
+    if not reasons:
+        return None
+    shown = reasons[:limit]
+    omitted = len(reasons) - len(shown)
+    message = '; '.join(shown)
+    if omitted > 0:
+        message += f' (+{omitted} more not shown)'
+    return message
+
 
 def build_diagnostic_log_line(context: BatchExecutionContext) -> str | None:
     """Summarize why a job degraded, as one bounded line for the log summary.
@@ -136,10 +162,12 @@ __all__ = [
     'NEWS_COVERAGE_GAP_SKIPPED',
     'NEWS_COVERAGE_INCOMPLETE',
     'NEWS_PAGINATION_CAP',
+    'PARTIAL_MESSAGE_REASON_LIMIT',
     'PARTIAL_UNCATEGORIZED',
     'SIMILARITY_GROUPING_FAILED',
     'SIMILAR_GROUP_FAILURE',
     'build_attempt_log_line',
+    'build_bounded_partial_message',
     'build_detail_analysis_degradation_log_line',
     'build_diagnostic_log_line',
     'build_log_summary',

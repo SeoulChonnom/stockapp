@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.batch.diagnostics import build_log_summary
+from app.batch.diagnostics import build_bounded_partial_message, build_log_summary
 from app.batch.models import BatchExecutionContext
 from app.batch.policies import determine_batch_status
 from app.batch.steps.base import BatchStep
@@ -31,7 +31,7 @@ class FinalizeJobStep(BatchStep):
                 dict.fromkeys([*context.partial_reasons, *context.warning_messages])
             )
             if diagnostics:
-                context.partial_message = '; '.join(diagnostics[:3])
+                context.partial_message = build_bounded_partial_message(diagnostics)
             elif context.fallback_count:
                 context.partial_message = (
                     f'Fallback processing was used {context.fallback_count} time(s).'

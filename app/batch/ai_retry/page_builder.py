@@ -12,6 +12,7 @@ from app.batch.ai_retry.resolver import (
     resolve_effective_summaries,
 )
 from app.batch.ai_summary_targets import build_ai_summary_target_key
+from app.batch.diagnostics import build_bounded_partial_message
 from app.batch.normalizers import metadata_optional_string, metadata_string_list
 from app.batch.snapshot_contract import require_snapshot_cluster_id
 from app.batch.steps.build_page_snapshot import _build_search_document
@@ -375,7 +376,7 @@ def _partial_message(issues: list[dict[str, Any]]) -> str | None:
     messages = [
         message for issue in issues if isinstance(message := issue.get('message'), str)
     ]
-    return '; '.join(messages[:3]) if messages else None
+    return build_bounded_partial_message(messages)
 
 
 def _is_ai_only_legacy_partial(message: str) -> bool:

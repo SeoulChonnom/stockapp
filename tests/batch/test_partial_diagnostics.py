@@ -13,6 +13,7 @@ from app.batch.diagnostics import (
     NEWS_COLLECT_FAILED,
     PARTIAL_UNCATEGORIZED,
     build_attempt_log_line,
+    build_bounded_partial_message,
     build_detail_analysis_degradation_log_line,
     build_diagnostic_log_line,
     build_log_summary,
@@ -118,6 +119,35 @@ def test_partial_categories_default_to_empty_for_legacy_checkpoints() -> None:
     )
 
     assert restored.partial_categories == {}
+
+
+def test_build_bounded_partial_message_notes_omitted_reasons() -> None:
+    """batch_job 1543 had four genuine reasons; the fourth must not vanish.
+
+    partial_message is a bounded text column and stays capped at three shown
+    reasons, but a reader must be able to tell one was cut rather than
+    silently losing it -- exactly what happened to the ^KQ11 stale-source-date
+    reason before this fix.
+    """
+    reasons = [
+        'US news coverage is incomplete.',
+        'KR news coverage is incomplete.',
+        '^KS11 source date is stale.',
+        '^KQ11 source date is stale.',
+    ]
+
+    assert build_bounded_partial_message(reasons) == (
+        'US news coverage is incomplete.; KR news coverage is incomplete.; '
+        '^KS11 source date is stale. (+1 more not shown)'
+    )
+
+
+def test_build_bounded_partial_message_stays_plain_within_the_limit() -> None:
+    assert build_bounded_partial_message(['one', 'two']) == 'one; two'
+
+
+def test_build_bounded_partial_message_is_none_without_reasons() -> None:
+    assert build_bounded_partial_message([]) is None
 
 
 def test_diagnostic_log_line_orders_by_count_then_category() -> None:
@@ -230,6 +260,28 @@ async def test_finalize_job_appends_diagnostic_line_to_log_summary() -> None:
     assert repository.completed['log_summary'] == (
         'Collected 5 market index row(s). '
         f'PARTIAL diagnostics: {INDEX_STALE_SOURCE_DATE} x1.'
+    )
+
+
+@pytest.mark.anyio
+async def test_finalize_job_reports_omitted_reasons_instead_of_dropping_the_fourth() -> (
+    None
+):
+    """batch_job 1543's fourth reason (^KQ11 stale source date) must survive."""
+    repository = FinalizeRepository(session=object(), events=[])
+    context = build_context()
+    context.page_id = 501
+    context.add_partial(INDEX_STALE_SOURCE_DATE, 'US news coverage is incomplete.')
+    context.add_partial(INDEX_STALE_SOURCE_DATE, 'KR news coverage is incomplete.')
+    context.add_partial(INDEX_STALE_SOURCE_DATE, '^KS11 source date is stale.')
+    context.add_partial(INDEX_STALE_SOURCE_DATE, '^KQ11 source date is stale.')
+
+    await FinalizeJobStep().run(repository, context)
+
+    assert repository.completed is not None
+    assert repository.completed['partial_message'] == (
+        'US news coverage is incomplete.; KR news coverage is incomplete.; '
+        '^KS11 source date is stale. (+1 more not shown)'
     )
 
 
