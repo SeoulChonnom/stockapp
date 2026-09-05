@@ -357,6 +357,12 @@ async def test_cluster_llm_fallback_increments_count_and_adds_partial_diagnostic
         def __init__(self, session: object) -> None:
             _ = session
 
+        async def count_processed_by_business_date(
+            self, business_date: date
+        ) -> dict[str, int]:
+            _ = business_date
+            return {'US': 1}
+
         async def list_by_business_date(
             self, business_date: date, *, market_type=None, limit=None
         ) -> list:

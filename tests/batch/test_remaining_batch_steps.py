@@ -100,6 +100,10 @@ class EmptyProcessedArticlesRepo:
     def __init__(self, session):
         _ = session
 
+    async def count_processed_by_business_date(self, business_date):
+        _ = business_date
+        return {}
+
     async def list_by_business_date(
         self, business_date, *, market_type=None, limit=None
     ):

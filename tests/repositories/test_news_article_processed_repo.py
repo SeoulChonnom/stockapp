@@ -26,15 +26,19 @@ NewsArticleRawProcessedMapCreateParams = (
 
 @pytest.mark.anyio
 async def test_list_by_business_date_applies_limit_when_provided():
-    """A caller-supplied limit must reach the SQL as a bound LIMIT clause so
-    a pathological day's article volume can't grow an unbounded query."""
+    """A caller-supplied limit must reach the SQL as a bound parameter, and
+    must cap each market_type partition separately (via ROW_NUMBER) rather
+    than as one global LIMIT -- market_type_enum orders US before KR, so a
+    plain global LIMIT would spend its whole budget on US and starve KR on
+    a busy day."""
     session = RecordingAsyncSession(results=[DummyResult([])])
     repo = NewsArticleProcessedRepository(session)
 
     await repo.list_by_business_date(date(2026, 3, 17), limit=5000)
 
     statement_sql = ' '.join(str(session.statements[-1]).split())
-    assert 'LIMIT :limit' in statement_sql
+    assert 'PARTITION BY market_type' in statement_sql
+    assert 'market_rank <= :limit' in statement_sql
     assert session.parameters[-1]['limit'] == 5000
 
 

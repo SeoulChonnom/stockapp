@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -33,6 +34,10 @@ class FakeBatchRepository:
 class FakeProcessedRepo:
     def __init__(self, session):
         _ = session
+
+    async def count_processed_by_business_date(self, business_date):
+        _ = business_date
+        return {'US': 2}
 
     async def list_by_business_date(
         self, business_date, *, market_type=None, limit=None
@@ -102,6 +107,13 @@ class FakeClusterRepo:
 class ListProcessedRepo:
     def __init__(self, articles):
         self.articles = articles
+
+    async def count_processed_by_business_date(self, business_date):
+        _ = business_date
+        totals: dict[str, int] = defaultdict(int)
+        for article in self.articles:
+            totals[article.market_type] += 1
+        return dict(totals)
 
     async def list_by_business_date(
         self, business_date, *, market_type=None, limit=None
@@ -798,6 +810,118 @@ async def test_large_market_inputs_cap_persisted_clusters_and_llm_calls(caplog):
     }
     assert 'candidate=160, selected=12, omitted=148' in ' '.join(context.log_messages)
     assert 'candidate_count=160 selected_count=12 omitted_count=148' in caplog.text
+
+
+class TruncatedProcessedRepo:
+    """Simulates a database that already applied a per-market clustering
+    LIMIT: `list_by_business_date` returns only the rows that survived the
+    limit for each market, while `count_processed_by_business_date` reports
+    each market's true (possibly larger) total -- exactly the pairing
+    NewsArticleProcessedRepository exposes (a ROW_NUMBER-ranked, per-market
+    LIMIT query plus a COUNT(*) ... GROUP BY market_type query)."""
+
+    def __init__(
+        self,
+        *,
+        selected_by_market: dict[str, list],
+        total_by_market: dict[str, int],
+    ) -> None:
+        self._selected_by_market = selected_by_market
+        self._total_by_market = total_by_market
+
+    async def list_by_business_date(
+        self, business_date, *, market_type=None, limit=None
+    ):
+        _ = (business_date, market_type, limit)
+        return [
+            article
+            for market_articles in self._selected_by_market.values()
+            for article in market_articles
+        ]
+
+    async def count_processed_by_business_date(self, business_date):
+        _ = business_date
+        return dict(self._total_by_market)
+
+
+@pytest.mark.anyio
+async def test_clustering_limit_warning_reports_independent_per_market_counts():
+    """Each market's WARN must carry its own selected/omitted counts.
+
+    Before this fix, a single global LIMIT meant one market (US, which
+    market_type_enum sorts first) could consume another market's (KR's)
+    entire budget, and the WARN only ever reported the limit constant --
+    never which market lost rows or how many. This pins that: (1) a market
+    that was NOT truncated gets no warning at all, so a starved market's
+    report can't be masked by a healthy one sharing the same event, and
+    (2) a truncated market's warning names the market and its exact
+    selected/omitted counts, not just the limit.
+    """
+    base_time = datetime(2026, 3, 17, tzinfo=UTC)
+    us_articles = [
+        _processed_article(
+            article_id,
+            market_type='US',
+            title=f'ustopic{article_id} ussignal{article_id}',
+            published_at=base_time + timedelta(minutes=article_id),
+        )
+        for article_id in range(1, 3)
+    ]
+    kr_articles = [
+        _processed_article(
+            1000 + article_id,
+            market_type='KR',
+            title=f'krtopic{article_id} krsignal{article_id}',
+            published_at=base_time + timedelta(minutes=article_id),
+        )
+        for article_id in range(1, 4)
+    ]
+    # US fully fits under the limit (selected == total); KR was truncated by
+    # the per-market LIMIT (only 3 of its 10 rows survived).
+    processed_repository = TruncatedProcessedRepo(
+        selected_by_market={'US': us_articles, 'KR': kr_articles},
+        total_by_market={'US': 2, 'KR': 10},
+    )
+    session = RecordingAsyncSession()
+    batch_repository = FakeBatchRepository(session=session, events=[])
+    context = BatchExecutionContext(
+        job_id=1001,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+    step = BuildClustersStep(
+        processed_repo_factory=lambda _session: processed_repository,
+        cluster_repo_factory=lambda _session: FakeClusterRepo(_session),
+        llm_provider_factory=lambda: RecordingLlmProvider(configured=True),
+        settings=SimpleNamespace(
+            batch_max_clusters_per_market=12,
+            batch_clustering_processed_article_limit=5000,
+            batch_max_articles_per_cluster=60,
+        ),
+    )
+
+    await step.run(batch_repository, context)
+
+    limit_warnings = {
+        event['context_json']['marketType']: event['context_json']
+        for event in batch_repository.events
+        if event['message']
+        == (
+            'Processed article count reached the clustering query '
+            'limit; some articles may be excluded from clustering.'
+        )
+    }
+    # US was not truncated -- it must not appear in the warnings at all.
+    assert 'US' not in limit_warnings
+    assert limit_warnings == {
+        'KR': {
+            'marketType': 'KR',
+            'limit': 5000,
+            'selectedCount': 3,
+            'omittedCount': 7,
+        }
+    }
 
 
 def _chaining_feed() -> list:

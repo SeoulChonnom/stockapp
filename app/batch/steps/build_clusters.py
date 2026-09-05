@@ -86,17 +86,14 @@ class BuildClustersStep(BatchStep):
             context.business_date,
             limit=self._processed_article_limit,
         )
-        if len(processed_articles) >= self._processed_article_limit:
-            await repository.add_event(
-                job_id=context.job_id,
-                step_code=self.step_code,
-                level=EventLevel.WARN.value,
-                message=(
-                    'Processed article count reached the clustering query '
-                    'limit; some articles may be excluded from clustering.'
-                ),
-                context_json={'limit': self._processed_article_limit},
-            )
+        await _warn_if_market_limit_dropped_articles(
+            processed_repo=processed_repo,
+            repository=repository,
+            context=context,
+            step_code=self.step_code,
+            processed_articles=processed_articles,
+            limit=self._processed_article_limit,
+        )
         if not processed_articles:
             await repository.add_event(
                 job_id=context.job_id,
@@ -191,6 +188,53 @@ class BuildClustersStep(BatchStep):
             f'from {len(processed_articles)} processed articles.'
         )
         return context
+
+
+async def _warn_if_market_limit_dropped_articles(
+    *,
+    processed_repo: Any,
+    repository: BatchJobRepository,
+    context: BatchExecutionContext,
+    step_code: str,
+    processed_articles: list,
+    limit: int,
+) -> None:
+    """Warn per market when the clustering query LIMIT dropped articles.
+
+    The LIMIT is applied per market_type partition (see
+    NewsArticleProcessedRepository.list_processed_by_business_date), so a
+    single combined count would hide that one market lost rows while the
+    other did not. The true per-market totals live only in the database --
+    `processed_articles` already reflects whatever the LIMIT let through --
+    so a market's omission count is only knowable via a fresh count query.
+    """
+    selected_counts: dict[str, int] = defaultdict(int)
+    for article in processed_articles:
+        selected_counts[article.market_type] += 1
+
+    market_totals = await processed_repo.count_processed_by_business_date(
+        context.business_date
+    )
+    for market_type, total_count in sorted(market_totals.items()):
+        selected_count = selected_counts.get(market_type, 0)
+        omitted_count = total_count - selected_count
+        if omitted_count <= 0:
+            continue
+        await repository.add_event(
+            job_id=context.job_id,
+            step_code=step_code,
+            level=EventLevel.WARN.value,
+            message=(
+                'Processed article count reached the clustering query '
+                'limit; some articles may be excluded from clustering.'
+            ),
+            context_json={
+                'marketType': market_type,
+                'limit': limit,
+                'selectedCount': selected_count,
+                'omittedCount': omitted_count,
+            },
+        )
 
 
 async def _log_cluster_selection(

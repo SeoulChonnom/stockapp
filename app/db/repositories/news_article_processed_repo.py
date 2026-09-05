@@ -75,11 +75,16 @@ class NewsArticleProcessedRepository(PostgresRepository):
                 f'{qualify_db_identifier("market_type_enum")})'
             )
             params['market_type'] = market_type
-        limit_sql = ''
-        if limit is not None:
-            limit_sql = 'LIMIT :limit'
-            params['limit'] = limit
+        where_sql = ' AND '.join(where_clauses)
 
+        if limit is None:
+            return await self._list_processed_unranked(where_sql, params)
+        params['limit'] = limit
+        return await self._list_processed_ranked_per_market(where_sql, params)
+
+    async def _list_processed_unranked(
+        self, where_sql: str, params: dict[str, object]
+    ) -> list[NewsArticleProcessedRecord]:
         statement = text(
             """
             SELECT
@@ -100,11 +105,74 @@ class NewsArticleProcessedRepository(PostgresRepository):
             FROM {processed_table}
             WHERE {where_sql}
             ORDER BY market_type ASC, published_at DESC NULLS LAST, id ASC
-            {limit_sql}
             """.format(
                 processed_table=qualify_db_identifier('news_article_processed'),
-                where_sql=' AND '.join(where_clauses),
-                limit_sql=limit_sql,
+                where_sql=where_sql,
+            )
+        )
+        result = await self.session.execute(statement, params)
+        return self._models_from_mappings(
+            NewsArticleProcessedRecord, result.mappings().all()
+        )
+
+    async def _list_processed_ranked_per_market(
+        self, where_sql: str, params: dict[str, object]
+    ) -> list[NewsArticleProcessedRecord]:
+        """Apply the caller's LIMIT within each market_type partition.
+
+        market_type_enum orders US before KR, so a plain global LIMIT spends
+        its whole budget on whichever market sorts first and can starve the
+        other market's clustering input completely on a busy day (see
+        BuildClustersStep). Ranking rows within each market before capping
+        turns the limit into a per-market allocation instead of one shared,
+        order-dependent budget.
+        """
+        statement = text(
+            """
+            WITH ranked AS (
+                SELECT
+                    id AS processed_article_id,
+                    business_date,
+                    market_type,
+                    dedupe_hash,
+                    canonical_title,
+                    publisher_name,
+                    published_at,
+                    origin_link,
+                    naver_link,
+                    source_summary,
+                    article_body_excerpt,
+                    content_json,
+                    created_at,
+                    updated_at,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY market_type
+                        ORDER BY published_at DESC NULLS LAST, id ASC
+                    ) AS market_rank
+                FROM {processed_table}
+                WHERE {where_sql}
+            )
+            SELECT
+                processed_article_id,
+                business_date,
+                market_type,
+                dedupe_hash,
+                canonical_title,
+                publisher_name,
+                published_at,
+                origin_link,
+                naver_link,
+                source_summary,
+                article_body_excerpt,
+                content_json,
+                created_at,
+                updated_at
+            FROM ranked
+            WHERE market_rank <= :limit
+            ORDER BY market_type ASC, published_at DESC NULLS LAST, id ASC
+            """.format(
+                processed_table=qualify_db_identifier('news_article_processed'),
+                where_sql=where_sql,
             )
         )
         result = await self.session.execute(statement, params)
@@ -122,6 +190,30 @@ class NewsArticleProcessedRepository(PostgresRepository):
         return await self.list_processed_by_business_date(
             business_date, market_type=market_type, limit=limit
         )
+
+    async def count_processed_by_business_date(
+        self, business_date: date
+    ) -> dict[str, int]:
+        """Return each market's total processed-article count for a date.
+
+        `list_processed_by_business_date` only returns the rows that survive
+        its LIMIT, so it cannot say how many rows a market actually had.
+        Callers that need to report an accurate per-market omission count
+        (e.g. BuildClustersStep's clustering-limit WARN) call this alongside
+        it to learn the true totals.
+        """
+        statement = text(
+            """
+            SELECT market_type, COUNT(*) AS article_count
+            FROM {processed_table}
+            WHERE business_date = :business_date
+            GROUP BY market_type
+            """.format(processed_table=qualify_db_identifier('news_article_processed'))
+        )
+        result = await self.session.execute(statement, {'business_date': business_date})
+        return {
+            row['market_type']: row['article_count'] for row in result.mappings().all()
+        }
 
     async def insert_processed_article(
         self,

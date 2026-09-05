@@ -270,6 +270,13 @@ class ProcessedRepository:
     def __init__(self, articles):
         self.articles = articles
 
+    async def count_processed_by_business_date(self, business_date):
+        _ = business_date
+        totals: dict[str, int] = {}
+        for article in self.articles:
+            totals[article.market_type] = totals.get(article.market_type, 0) + 1
+        return totals
+
     async def list_by_business_date(
         self, _business_date, *, market_type=None, limit=None
     ):
