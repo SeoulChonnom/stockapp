@@ -27,6 +27,9 @@ from app.db.repositories.ai_summary_repo import AiSummaryRepository
 from app.db.repositories.article_group_repo import ArticleGroupRepository
 from app.db.repositories.batch_job_repo import BatchJobRepository
 from app.db.repositories.market_context_repo import MarketContextRepository
+from app.db.repositories.news_article_processed_repo import (
+    NewsArticleProcessedRepository,
+)
 from app.db.repositories.news_cluster_write_repo import NewsClusterWriteRepository
 from app.db.repositories.projections import (
     BatchJobMarketContextCreateParams,
@@ -2972,3 +2975,91 @@ def test_startup_migration_upgrades_stamped_previous_head_to_article_similarity(
             connection.execute(text('DROP SCHEMA IF EXISTS stock CASCADE'))
             connection.commit()
         engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_processed_article_listing_sql_executes_against_postgresql(
+    postgres_connection,
+):
+    """Execute both list_by_business_date paths against a real server.
+
+    RecordingAsyncSession only stores the statement, so every other test of
+    this repository asserts on SQL that is never parsed. That let a limited
+    listing ship with an outer ORDER BY naming ``id`` -- a column the ranking
+    CTE renames to ``processed_article_id`` and therefore does not expose --
+    which Postgres rejects with UndefinedColumn and which failed a whole
+    production run at BUILD_CLUSTERS. Only a real server catches it.
+    """
+    _execute_all_migrations_twice(postgres_connection)
+    postgres_connection.execute(
+        """
+        INSERT INTO stock.news_article_processed (
+            business_date,
+            market_type,
+            dedupe_hash,
+            canonical_title,
+            published_at,
+            origin_link
+        )
+        VALUES
+            (
+                DATE '2026-09-06',
+                'US',
+                'a1',
+                'US older',
+                TIMESTAMPTZ '2026-09-06 01:00:00+00',
+                'https://example.com/a1'
+            ),
+            (
+                DATE '2026-09-06',
+                'US',
+                'a2',
+                'US newer',
+                TIMESTAMPTZ '2026-09-06 02:00:00+00',
+                'https://example.com/a2'
+            ),
+            (
+                DATE '2026-09-06',
+                'KR',
+                'b1',
+                'KR older',
+                TIMESTAMPTZ '2026-09-06 01:30:00+00',
+                'https://example.com/b1'
+            ),
+            (
+                DATE '2026-09-06',
+                'KR',
+                'b2',
+                'KR newer',
+                TIMESTAMPTZ '2026-09-06 02:30:00+00',
+                'https://example.com/b2'
+            )
+        """
+    )
+    database_url = os.environ['STOCKAPP_MIGRATION_TEST_DSN']
+    async_database_url = database_url.replace(
+        'postgresql://',
+        'postgresql+psycopg://',
+        1,
+    )
+    engine = create_async_engine(async_database_url)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
+
+    try:
+        async with session_maker() as session:
+            repository = NewsArticleProcessedRepository(session)
+            unranked = await repository.list_by_business_date(date(2026, 9, 6))
+            ranked = await repository.list_by_business_date(date(2026, 9, 6), limit=1)
+            totals = await repository.count_processed_by_business_date(date(2026, 9, 6))
+    finally:
+        await engine.dispose()
+
+    assert len(unranked) == 4
+    # limit=1 must be spent once per market, not once globally: a global LIMIT
+    # would return the two US rows and starve KR, which is the whole point of
+    # the ranking CTE.
+    assert [(record.market_type, record.canonical_title) for record in ranked] == [
+        ('US', 'US newer'),
+        ('KR', 'KR newer'),
+    ]
+    assert totals == {'US': 2, 'KR': 2}

@@ -169,7 +169,8 @@ class NewsArticleProcessedRepository(PostgresRepository):
                 updated_at
             FROM ranked
             WHERE market_rank <= :limit
-            ORDER BY market_type ASC, published_at DESC NULLS LAST, id ASC
+            ORDER BY market_type ASC, published_at DESC NULLS LAST,
+                     processed_article_id ASC
             """.format(
                 processed_table=qualify_db_identifier('news_article_processed'),
                 where_sql=where_sql,
