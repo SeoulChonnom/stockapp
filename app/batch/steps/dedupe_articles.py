@@ -10,9 +10,11 @@ from app.batch.diagnostics import NEWS_COVERAGE_INCOMPLETE
 from app.batch.models import BatchExecutionContext
 from app.batch.normalizers import (
     build_dedupe_hash,
+    build_duplicate_key,
     canonicalize_link,
     excerpt_text,
     normalize_title,
+    publisher_from_link,
 )
 from app.batch.policies.news_collection_slot import collectable_window_end
 from app.batch.providers.article_content import (
@@ -43,6 +45,7 @@ from app.db.repositories.projections import (
 class _ArticleContentFetchTarget:
     raw_article: Any
     dedupe_hash: str
+    duplicate_key: str
     link: str | None
     fallback_summary: str | None
 
@@ -163,11 +166,16 @@ class DedupeArticlesStep(BatchStep):
             return context
 
         unique_targets: list[_ArticleContentFetchTarget] = []
-        seen_target_hashes: set[str] = set()
+        seen_duplicate_keys: set[str] = set()
         for raw_article in raw_articles:
             link = raw_article.origin_link or raw_article.naver_link
-            dedupe_hash = build_dedupe_hash(raw_article.title, link)
-            if dedupe_hash in seen_target_hashes:
+            duplicate_key = build_duplicate_key(
+                raw_article.title,
+                raw_article.publisher_name or publisher_from_link(link),
+            )
+            # Fetching once per duplicate group rather than once per URL also
+            # spares the content provider every redundant request.
+            if duplicate_key in seen_duplicate_keys:
                 continue
             description = None
             if isinstance(raw_article.payload_json, dict):
@@ -175,33 +183,36 @@ class DedupeArticlesStep(BatchStep):
             unique_targets.append(
                 _ArticleContentFetchTarget(
                     raw_article=raw_article,
-                    dedupe_hash=dedupe_hash,
+                    dedupe_hash=build_dedupe_hash(raw_article.title, link),
+                    duplicate_key=duplicate_key,
                     link=link,
                     fallback_summary=excerpt_text(description),
                 )
             )
-            seen_target_hashes.add(dedupe_hash)
+            seen_duplicate_keys.add(duplicate_key)
 
         content_results = await self._fetch_unique_article_contents(
             content_provider=content_provider,
             targets=unique_targets,
         )
-        content_by_hash = {
-            target.dedupe_hash: result
+        content_by_key = {
+            target.duplicate_key: result
             for target, result in zip(unique_targets, content_results, strict=True)
         }
 
-        seen_hashes: dict[tuple[str, str], int] = {}
+        seen_duplicate_groups: dict[tuple[str, str], int] = {}
         processed_ids: set[int] = set()
         processed_ids_by_market: dict[str, set[int]] = {}
 
         for raw_article in raw_articles:
             link = raw_article.origin_link or raw_article.naver_link
+            publisher_name = raw_article.publisher_name or publisher_from_link(link)
             dedupe_hash = build_dedupe_hash(raw_article.title, link)
-            market_dedupe_key = (raw_article.market_type, dedupe_hash)
-            processed_id = seen_hashes.get(market_dedupe_key)
+            duplicate_key = build_duplicate_key(raw_article.title, publisher_name)
+            market_duplicate_key = (raw_article.market_type, duplicate_key)
+            processed_id = seen_duplicate_groups.get(market_duplicate_key)
             if processed_id is None:
-                content_result = content_by_hash[dedupe_hash]
+                content_result = content_by_key[duplicate_key]
                 if content_result.failure_details:
                     await repository.add_event(
                         job_id=context.job_id,
@@ -221,7 +232,9 @@ class DedupeArticlesStep(BatchStep):
                         market_type=raw_article.market_type,
                         dedupe_hash=dedupe_hash,
                         canonical_title=normalize_title(raw_article.title),
-                        publisher_name=raw_article.publisher_name,
+                        # Raw rows collected before publishers were extracted
+                        # still carry None, so derive rather than propagate it.
+                        publisher_name=publisher_name,
                         published_at=raw_article.published_at,
                         origin_link=canonicalize_link(link),
                         naver_link=raw_article.naver_link,
@@ -240,7 +253,7 @@ class DedupeArticlesStep(BatchStep):
                     )
                 )
                 processed_id = processed.processed_article_id
-                seen_hashes[market_dedupe_key] = processed_id
+                seen_duplicate_groups[market_duplicate_key] = processed_id
             await processed_repo.link_raw_to_processed(
                 NewsArticleRawProcessedMapCreateParams(
                     raw_article_id=raw_article.raw_article_id,

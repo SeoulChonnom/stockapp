@@ -502,3 +502,115 @@ async def test_dedupe_articles_still_reports_a_gap_before_the_open_slot():
     ).run(repository, context)
 
     assert context.partial_categories == {NEWS_COVERAGE_INCOMPLETE: 1}
+
+
+@pytest.mark.anyio
+async def test_dedupe_articles_merges_one_outlet_republishing_one_story():
+    """Same headline, same outlet, different URLs must become one article.
+
+    Reproduces production shape: on 2026-09-06 `www.news1.kr` published
+    "코스피 상승 마감" under five distinct URLs and yna.co.kr published
+    "코스피·코스닥 상승 출발" under seven, and every one of them reached the
+    reader as a separate article because the stored dedupe hash includes the
+    URL. A different outlet sharing the headline is a genuinely different
+    article and must survive.
+    """
+
+    class RepublishedRawRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_articles_by_window(self, **_kwargs):
+            same_outlet = [
+                projections_module.NewsArticleRawRecord(
+                    raw_article_id=index,
+                    provider_name='NAVER_NEWS',
+                    provider_article_key=f'news1-{index}',
+                    market_type='KR',
+                    business_date=BUSINESS_DATE,
+                    search_keyword='코스피',
+                    title='코스피 상승 마감',
+                    publisher_name=None,
+                    published_at=datetime(2026, 3, 17, 1, 0, tzinfo=UTC),
+                    origin_link=f'https://www.news1.kr/articles/{index}',
+                    naver_link=None,
+                    payload_json={'description': '설명'},
+                    collected_at='2026-03-17T01:01:00+00:00',
+                    created_at='2026-03-17T01:01:00+00:00',
+                )
+                for index in range(1, 6)
+            ]
+            other_outlet = [
+                projections_module.NewsArticleRawRecord(
+                    raw_article_id=99,
+                    provider_name='NAVER_NEWS',
+                    provider_article_key='yna-99',
+                    market_type='KR',
+                    business_date=BUSINESS_DATE,
+                    search_keyword='코스피',
+                    title='코스피 상승 마감',
+                    publisher_name=None,
+                    published_at=datetime(2026, 3, 17, 1, 0, tzinfo=UTC),
+                    origin_link='https://www.yna.co.kr/view/AKR99',
+                    naver_link=None,
+                    payload_json={'description': '설명'},
+                    collected_at='2026-03-17T01:01:00+00:00',
+                    created_at='2026-03-17T01:01:00+00:00',
+                )
+            ]
+            return same_outlet + other_outlet
+
+    class SingleMarketContextRepo:
+        def __init__(self, session):
+            _ = session
+
+        async def list_for_job(self, job_id):
+            _ = job_id
+            return [
+                SimpleNamespace(
+                    market_type='KR',
+                    news_window_start_at=datetime(2026, 3, 17, tzinfo=UTC),
+                    news_window_end_at=datetime(2026, 3, 18, tzinfo=UTC),
+                )
+            ]
+
+        async def set_news_coverage_complete(self, **_kwargs):
+            return None
+
+    class CountingContentProvider(FakeContentProvider):
+        def __init__(self):
+            self.calls = 0
+
+        async def fetch_article_content(self, **kwargs):
+            self.calls += 1
+            return await super().fetch_article_content(**kwargs)
+
+    repository = FakeBatchRepository(session=RecordingAsyncSession(), events=[])
+    processed_repo = FakeProcessedRepo(repository.session)
+    content_provider = CountingContentProvider()
+    context = BatchExecutionContext(
+        job_id=1002,
+        business_date=BUSINESS_DATE,
+        force_run=False,
+        rebuild_page_only=False,
+    )
+
+    await DedupeArticlesStep(
+        raw_repo_factory=RepublishedRawRepo,
+        processed_repo_factory=lambda session: processed_repo,
+        content_provider_factory=lambda: content_provider,
+        market_context_repo_factory=SingleMarketContextRepo,
+        collection_run_repo_factory=FakeCollectionRunRepo,
+    ).run(repository, context)
+
+    # Six raw articles, two outlets, therefore two processed articles.
+    assert context.raw_news_count == 6
+    assert context.processed_news_count == 2
+    assert [item.publisher_name for item in processed_repo.created] == [
+        'news1.kr',
+        'yna.co.kr',
+    ]
+    # Every raw article stays linked, which is what makes
+    # exact_duplicate_count non-zero downstream.
+    assert len(processed_repo.mappings) == 6
+    assert content_provider.calls == 2
