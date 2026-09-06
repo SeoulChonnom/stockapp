@@ -37,6 +37,38 @@ class NewsCollectionRunRepository(PostgresRepository):
             },
         )
 
+    async def list_slot_ends_between(
+        self,
+        *,
+        provider_name: str,
+        from_end_at: datetime,
+        to_end_at: datetime,
+    ) -> set[datetime]:
+        """Return the slot ends already enqueued in a range, gaps excluded.
+
+        A slot the scheduler never asked for leaves no row at all, so the
+        difference between this set and the expected grid is exactly the
+        collection that was lost while the app was unreachable.
+        """
+        statement = text(
+            """
+            SELECT DISTINCT window_end_at
+            FROM {run_table}
+            WHERE provider_name = :provider_name
+              AND window_end_at >= :from_end_at
+              AND window_end_at <= :to_end_at
+            """.format(run_table=qualify_db_identifier('news_collection_run'))
+        )
+        result = await self.session.execute(
+            statement,
+            {
+                'provider_name': provider_name,
+                'from_end_at': from_end_at,
+                'to_end_at': to_end_at,
+            },
+        )
+        return {row['window_end_at'] for row in result.mappings().all()}
+
     async def _get_one(
         self,
         predicate: str,

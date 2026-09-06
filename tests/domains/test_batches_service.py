@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest  # pyright: ignore[reportMissingImports]
@@ -139,16 +139,40 @@ class FakeAiRetryEnqueuer:
 
 
 class FakeNewsCollectionRunRepository:
-    def __init__(self, existing_run=None):
+    """Stands in for the run table, with a fully covered slot grid.
+
+    ``missing_slot_ends`` punches holes in that grid, which is what the
+    scheduler leaves behind when the app is unreachable at a slot boundary.
+    """
+
+    def __init__(self, existing_run=None, *, missing_slot_ends=()):
         self.existing_run = existing_run
         self.created_kwargs = None
+        self.created_slot_ends: list[datetime] = []
+        self._missing = set(missing_slot_ends)
+        self._runs = {}
+        if existing_run is not None:
+            self._runs[(existing_run.window_start_at, existing_run.window_end_at)] = (
+                existing_run
+            )
 
-    async def get_by_window(self, **_kwargs):
-        return self.existing_run
+    async def get_by_window(self, *, window_start_at, window_end_at, **_kwargs):
+        return self._runs.get((window_start_at, window_end_at))
+
+    async def list_slot_ends_between(self, *, from_end_at, to_end_at, **_kwargs):
+        ends = set()
+        cursor = to_end_at
+        while cursor >= from_end_at:
+            if cursor not in self._missing:
+                ends.add(cursor)
+            cursor -= timedelta(minutes=30)
+        return ends
 
     async def create_run(self, **kwargs):
         self.created_kwargs = kwargs
-        self.existing_run = SimpleNamespace(
+        self.created_slot_ends.append(kwargs['window_end_at'])
+        self._missing.discard(kwargs['window_end_at'])
+        run = SimpleNamespace(
             run_id=41,
             batch_job_id=kwargs['batch_job_id'],
             provider_name=kwargs['provider_name'],
@@ -157,7 +181,9 @@ class FakeNewsCollectionRunRepository:
             query_start_at=kwargs['query_start_at'],
             query_end_at=kwargs['query_end_at'],
         )
-        return self.existing_run
+        self._runs[(kwargs['window_start_at'], kwargs['window_end_at'])] = run
+        self.existing_run = run
+        return run
 
 
 @pytest.mark.anyio
@@ -1348,3 +1374,124 @@ async def test_retry_ai_maps_idempotency_mismatch_to_conflict():
         )
 
     assert exc_info.value.code == 'IDEMPOTENCY_KEY_REUSED'
+
+
+@pytest.mark.anyio
+async def test_scheduled_collection_backfills_slots_lost_while_app_was_down():
+    """A deploy that spans slot boundaries must not lose that news forever.
+
+    The 30-minute collection is driven by an external scheduler calling this
+    endpoint, so while the app is unreachable the calls simply fail and
+    nothing retries them. On 2026-09-05 a deploy took 22:00, 22:30 and 23:00
+    (KST); no job was ever even queued for them, coverage over that hole
+    could never complete, and every daily batch since reported PARTIAL for a
+    gap that re-running could not fill.
+    """
+    created_job = BatchJobRecord(
+        job_id=3101,
+        job_name='naver_news_collection',
+        business_date=date(2026, 7, 31),
+        status='PENDING',
+        started_at=datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+        ended_at=None,
+        duration_seconds=None,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+        queued_at=datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+    )
+    # Three consecutive slots ending 22:30, 23:00 and 23:30 KST the night
+    # before, i.e. 13:30, 14:00 and 14:30 UTC.
+    missing = [
+        datetime(2026, 7, 30, 13, 30, tzinfo=UTC),
+        datetime(2026, 7, 30, 14, 0, tzinfo=UTC),
+        datetime(2026, 7, 30, 14, 30, tzinfo=UTC),
+    ]
+    run_repo = FakeNewsCollectionRunRepository(missing_slot_ends=missing)
+    batch_repo = FakeBatchJobRepository(created_job=created_job)
+    service = BatchesService(
+        batch_repo,
+        news_collection_repository=run_repo,
+        now_factory=lambda: datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+    )
+
+    result = await service.start_naver_news_collection(user_id='cron-admin')
+
+    # The caller still gets the slot it asked for, not a backfilled one.
+    assert result['_created'] is True
+    assert result['windowEndAt'] == datetime(2026, 7, 31, 1, 0, tzinfo=UTC)
+    # ...and the three lost slots are queued behind it, oldest first.
+    assert run_repo.created_slot_ends == [
+        datetime(2026, 7, 31, 1, 0, tzinfo=UTC),
+        *missing,
+    ]
+
+
+@pytest.mark.anyio
+async def test_scheduled_collection_enqueues_nothing_extra_when_nothing_was_lost():
+    created_job = BatchJobRecord(
+        job_id=3102,
+        job_name='naver_news_collection',
+        business_date=date(2026, 7, 31),
+        status='PENDING',
+        started_at=datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+        ended_at=None,
+        duration_seconds=None,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+        queued_at=datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+    )
+    run_repo = FakeNewsCollectionRunRepository()
+    service = BatchesService(
+        FakeBatchJobRepository(created_job=created_job),
+        news_collection_repository=run_repo,
+        now_factory=lambda: datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+    )
+
+    await service.start_naver_news_collection(user_id='cron-admin')
+
+    assert run_repo.created_slot_ends == [datetime(2026, 7, 31, 1, 0, tzinfo=UTC)]
+
+
+@pytest.mark.anyio
+async def test_operator_requested_slot_does_not_trigger_backfill():
+    """An operator asking for one slot gets exactly that slot."""
+    created_job = BatchJobRecord(
+        job_id=3103,
+        job_name='naver_news_collection',
+        business_date=date(2026, 7, 30),
+        status='PENDING',
+        started_at=datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+        ended_at=None,
+        duration_seconds=None,
+        market_scope='GLOBAL',
+        raw_news_count=0,
+        processed_news_count=0,
+        cluster_count=0,
+        page_id=None,
+        page_version_no=None,
+        queued_at=datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+    )
+    # Strictly BEFORE the requested slot, so catch-up would reach it if it ran.
+    run_repo = FakeNewsCollectionRunRepository(
+        missing_slot_ends=[datetime(2026, 7, 30, 13, 0, tzinfo=UTC)]
+    )
+    service = BatchesService(
+        FakeBatchJobRepository(created_job=created_job),
+        news_collection_repository=run_repo,
+        now_factory=lambda: datetime(2026, 7, 31, 1, 3, tzinfo=UTC),
+    )
+
+    await service.start_naver_news_collection(
+        user_id='ops',
+        slot_end_at=datetime(2026, 7, 30, 22, 30, tzinfo=batches_service_module.KST),
+    )
+
+    assert run_repo.created_slot_ends == [datetime(2026, 7, 30, 13, 30, tzinfo=UTC)]

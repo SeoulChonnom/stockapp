@@ -213,6 +213,15 @@ class Settings(BaseSettings):
             'naver_news_collection_backfill_max_days',
         ),
     )
+    naver_news_collection_catchup_max_slots: int = Field(
+        default=12,
+        ge=0,
+        le=96,
+        validation_alias=AliasChoices(
+            'STOCKAPP_NAVER_NEWS_COLLECTION_CATCHUP_MAX_SLOTS',
+            'naver_news_collection_catchup_max_slots',
+        ),
+    )
     article_crawl_timeout_seconds: float = Field(
         default=10.0,
         validation_alias=AliasChoices(

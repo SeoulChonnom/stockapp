@@ -12,7 +12,7 @@ from app.batch.policies.news_collection_slot import (
 )
 from app.batch.providers.naver_news import NAVER_NEWS_PROVIDER_NAME
 from app.core.exceptions import ConflictError, NotFoundError
-from app.core.settings import get_settings
+from app.core.settings import Settings, get_settings
 from app.core.timezone import KST, get_business_date
 from app.db.enums import (
     BatchJobStatus,
@@ -93,16 +93,92 @@ class BatchesService:
         slot_end_at: datetime | None = None,
     ) -> dict[str, object]:
         settings = get_settings()
+        now = self._now_factory()
         window_start_at, window_end_at = resolve_news_collection_slot(
-            now=self._now_factory(),
+            now=now,
             requested_slot_end_at=slot_end_at,
             max_backfill_days=settings.naver_news_collection_backfill_max_days,
         )
-        query_start_at = window_start_at - timedelta(
-            minutes=settings.naver_news_collection_overlap_minutes
-        )
         run_repo = self._news_collection_repo or NewsCollectionRunRepository(
             self._repo.session
+        )
+        payload = await self._enqueue_news_collection_slot(
+            user_id=user_id,
+            settings=settings,
+            run_repo=run_repo,
+            window_start_at=window_start_at,
+            window_end_at=window_end_at,
+        )
+        if slot_end_at is None:
+            # Only the scheduled path heals: an operator asking for one slot
+            # gets exactly that slot.
+            await self._enqueue_missed_news_collection_slots(
+                user_id=user_id,
+                settings=settings,
+                run_repo=run_repo,
+                current_window_end_at=window_end_at,
+            )
+        return payload
+
+    async def _enqueue_missed_news_collection_slots(
+        self,
+        *,
+        user_id: str | None,
+        settings: Settings,
+        run_repo: NewsCollectionRunRepository,
+        current_window_end_at: datetime,
+    ) -> None:
+        """Enqueue completed slots that were never asked for.
+
+        The 30-minute collection is driven by an external scheduler calling
+        this endpoint, so while the app is unreachable those calls simply
+        fail and the slots are lost with nothing to retry them: 2026-09-05
+        lost 22:00, 22:30 and 23:00 to a deploy, and every daily batch since
+        has reported incomplete coverage over a hole that could never fill.
+
+        The horizon is the batch's own news window. Collection older than
+        that cannot change any page it would build, so chasing it would only
+        spend Naver quota.
+        """
+        max_slots = settings.naver_news_collection_catchup_max_slots
+        if max_slots <= 0:
+            return
+        slot_length = timedelta(minutes=NEWS_COLLECTION_SLOT_MINUTES)
+        earliest_end_at = current_window_end_at - timedelta(
+            hours=settings.news_window_max_lookback_hours
+        )
+        covered = await run_repo.list_slot_ends_between(
+            provider_name=NAVER_NEWS_PROVIDER_NAME,
+            from_end_at=earliest_end_at,
+            to_end_at=current_window_end_at,
+        )
+        missed: list[datetime] = []
+        candidate = current_window_end_at - slot_length
+        while candidate > earliest_end_at and len(missed) < max_slots:
+            if candidate not in covered:
+                missed.append(candidate)
+            candidate -= slot_length
+        # Oldest first: the news window is filled in the order it is read.
+        for missed_end_at in reversed(missed):
+            await self._enqueue_news_collection_slot(
+                user_id=user_id,
+                settings=settings,
+                run_repo=run_repo,
+                window_start_at=missed_end_at - slot_length,
+                window_end_at=missed_end_at,
+            )
+
+    async def _enqueue_news_collection_slot(
+        self,
+        *,
+        user_id: str | None,
+        settings: Settings,
+        run_repo: NewsCollectionRunRepository,
+        window_start_at: datetime,
+        window_end_at: datetime,
+    ) -> dict[str, object]:
+        query_start_at = window_start_at - timedelta(
+            minutes=settings.naver_news_collection_overlap_minutes
         )
         existing_run = await run_repo.get_by_window(
             provider_name=NAVER_NEWS_PROVIDER_NAME,
