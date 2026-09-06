@@ -5,7 +5,6 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.batch.diagnostics import NEWS_COVERAGE_GAP_SKIPPED
 from app.batch.models import BatchExecutionContext
 from app.batch.policies.market_session_policy import MarketSessionPolicy
 from app.batch.steps.base import BatchStep, require_repository_session
@@ -100,16 +99,20 @@ class PrepareMarketContextsStep(BatchStep):
                     news_window_end_at=draft.news_window_end_at,
                 )
                 if draft.lookback_capped:
-                    # The window moved forward past collection that never
-                    # happened. That is the deliberate escape from a frozen
-                    # watermark, but it does mean this page was built without
-                    # news the pipeline once intended to include, so it degrades
-                    # the run instead of passing silently.
-                    context.add_partial(
-                        NEWS_COVERAGE_GAP_SKIPPED,
-                        f'{market_type} news window skipped coverage older than '
-                        f'{draft.news_window_start_at.isoformat()}.',
-                    )
+                    # Operationally this matters -- the watermark is stale and
+                    # somebody should know -- but it is not a defect in THIS
+                    # page. The cap only skips spans older than the window,
+                    # whose articles belong to pages already published; the
+                    # watermark can be stale purely because one 30-minute slot
+                    # was never marked complete, with every other slot in the
+                    # skipped span collected normally. Reporting it as a page
+                    # degradation made every run PARTIAL for something no
+                    # reader could see and no operator could act on, and it
+                    # crowded the real reason out of the bounded message.
+                    # Whether news is actually missing from the retained
+                    # window is decided by NEWS_COVERAGE_INCOMPLETE, which
+                    # DedupeArticlesStep computes against real collection
+                    # intervals.
                     await repository.add_event(
                         job_id=context.job_id,
                         step_code=self.step_code,

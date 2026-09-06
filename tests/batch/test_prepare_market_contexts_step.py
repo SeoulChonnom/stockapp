@@ -174,12 +174,16 @@ async def test_prepare_market_contexts_uses_complete_coverage_watermark():
 
 
 @pytest.mark.anyio
-async def test_prepare_market_contexts_degrades_when_the_window_was_capped():
-    """A capped window silently drops news the pipeline meant to include.
+async def test_prepare_market_contexts_warns_but_does_not_degrade_when_capped():
+    """A stale watermark is an operator's problem, not the page's.
 
-    The cap is the escape from a watermark frozen by collection that never
-    ran, but the page it produces is genuinely missing that stretch, so the
-    run has to say so rather than look clean.
+    The cap only skips spans older than the window, whose articles belong to
+    pages already published, and the watermark goes stale as soon as one
+    30-minute slot is never marked complete -- every other slot in the
+    skipped span having been collected normally. Job 1640 was pushed to
+    PARTIAL by exactly that: two capped-window reasons that no reader could
+    see, which then crowded the real KR coverage gap out of the bounded
+    message. The WARN has to survive; the degradation must not.
     """
     cut_off = datetime(2026, 9, 6, 6, 10, tzinfo=UTC)
     capped_start = datetime(2026, 9, 4, 6, 10, tzinfo=UTC)
@@ -219,7 +223,8 @@ async def test_prepare_market_contexts_degrades_when_the_window_was_capped():
 
     await step.run(repository, context)
 
-    assert context.partial_categories == {'NEWS_COVERAGE_GAP_SKIPPED': 2}
+    assert context.partial_categories == {}
+    assert context.partial_reasons == []
     assert [event['message'] for event in repository.events] == [
         'News window capped past incomplete coverage.'
     ] * 2
