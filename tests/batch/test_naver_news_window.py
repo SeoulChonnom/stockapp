@@ -130,3 +130,48 @@ async def test_naver_pagination_cap_marks_coverage_incomplete(monkeypatch):
 
     assert result.candidate_count == 2
     assert result.coverage_complete is False
+
+
+def test_naver_articles_carry_a_publisher_derived_from_the_article_url():
+    """Naver returns no publisher field, so it must come from the URL.
+
+    Every one of the 58,608 processed articles collected since 2026-08-12
+    stored publisher_name as NULL because this provider hard-coded None,
+    leaving readers with no attribution at all. Section subdomains collapse
+    to one outlet so biz. and news. hosts do not read as two publishers.
+    """
+    provider = NaverNewsProvider()
+    start_at = datetime(2026, 7, 27, 22, 0, tzinfo=UTC)
+    end_at = datetime(2026, 7, 28, 22, 0, tzinfo=UTC)
+    published_at = datetime(2026, 7, 28, 1, 0, tzinfo=UTC)
+
+    def item(origin_link: str | None, link: str) -> dict:
+        payload = {
+            'title': 'Article',
+            'link': link,
+            'pubDate': format_datetime(published_at),
+        }
+        if origin_link is not None:
+            payload['originallink'] = origin_link
+        return payload
+
+    articles, _ = provider._extract_window_articles(
+        items=[
+            item('https://www.yna.co.kr/view/AKR1', 'https://n.example/1'),
+            item('https://biz.sbs.co.kr/article/2', 'https://n.example/2'),
+            item('https://www.topstarnews.net/news/3', 'https://n.example/3'),
+            # No originallink: the fallback link still identifies the outlet.
+            item(None, 'https://www.news1.kr/articles/4'),
+        ],
+        keyword_record=_keyword(),
+        business_date=date(2026, 7, 29),
+        window_start_at=start_at,
+        window_end_at=end_at,
+    )
+
+    assert [article.publisher_name for article in articles] == [
+        'yna.co.kr',
+        'sbs.co.kr',
+        'topstarnews.net',
+        'news1.kr',
+    ]

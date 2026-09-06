@@ -10,7 +10,11 @@ from html import unescape
 import certifi
 import httpx
 
-from app.batch.normalizers import canonicalize_link, normalize_title
+from app.batch.normalizers import (
+    canonicalize_link,
+    normalize_title,
+    publisher_from_link,
+)
 from app.core.settings import Settings, get_settings
 from app.core.timezone import KST
 from app.db.repositories.projections import (
@@ -158,7 +162,13 @@ class NaverNewsProvider:
                     business_date=business_date,
                     search_keyword=keyword_record.keyword,
                     title=self._clean_html(item.get('title')),
-                    publisher_name=None,
+                    # Naver's search response carries no publisher field, so
+                    # the article's own domain is the only attribution
+                    # available; without it every article reaches the reader
+                    # with no source at all.
+                    publisher_name=publisher_from_link(
+                        item.get('originallink') or item.get('link')
+                    ),
                     published_at=published_at,
                     origin_link=item.get('originallink'),
                     naver_link=item.get('link'),
