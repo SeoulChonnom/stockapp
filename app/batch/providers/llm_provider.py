@@ -17,6 +17,81 @@ THEME_CLASSIFIER_PROMPT_VERSION = 'v1'
 LOGGER = logging.getLogger(__name__)
 
 
+# The model may not answer NOT_CHECKED. It is still a valid sentence state --
+# ai_output_contracts assigns it when the pipeline cannot verify a sentence --
+# but letting the model choose it made it a blanket default: on 2026-09-06 ten
+# of twenty-four analyses degraded, every one of them all-or-nothing across
+# their sentences, and the degraded clusters averaged MORE articles to compare
+# (26.1) than the clean ones (22.5), so it was never a shortage of evidence.
+# Prose could not stop it; an enum can. The cost is that a sentence nothing
+# else discusses must now be answered NONE, so NOT_CHECKED narrows to exactly
+# one meaning: the pipeline could not verify this.
+_SENTENCE_CONFLICT_STATUSES = ('NONE', 'FOUND')
+
+_CLUSTER_DETAIL_RESPONSE_SCHEMA: dict[str, Any] = {
+    'type': 'object',
+    'properties': {
+        'sections': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'kind': {
+                        'type': 'string',
+                        'enum': ['background', 'impact', 'related', 'outlook'],
+                    },
+                    'title': {'type': 'string'},
+                    'paragraphs': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'sentences': {
+                                    'type': 'array',
+                                    'items': {
+                                        'type': 'object',
+                                        'properties': {
+                                            'text': {'type': 'string'},
+                                            'sourceArticleIds': {
+                                                'type': 'array',
+                                                'items': {'type': 'integer'},
+                                            },
+                                            'conflictStatus': {
+                                                'type': 'string',
+                                                'enum': list(
+                                                    _SENTENCE_CONFLICT_STATUSES
+                                                ),
+                                            },
+                                            'conflictingSourceArticleIds': {
+                                                'type': 'array',
+                                                'items': {'type': 'integer'},
+                                            },
+                                            'conflictNote': {
+                                                'type': ['string', 'null']
+                                            },
+                                        },
+                                        'required': [
+                                            'text',
+                                            'sourceArticleIds',
+                                            'conflictStatus',
+                                            'conflictingSourceArticleIds',
+                                            'conflictNote',
+                                        ],
+                                    },
+                                }
+                            },
+                            'required': ['sentences'],
+                        },
+                    },
+                },
+                'required': ['kind', 'title', 'paragraphs'],
+            },
+        }
+    },
+    'required': ['sections'],
+}
+
+
 def _json_safe(value: Any, *, active_container_ids: set[int] | None = None) -> Any:
     active_ids = active_container_ids if active_container_ids is not None else set()
     if isinstance(value, dict):
@@ -311,12 +386,11 @@ class BatchLlmProvider:
             'ID within the same list, or cite an ID absent from articles. If no '
             'supplied article can be cited, omit the sentence rather than guessing '
             'an ID. For every sentence, actually compare its claim against the other '
-            'supplied articles before setting conflictStatus: use NONE when you '
-            'compared and found no conflict, FOUND when you compared and found one, '
-            'and reserve NOT_CHECKED for a sentence you genuinely could not compare '
-            '-- for example, one no other supplied article discusses -- never use '
-            'NOT_CHECKED merely because you skipped the comparison. NONE and '
-            'NOT_CHECKED require conflictingSourceArticleIds=[] and conflictNote=null. '
+            'supplied articles before setting conflictStatus, which must be exactly '
+            'NONE or FOUND: use NONE when you compared and found no conflict, and '
+            'FOUND when you compared and found one. A sentence no other supplied '
+            'article discusses is NONE. '
+            'NONE requires conflictingSourceArticleIds=[] and conflictNote=null. '
             'FOUND requires one '
             'or more unique supplied conflicting IDs and a nonblank note describing '
             'the discrepancy without deciding which article is correct. '
@@ -328,7 +402,9 @@ class BatchLlmProvider:
             articles=articles,
         )
         return await self._client.invoke_json(
-            system_prompt=system_prompt, user_prompt=user_prompt
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_schema=_CLUSTER_DETAIL_RESPONSE_SCHEMA,
         )
 
 

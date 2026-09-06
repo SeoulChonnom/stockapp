@@ -560,14 +560,21 @@ class GeminiJsonClient:
         )
         return max(0.0, capped_delay + jitter)
 
-    def _build_model(self) -> ChatGoogleGenerativeAI:
+    def _build_model(
+        self, *, response_schema: dict[str, Any] | None = None
+    ) -> ChatGoogleGenerativeAI:
         if not self.is_configured():
             raise LlmConfigurationError('Gemini API key is not configured.')
+        # response_schema reaches the request only alongside this mime type;
+        # the client raises otherwise.
+        response_mime_type = 'application/json' if response_schema else None
         return ChatGoogleGenerativeAI(
             model=self._settings.llm_model,
             google_api_key=self._settings.gemini_api_key,
             temperature=self._settings.llm_temperature,
             max_retries=0,
+            response_mime_type=response_mime_type,
+            response_schema=response_schema,
         )
 
     async def invoke_json(
@@ -575,7 +582,15 @@ class GeminiJsonClient:
         *,
         system_prompt: str,
         user_prompt: str,
+        response_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Call the model and parse one JSON object from its reply.
+
+        ``response_schema`` constrains the reply at the provider instead of
+        in prose. A prompt can only ask; a schema is enforced, which is the
+        difference that matters for fields whose allowed values the model
+        would otherwise pick freely.
+        """
         circuit = self._circuit
         if circuit is None:
             circuit = _get_loop_llm_config_circuit(
@@ -590,7 +605,7 @@ class GeminiJsonClient:
                 'LLM provider is rejecting requests for a configuration reason.'
             )
 
-        model = self._build_model()
+        model = self._build_model(response_schema=response_schema)
         rate_limiter = self._rate_limiter
         if rate_limiter is None:
             rate_limiter = _get_loop_llm_rate_limiter(

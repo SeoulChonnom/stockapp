@@ -187,7 +187,7 @@ async def test_gemini_client_reserves_estimate_and_reconciles_actual_usage(monke
         rate_limiter=NoopRateLimiter(),
         token_limiter=token_limiter,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: RespondingModel())
+    monkeypatch.setattr(client, '_build_model', lambda **_: RespondingModel())
 
     result = await client.invoke_json(system_prompt='system', user_prompt='사용자 입력')
 
@@ -212,7 +212,7 @@ async def test_gemini_json_client_returns_controlled_timeout(monkeypatch):
             llm_timeout_seconds=0.01,
         )
     )
-    monkeypatch.setattr(client, '_build_model', lambda: HangingModel())
+    monkeypatch.setattr(client, '_build_model', lambda **_: HangingModel())
 
     with pytest.raises(llm_module.LlmTimeoutError, match='timed out'):
         await client.invoke_json(system_prompt='system', user_prompt='user')
@@ -244,7 +244,7 @@ async def test_gemini_json_client_waits_for_rate_limit_before_attempt_timeout(
         ),
         rate_limiter=limiter,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: RespondingModel())
+    monkeypatch.setattr(client, '_build_model', lambda **_: RespondingModel())
 
     invocation = asyncio.create_task(
         client.invoke_json(system_prompt='system', user_prompt='user')
@@ -283,8 +283,8 @@ async def test_gemini_json_clients_share_event_loop_rate_limit(monkeypatch):
     )
     first_client = llm_module.GeminiJsonClient(settings)
     second_client = llm_module.GeminiJsonClient(settings)
-    monkeypatch.setattr(first_client, '_build_model', lambda: RespondingModel())
-    monkeypatch.setattr(second_client, '_build_model', lambda: RespondingModel())
+    monkeypatch.setattr(first_client, '_build_model', lambda **_: RespondingModel())
+    monkeypatch.setattr(second_client, '_build_model', lambda **_: RespondingModel())
 
     await first_client.invoke_json(system_prompt='system', user_prompt='first')
     await second_client.invoke_json(system_prompt='system', user_prompt='second')
@@ -390,7 +390,7 @@ async def test_gemini_json_client_surfaces_transient_error_without_sleep(monkeyp
         ),
         rate_limiter=limiter,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: model)
+    monkeypatch.setattr(client, '_build_model', lambda **_: model)
 
     with pytest.raises(llm_module.LlmRetryableError) as exc_info:
         await client.invoke_json(system_prompt='system', user_prompt='user')
@@ -430,7 +430,7 @@ async def test_gemini_json_client_surfaces_timeout_for_durable_retry(
         ),
         rate_limiter=limiter,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: model)
+    monkeypatch.setattr(client, '_build_model', lambda **_: model)
 
     with pytest.raises(llm_module.LlmTimeoutError):
         await client.invoke_json(system_prompt='system', user_prompt='user')
@@ -487,7 +487,7 @@ async def test_gemini_json_client_defers_transient_transport_errors(
         rate_limiter=limiter,
         sleeper=record_sleep,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: model)
+    monkeypatch.setattr(client, '_build_model', lambda **_: model)
 
     with pytest.raises(llm_module.LlmRetryableError):
         await client.invoke_json(system_prompt='system', user_prompt='user')
@@ -528,7 +528,7 @@ async def test_gemini_json_client_converts_final_transient_error_to_fallback_inp
         ),
         rate_limiter=limiter,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: model)
+    monkeypatch.setattr(client, '_build_model', lambda **_: model)
 
     with llm_module.llm_retry_exhausted_mode():
         with pytest.raises(llm_module.LlmRetryExhaustedError):
@@ -583,7 +583,7 @@ async def test_gemini_json_client_does_not_retry_permanent_transport_errors(
         ),
         rate_limiter=limiter,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: model)
+    monkeypatch.setattr(client, '_build_model', lambda **_: model)
 
     with pytest.raises(type(transport_error)):
         await client.invoke_json(system_prompt='system', user_prompt='user')
@@ -623,7 +623,7 @@ async def test_gemini_json_client_does_not_retry_permanent_provider_errors(
         ),
         rate_limiter=limiter,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: FailingModel())
+    monkeypatch.setattr(client, '_build_model', lambda **_: FailingModel())
 
     with pytest.raises(ProviderError):
         await client.invoke_json(system_prompt='system', user_prompt='user')
@@ -653,7 +653,7 @@ async def test_gemini_json_client_does_not_retry_validation_errors(monkeypatch):
         ),
         rate_limiter=limiter,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: InvalidRequestModel())
+    monkeypatch.setattr(client, '_build_model', lambda **_: InvalidRequestModel())
 
     with pytest.raises(ValueError, match='invalid provider request'):
         await client.invoke_json(system_prompt='system', user_prompt='user')
@@ -683,7 +683,7 @@ async def test_gemini_json_client_does_not_retry_json_parse_errors(monkeypatch):
         ),
         rate_limiter=limiter,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: InvalidJsonModel())
+    monkeypatch.setattr(client, '_build_model', lambda **_: InvalidJsonModel())
 
     with pytest.raises(ValueError):
         await client.invoke_json(system_prompt='system', user_prompt='user')
@@ -721,7 +721,7 @@ async def test_gemini_json_client_parses_json_when_model_responds(monkeypatch):
     client = llm_module.GeminiJsonClient(
         settings_module.Settings(app_env='development', gemini_api_key='test-key')
     )
-    monkeypatch.setattr(client, '_build_model', lambda: RespondingModel())
+    monkeypatch.setattr(client, '_build_model', lambda **_: RespondingModel())
 
     assert await client.invoke_json(system_prompt='system', user_prompt='user') == {
         'ok': True
@@ -745,7 +745,7 @@ async def test_gemini_json_client_parses_structured_text_blocks(monkeypatch):
     client = llm_module.GeminiJsonClient(
         settings_module.Settings(app_env='development', gemini_api_key='test-key')
     )
-    monkeypatch.setattr(client, '_build_model', lambda: RespondingModel())
+    monkeypatch.setattr(client, '_build_model', lambda **_: RespondingModel())
 
     assert await client.invoke_json(system_prompt='system', user_prompt='user') == {
         'ok': True
@@ -767,7 +767,7 @@ async def test_gemini_json_client_combines_text_blocks_from_ai_message(monkeypat
     client = llm_module.GeminiJsonClient(
         settings_module.Settings(app_env='development', gemini_api_key='test-key')
     )
-    monkeypatch.setattr(client, '_build_model', lambda: RespondingModel())
+    monkeypatch.setattr(client, '_build_model', lambda **_: RespondingModel())
 
     assert await client.invoke_json(system_prompt='system', user_prompt='user') == {
         'ok': True
@@ -845,7 +845,7 @@ def _recovering_client(monkeypatch, errors, *, slept):
         sleeper=record_sleep,
         jitter_random=lambda: 0.0,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: model)
+    monkeypatch.setattr(client, '_build_model', lambda **_: model)
     return client, model
 
 
@@ -897,7 +897,7 @@ async def test_gemini_json_client_does_not_reissue_a_rate_limited_call(monkeypat
         rate_limiter=SimpleNamespace(acquire=_noop_acquire),
         sleeper=record_sleep,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: model)
+    monkeypatch.setattr(client, '_build_model', lambda **_: model)
 
     with pytest.raises(llm_module.LlmRetryableError) as exc_info:
         await client.invoke_json(system_prompt='system', user_prompt='user')
@@ -929,7 +929,7 @@ def _circuit_client(monkeypatch, model, *, threshold=2):
         ),
         rate_limiter=SimpleNamespace(acquire=_noop_acquire),
     )
-    monkeypatch.setattr(client, '_build_model', lambda: model)
+    monkeypatch.setattr(client, '_build_model', lambda **_: model)
     return client
 
 

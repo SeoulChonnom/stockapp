@@ -67,6 +67,10 @@ class MockGeminiHarness:
     token_limiter: RecordingTokenLimiter
     slept: list[float]
     clock: FakeClock
+    # Every response_schema the client built a model with, so a test can
+    # assert the schema actually reached the provider call rather than
+    # trusting that passing it through was enough.
+    response_schemas: list[dict[str, Any] | None]
 
 
 class FakeClock:
@@ -114,7 +118,15 @@ def build_mock_gemini_harness(
         sleeper=record_sleep,
         jitter_random=lambda: 0.0,
     )
-    monkeypatch.setattr(client, '_build_model', lambda: model)
+    response_schemas: list[dict[str, Any] | None] = []
+
+    def build_model(
+        *, response_schema: dict[str, Any] | None = None
+    ) -> MockGeminiModel:
+        response_schemas.append(response_schema)
+        return model
+
+    monkeypatch.setattr(client, '_build_model', build_model)
     return MockGeminiHarness(
         client=client,
         model=model,
@@ -122,6 +134,7 @@ def build_mock_gemini_harness(
         token_limiter=token_limiter,
         slept=slept,
         clock=clock,
+        response_schemas=response_schemas,
     )
 
 

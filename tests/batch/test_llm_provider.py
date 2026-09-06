@@ -20,6 +20,7 @@ class RecordingClient:
     def __init__(self) -> None:
         self.system_prompt: str | None = None
         self.user_prompt: str | None = None
+        self.response_schema: dict | None = None
 
     def is_configured(self) -> bool:
         return True
@@ -36,9 +37,16 @@ class RecordingClient:
     def input_token_budget(self) -> int:
         return 250_000
 
-    async def invoke_json(self, *, system_prompt: str, user_prompt: str) -> dict:
+    async def invoke_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: dict | None = None,
+    ) -> dict:
         self.system_prompt = system_prompt
         self.user_prompt = user_prompt
+        self.response_schema = response_schema
         return {}
 
 
@@ -346,12 +354,11 @@ async def test_cluster_detail_prompt_requires_grounded_ordered_sections(monkeypa
         'ID within the same list, or cite an ID absent from articles. If no '
         'supplied article can be cited, omit the sentence rather than guessing '
         'an ID. For every sentence, actually compare its claim against the other '
-        'supplied articles before setting conflictStatus: use NONE when you '
-        'compared and found no conflict, FOUND when you compared and found one, '
-        'and reserve NOT_CHECKED for a sentence you genuinely could not compare '
-        '-- for example, one no other supplied article discusses -- never use '
-        'NOT_CHECKED merely because you skipped the comparison. NONE and '
-        'NOT_CHECKED require conflictingSourceArticleIds=[] and conflictNote=null. '
+        'supplied articles before setting conflictStatus, which must be exactly '
+        'NONE or FOUND: use NONE when you compared and found no conflict, and '
+        'FOUND when you compared and found one. A sentence no other supplied '
+        'article discusses is NONE. '
+        'NONE requires conflictingSourceArticleIds=[] and conflictNote=null. '
         'FOUND requires one '
         'or more unique supplied conflicting IDs and a nonblank note describing '
         'the discrepancy without deciding which article is correct. '
@@ -439,3 +446,67 @@ async def test_cluster_prompt_keeps_every_article_within_budget():
 
     assert client.user_prompt is not None
     assert json.loads(client.user_prompt)['articles'] == articles
+
+
+@pytest.mark.anyio
+async def test_cluster_detail_constrains_conflict_status_at_the_provider(monkeypatch):
+    """The sentence conflict enum must be enforced, not merely requested.
+
+    The hardened prose prompt shipped on 2026-09-05 did not stop the model
+    answering NOT_CHECKED: the next run degraded ten of twenty-four analyses,
+    all of them all-or-nothing across their sentences, on clusters that
+    averaged more articles to compare than the clean ones. A schema is the
+    only part of the request the model cannot decline, so the enum has to
+    travel with the call.
+    """
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [gemini_ai_message({'sections': []})],
+    )
+    provider = BatchLlmProvider(harness.client)
+
+    await provider.summarize_cluster_detail(
+        market_type='KR',
+        cluster={'title': '반도체주 조정', 'summary': '외국인 매도.'},
+        articles=[
+            {
+                'processedArticleId': 1024,
+                'title': '반도체주 약세',
+                'summary': '외국인 매도가 이어졌습니다.',
+                'excerpt': '반도체 업종이 하락했습니다.',
+            }
+        ],
+    )
+
+    assert len(harness.response_schemas) == 1
+    schema = harness.response_schemas[0]
+    assert schema is not None
+    sentence = schema['properties']['sections']['items']['properties']['paragraphs'][
+        'items'
+    ]['properties']['sentences']['items']
+    assert sentence['properties']['conflictStatus']['enum'] == ['NONE', 'FOUND']
+    assert 'NOT_CHECKED' not in sentence['properties']['conflictStatus']['enum']
+    assert sorted(sentence['required']) == [
+        'conflictNote',
+        'conflictStatus',
+        'conflictingSourceArticleIds',
+        'sourceArticleIds',
+        'text',
+    ]
+
+
+@pytest.mark.anyio
+async def test_other_prompts_are_not_schema_constrained(monkeypatch):
+    """Only the detail analysis carries a schema; the rest are unchanged."""
+    harness = build_mock_gemini_harness(
+        monkeypatch,
+        [gemini_ai_message({'headline': '증시 반등'})],
+    )
+    provider = BatchLlmProvider(harness.client)
+
+    await provider.summarize_global_headline(
+        clusters=[{'title': '코스피 상승', 'summary': '코스피가 올랐습니다.'}],
+        indices=[{'indexCode': '^KS11', 'changePercent': '1.6'}],
+    )
+
+    assert harness.response_schemas == [None]
