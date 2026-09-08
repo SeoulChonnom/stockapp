@@ -433,7 +433,9 @@ def test_daily_page_assembler_keeps_legacy_session_snapshot_nullable(
     assert market_metadata['newsWindowStartAt'] is None
     assert market_metadata['newsWindowEndAt'] is None
     assert market_metadata['coverageComplete'] is None
+    assert market_metadata['isIndexStale'] is False
     assert payload['markets'][0]['indices'][0]['sourceDate'] is None
+    assert payload['markets'][0]['indices'][0]['isStale'] is False
 
 
 def test_daily_page_assembler_exposes_market_session_snapshot(
@@ -484,7 +486,122 @@ def test_daily_page_assembler_exposes_market_session_snapshot(
     assert metadata['newsWindowStartAt'] == '2026-03-16T22:00:00Z'
     assert metadata['newsWindowEndAt'] == '2026-03-17T22:00:00Z'
     assert metadata['coverageComplete'] is True
+    assert metadata['isIndexStale'] is False
     assert payload['markets'][0]['indices'][0]['sourceDate'] == '2026-03-17'
+    assert payload['markets'][0]['indices'][0]['isStale'] is False
+
+
+def test_daily_page_assembler_flags_only_the_market_that_fell_back(
+    sample_page_snapshot_row,
+    sample_page_market_rows,
+    sample_page_index_rows,
+    sample_page_cluster_rows,
+    sample_page_article_link_rows,
+    sample_adjacent_business_dates_row,
+    sample_page_version_rows,
+):
+    """batch_job 1693's shape: KR fell back a session while US was current.
+
+    The index provider drops a session whose close the provider returned as
+    a non-finite value and silently uses the newest one it could read, so a
+    page can carry one market at its expected session and another two
+    sessions behind. The flag has to follow the individual card, not the
+    page.
+    """
+    expected_by_market = {'US': date(2026, 9, 4), 'KR': date(2026, 9, 7)}
+    markets = [
+        {
+            **row,
+            'expected_session_date': expected_by_market[row['market_type']],
+            'actual_index_source_date': date(2026, 9, 4),
+        }
+        for row in sample_page_market_rows
+    ]
+    market_type_by_page_market_id = {
+        row['id']: row['market_type'] for row in sample_page_market_rows
+    }
+    indices = [
+        {
+            **row,
+            'source_date': date(2026, 9, 4),
+            'expected_session_date': expected_by_market[
+                market_type_by_page_market_id[row['page_market_id']]
+            ],
+        }
+        for row in sample_page_index_rows
+    ]
+
+    payload = pages_assembler_module.build_daily_page_payload(
+        sample_page_snapshot_row,
+        markets,
+        indices,
+        sample_page_cluster_rows,
+        sample_page_article_link_rows,
+        neighbors=sample_adjacent_business_dates_row,
+        versions=sample_page_version_rows,
+    )
+
+    staleness = {
+        market['marketType']: (
+            market['metadata']['isIndexStale'],
+            [card['isStale'] for card in market['indices']],
+        )
+        for market in payload['markets']
+    }
+    assert staleness == {'US': (False, [False]), 'KR': (True, [True])}
+
+
+def test_daily_page_response_keeps_the_stale_flag_through_a_payload_round_trip(
+    sample_page_snapshot_row,
+    sample_page_market_rows,
+    sample_page_index_rows,
+    sample_page_cluster_rows,
+    sample_page_article_link_rows,
+    sample_adjacent_business_dates_row,
+    sample_page_version_rows,
+):
+    """The router re-validates a payload the service already serialized.
+
+    ``isStale`` is derived rather than stored, so it is present in the dump
+    the service returns and must survive being fed back through
+    ``assemble_daily_page_response`` -- both as an accepted input key and as
+    a value that still matches the dates it comes from.
+    """
+    markets = [
+        {
+            **row,
+            'expected_session_date': date(2026, 9, 7),
+            'actual_index_source_date': date(2026, 9, 4),
+        }
+        for row in sample_page_market_rows
+    ]
+    indices = [
+        {
+            **row,
+            'source_date': date(2026, 9, 4),
+            'expected_session_date': date(2026, 9, 7),
+        }
+        for row in sample_page_index_rows
+    ]
+
+    payload = pages_assembler_module.build_daily_page_payload(
+        sample_page_snapshot_row,
+        markets,
+        indices,
+        sample_page_cluster_rows,
+        sample_page_article_link_rows,
+        neighbors=sample_adjacent_business_dates_row,
+        versions=sample_page_version_rows,
+    )
+    assert payload['markets'][0]['indices'][0]['isStale'] is True
+
+    response = jsonable(assemble_daily_page_response(payload))
+
+    for market in response['markets']:
+        assert market['metadata']['isIndexStale'] is True
+        for card in market['indices']:
+            assert card['isStale'] is True
+            assert card['sourceDate'] < card['expectedSessionDate']
 
 
 def test_daily_page_assembler_exposes_ready_page_with_empty_issues(

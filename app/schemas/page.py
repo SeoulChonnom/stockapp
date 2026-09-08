@@ -9,6 +9,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StrictInt,
+    computed_field,
     field_validator,
     model_validator,
 )
@@ -50,6 +51,25 @@ class IndexCardResponse(BaseModel):
     _normalize_session_close_at = field_validator('sessionCloseAt', mode='before')(
         _normalize_timestamp
     )
+
+    @computed_field
+    @property
+    def isStale(self) -> bool:
+        """Whether this card shows an earlier session than the page intended.
+
+        The index provider falls back to the newest session it could read
+        when the expected one is unusable, so ``closePrice``,
+        ``changeValue`` and ``changePercent`` can all describe
+        ``sourceDate`` rather than ``expectedSessionDate``. Those two dates
+        were already exposed, but a reader only learns the numbers are not
+        the expected session's by comparing them -- a consumer that does
+        not renders a stale close as today's. Deriving the answer here
+        states it once, and keeps it from ever disagreeing with the dates
+        it comes from.
+        """
+        if self.sourceDate is None or self.expectedSessionDate is None:
+            return False
+        return self.sourceDate < self.expectedSessionDate
 
 
 class ClusterCardResponse(BaseModel):
@@ -142,6 +162,20 @@ class MarketMetadataResponse(BaseModel):
         'newsWindowEndAt',
         mode='before',
     )(_normalize_timestamp)
+
+    @computed_field
+    @property
+    def isIndexStale(self) -> bool:
+        """Whether this market's indices fell back to an earlier session.
+
+        ``sourceDate`` here is the oldest session any of the market's index
+        cards actually used, so this is true whenever at least one card is
+        stale. It is the market-level counterpart of
+        ``IndexCardResponse.isStale``.
+        """
+        if self.sourceDate is None or self.expectedSessionDate is None:
+            return False
+        return self.sourceDate < self.expectedSessionDate
 
 
 class MarketSectionResponse(BaseModel):
