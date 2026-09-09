@@ -16,9 +16,12 @@ async def _fetch_single_with_history(
     history: pd.DataFrame,
     *,
     business_date: date = date(2026, 3, 17),
+    metadata: dict | None = None,
 ):
     provider = MarketIndexProvider()
-    monkeypatch.setattr(provider, '_download_history', lambda *_args: history)
+    monkeypatch.setattr(
+        provider, '_download_history', lambda *_args: (history, metadata or {})
+    )
     return await provider._fetch_single(
         business_date=business_date,
         market_type='US',
@@ -27,6 +30,189 @@ async def _fetch_single_with_history(
         currency_code='USD',
         index_code='^GSPC',
     )
+
+
+async def _fetch_single_recording_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    history: pd.DataFrame,
+    *,
+    business_date: date = date(2026, 3, 17),
+    metadata: dict | None = None,
+) -> tuple[MarketIndexProvider, object]:
+    provider = MarketIndexProvider()
+    monkeypatch.setattr(
+        provider, '_download_history', lambda *_args: (history, metadata or {})
+    )
+    result = await provider._fetch_single(
+        business_date=business_date,
+        market_type='KR',
+        ticker='^KS11',
+        index_name='KOSPI',
+        currency_code='KRW',
+        index_code='^KS11',
+    )
+    return provider, result
+
+
+def _quote(session_date: str, price: float) -> dict:
+    """The quote block yfinance leaves on the same chart response."""
+    return {
+        'regularMarketTime': pd.Timestamp(f'{session_date} 18:05:40', tz='Asia/Seoul'),
+        'regularMarketPrice': price,
+    }
+
+
+_KR_HISTORY_WITH_UNSETTLED_CLOSE = pd.DataFrame(
+    {
+        'Open': [6910.78, 7045.79],
+        'Close': [6995.39, float('nan')],
+        'High': [6995.40, 7171.52],
+        'Low': [6900.00, 7000.00],
+    },
+    index=pd.to_datetime(['2026-09-07', '2026-09-08']),
+)
+
+
+@pytest.mark.anyio
+async def test_fetch_single_reads_the_expected_session_close_from_the_quote(
+    monkeypatch,
+):
+    """job 1693's shape: Yahoo had not settled the 09-08 daily close yet.
+
+    The daily bar for the expected session exists but carries no close for
+    hours after the session ends, while the quote block on the same response
+    already holds the settled value -- 6954.52 here, which is what the daily
+    bar was eventually filled with. Recovering it keeps the page on the
+    session it asked for instead of silently showing an older one.
+    """
+    provider, result = await _fetch_single_recording_provider(
+        monkeypatch,
+        _KR_HISTORY_WITH_UNSETTLED_CLOSE,
+        business_date=date(2026, 9, 8),
+        metadata=_quote('2026-09-08', 6954.52),
+    )
+
+    assert result is not None
+    assert result.source_date == date(2026, 9, 8)
+    assert result.close_price == Decimal('6954.5200')
+    # measured against 09-07's close, the session actually before it
+    assert result.change_value == Decimal('-40.8700')
+    assert [
+        (
+            fallback.index_code,
+            fallback.reason_code,
+            fallback.expected_session_date,
+            fallback.used_source_date,
+            fallback.recovered_from_quote,
+        )
+        for fallback in provider.last_session_fallbacks
+    ] == [
+        (
+            '^KS11',
+            provider_module.EXPECTED_SESSION_CLOSE_NOT_FINITE,
+            date(2026, 9, 8),
+            date(2026, 9, 8),
+            True,
+        )
+    ]
+
+
+@pytest.mark.anyio
+async def test_fetch_single_refuses_a_quote_stamped_with_another_session(monkeypatch):
+    """A live session's quote must never be written in as a daily close.
+
+    While the market is open the quote block describes the day in progress,
+    not the completed session the page wants. Checked against the real
+    response on 2026-09-09, ``regularMarketPrice`` was an intraday 7051.64
+    stamped 09-09 while the batch wanted 09-08 -- taking it would have
+    recorded an intraday value as a close.
+    """
+    provider, result = await _fetch_single_recording_provider(
+        monkeypatch,
+        _KR_HISTORY_WITH_UNSETTLED_CLOSE,
+        business_date=date(2026, 9, 8),
+        metadata=_quote('2026-09-09', 7051.64),
+    )
+
+    assert result is not None
+    assert result.source_date == date(2026, 9, 7)
+    assert result.close_price == Decimal('6995.3900')
+    assert provider.last_session_fallbacks[0].recovered_from_quote is False
+    assert (
+        provider.last_session_fallbacks[0].reason_code
+        == provider_module.EXPECTED_SESSION_CLOSE_NOT_FINITE
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'metadata',
+    [
+        {},
+        {'regularMarketTime': 1788858340, 'regularMarketPrice': 6954.52},
+        _quote('2026-09-08', float('nan')),
+        _quote('2026-09-08', 0.0),
+    ],
+    ids=['no_quote', 'timestamp_is_not_a_timestamp', 'non_finite_price', 'zero_price'],
+)
+async def test_fetch_single_falls_back_visibly_when_the_quote_is_unusable(
+    monkeypatch, metadata
+):
+    provider, result = await _fetch_single_recording_provider(
+        monkeypatch,
+        _KR_HISTORY_WITH_UNSETTLED_CLOSE,
+        business_date=date(2026, 9, 8),
+        metadata=metadata,
+    )
+
+    assert result is not None
+    assert result.source_date == date(2026, 9, 7)
+    assert provider.last_session_fallbacks[0].recovered_from_quote is False
+
+
+@pytest.mark.anyio
+async def test_fetch_single_reports_a_missing_expected_session_row(monkeypatch):
+    history = pd.DataFrame(
+        {'Open': [6910.78], 'Close': [6995.39], 'High': [6995.4], 'Low': [6900.0]},
+        index=pd.to_datetime(['2026-09-07']),
+    )
+
+    provider, result = await _fetch_single_recording_provider(
+        monkeypatch, history, business_date=date(2026, 9, 8), metadata={}
+    )
+
+    assert result is not None
+    assert result.source_date == date(2026, 9, 7)
+    assert (
+        provider.last_session_fallbacks[0].reason_code
+        == provider_module.EXPECTED_SESSION_ROW_MISSING
+    )
+
+
+@pytest.mark.anyio
+async def test_fetch_single_records_nothing_when_the_expected_session_reads_cleanly(
+    monkeypatch,
+):
+    history = pd.DataFrame(
+        {
+            'Open': [6910.78, 7045.79],
+            'Close': [6995.39, 6954.52],
+            'High': [6995.4, 7171.52],
+            'Low': [6900.0, 6900.0],
+        },
+        index=pd.to_datetime(['2026-09-07', '2026-09-08']),
+    )
+
+    provider, result = await _fetch_single_recording_provider(
+        monkeypatch,
+        history,
+        business_date=date(2026, 9, 8),
+        metadata=_quote('2026-09-08', 6954.52),
+    )
+
+    assert result is not None
+    assert result.source_date == date(2026, 9, 8)
+    assert provider.last_session_fallbacks == []
 
 
 @pytest.mark.anyio

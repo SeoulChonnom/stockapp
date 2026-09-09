@@ -100,6 +100,36 @@ class CollectMarketIndicesStep(BatchStep):
                     'error': public_external_provider_error(error_class),
                 },
             )
+        for fallback in list(getattr(provider, 'last_session_fallbacks', [])):
+            # The expected session's daily bar was unreadable. That is worth
+            # recording even when the quote block rescued the close, because
+            # nothing recorded it before: the provider silently used an older
+            # session for twenty-eight days and only the resulting
+            # source_date ever hinted at it. Whether the page is degraded is
+            # still decided below by comparing the dates -- a recovered
+            # reading is not stale.
+            recovered = bool(_failure_flag(fallback, 'recovered_from_quote'))
+            await repository.add_event(
+                job_id=context.job_id,
+                step_code=self.step_code,
+                level=EventLevel.WARN.value,
+                message=(
+                    'Recovered a market index close from the provider quote.'
+                    if recovered
+                    else 'Fell back to an earlier market index session.'
+                ),
+                context_json={
+                    'provider': _failure_value(fallback, 'provider'),
+                    'marketType': _failure_value(fallback, 'market_type'),
+                    'indexCode': _failure_value(fallback, 'index_code'),
+                    'expectedSessionDate': _failure_value(
+                        fallback, 'expected_session_date'
+                    ),
+                    'usedSourceDate': _failure_value(fallback, 'used_source_date'),
+                    'reasonCode': _failure_value(fallback, 'reason_code'),
+                    'recoveredFromQuote': recovered,
+                },
+            )
         if not results:
             context.add_partial(
                 INDEX_NONE_COLLECTED, '시장 지수 데이터를 수집하지 못했습니다.'
@@ -222,6 +252,12 @@ def _failure_value(failure: object, name: str) -> str:
     if isinstance(failure, dict):
         return str(failure.get(name, ''))
     return str(getattr(failure, name, ''))
+
+
+def _failure_flag(failure: object, name: str) -> bool:
+    if isinstance(failure, dict):
+        return bool(failure.get(name, False))
+    return bool(getattr(failure, name, False))
 
 
 __all__ = ['CollectMarketIndicesStep']
