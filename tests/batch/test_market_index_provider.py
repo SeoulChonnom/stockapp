@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from datetime import date
 from decimal import Decimal
 
@@ -379,3 +381,73 @@ async def test_fetch_single_sorts_history_before_selecting_latest_finite_row(
     assert result.source_date == date(2026, 3, 16)
     assert result.close_price == Decimal('101.5000')
     assert result.change_value == Decimal('1.5000')
+
+
+_TWO_CLEAN_SESSIONS = pd.DataFrame(
+    {
+        'Open': [98.0, 100.0],
+        'Close': [100.0, 101.5],
+        'High': [101.0, 102.0],
+        'Low': [97.0, 99.0],
+    },
+    index=pd.to_datetime(['2026-03-16', '2026-03-17']),
+)
+
+
+def _configured_ticker_count() -> int:
+    return sum(len(rows) for rows in provider_module.MARKET_INDEX_TICKERS.values())
+
+
+@pytest.mark.anyio
+async def test_fetch_for_business_date_never_downloads_two_tickers_at_once(monkeypatch):
+    """Downloads must not overlap, because yfinance's tz cache cannot take it.
+
+    Each download opens a connection to a SQLite cache shared by the whole
+    process, and that connection runs ``PRAGMA journal_mode = wal``, which
+    needs the file exclusively. Two at once make the loser raise
+    ``OperationalError: database is locked``, which yfinance neither retries
+    nor handles -- in production that silently cost an index its card three
+    times, on a different ticker each time.
+    """
+    provider = MarketIndexProvider()
+    guard = threading.Lock()
+    in_flight = 0
+    peak_in_flight = 0
+
+    def tracked_download(_ticker, _start_date, _end_date):
+        nonlocal in_flight, peak_in_flight
+        with guard:
+            in_flight += 1
+            peak_in_flight = max(peak_in_flight, in_flight)
+        time.sleep(0.02)
+        with guard:
+            in_flight -= 1
+        return _TWO_CLEAN_SESSIONS, {}
+
+    monkeypatch.setattr(provider, '_download_history', tracked_download)
+
+    results = await provider.fetch_for_business_date(date(2026, 3, 17))
+
+    assert len(results) == _configured_ticker_count()
+    assert peak_in_flight == 1
+
+
+@pytest.mark.anyio
+async def test_fetch_for_business_date_keeps_going_after_one_ticker_raises(monkeypatch):
+    """One ticker blowing up must not cost the other four their cards."""
+    provider = MarketIndexProvider()
+
+    def flaky_download(ticker, _start_date, _end_date):
+        if ticker == '^KS11':
+            raise RuntimeError('database is locked')
+        return _TWO_CLEAN_SESSIONS, {}
+
+    monkeypatch.setattr(provider, '_download_history', flaky_download)
+
+    results = await provider.fetch_for_business_date(date(2026, 3, 17))
+
+    assert len(results) == _configured_ticker_count() - 1
+    assert '^KS11' not in {result.index_code for result in results}
+    assert [
+        (failure.index_code, failure.error_class) for failure in provider.last_failures
+    ] == [('^KS11', 'RuntimeError')]

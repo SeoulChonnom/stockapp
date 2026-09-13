@@ -102,6 +102,22 @@ class MarketIndexProvider:
         *,
         expected_session_dates: dict[str, date] | None = None,
     ) -> list[MarketIndexFetchResult]:
+        """Collect every configured index, one ticker at a time.
+
+        The tickers are deliberately *not* fetched in parallel.  yfinance
+        resolves each ticker's timezone through a SQLite cache shared by the
+        whole process, and opening a connection to it runs
+        ``PRAGMA journal_mode = wal``, which needs the file exclusively.  Two
+        threads reaching that pragma together make the loser raise
+        ``OperationalError: database is locked`` -- with no busy timeout and
+        no handling inside yfinance, so it escapes ``Ticker.history`` and
+        costs that index its card.  It struck three times in production on a
+        different ticker each time (^GSPC, ^KS11, ^DJI) and reproduces
+        locally in roughly one run in four.  In sequence the five downloads
+        measure about half a second warm and three seconds cold, against a
+        batch that takes twenty-five minutes -- the parallelism was never
+        worth what it cost.
+        """
         descriptors = [
             {
                 'market_type': market_type,
@@ -113,22 +129,29 @@ class MarketIndexProvider:
             for market_type, rows in MARKET_INDEX_TICKERS.items()
             for ticker, index_name, currency_code, index_code in rows
         ]
-        tasks = [
-            self._fetch_single(
-                expected_session_date=(expected_session_dates or {}).get(
-                    descriptor['market_type'],
-                    business_date,
-                ),
-                market_type=descriptor['market_type'],
-                ticker=descriptor['ticker'],
-                index_name=descriptor['index_name'],
-                currency_code=descriptor['currency_code'],
-                index_code=descriptor['index_code'],
-            )
-            for descriptor in descriptors
-        ]
         self.last_session_fallbacks = []
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results: list[MarketIndexFetchResult | Exception | None] = []
+        for descriptor in descriptors:
+            try:
+                results.append(
+                    await self._fetch_single(
+                        expected_session_date=(expected_session_dates or {}).get(
+                            descriptor['market_type'],
+                            business_date,
+                        ),
+                        market_type=descriptor['market_type'],
+                        ticker=descriptor['ticker'],
+                        index_name=descriptor['index_name'],
+                        currency_code=descriptor['currency_code'],
+                        index_code=descriptor['index_code'],
+                    )
+                )
+            except Exception as error:
+                # Whatever one ticker does, the other four still have to be
+                # tried, so the error is carried alongside the results and
+                # turned into a failure detail below.  Cancellation is not an
+                # Exception and still aborts the whole collection.
+                results.append(error)
         self.last_failures = [
             MarketIndexFailureDetail(
                 provider=YFINANCE_PROVIDER_NAME,
